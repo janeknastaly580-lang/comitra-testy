@@ -1,0 +1,222 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Theming: every color resolves through CSS variables so premium themes can be
+  swapped at runtime by setting [data-theme] on the <html> element.
+  Format is "R G B" channels so Tailwind's `<alpha-value>` works.
+  Rule of the design system: NO purple / violet neon. Ever.
+*/
+/* App default is Cyberpunk Mint (the pre-JS paint uses these too). */
+:root {
+  --c-bg: 13 17 17;
+  --c-surface: 20 26 26;
+  --c-elevated: 28 36 36;
+  --c-line: 40 56 54;
+  --c-accent: 64 255 170;
+  --c-active: 0 224 255;
+  --c-danger: 255 92 92;
+  --c-warn: 255 168 38;
+  --c-ink: 230 245 240;
+  --c-muted: 122 150 144;
+  --c-on-accent: 8 16 14;
+}
+
+/* Light green theme (selectable in Themes). */
+[data-theme='default'] {
+  --c-bg: 255 255 255; /* white app surface */
+  --c-surface: 255 255 255; /* white cards */
+  --c-elevated: 243 244 246; /* #f3f4f6 inputs / light fills */
+  --c-line: 226 232 237; /* #e2e8ed hairline borders */
+  --c-accent: 22 163 74; /* #16A34A primary green */
+  --c-active: 22 163 74; /* green active state */
+  --c-danger: 220 38 38; /* #dc2626 red */
+  --c-warn: 217 119 6; /* #d97706 amber */
+  --c-ink: 31 41 55; /* #1f2937 near-black text */
+  --c-muted: 107 114 128; /* #6b7280 secondary text */
+  --c-on-accent: 255 255 255; /* text/icons on top of accent fills */
+}
+
+/* Premium theme: Cyberpunk Mint — colder graphite, brighter mint + cyan. */
+[data-theme='cyberpunk-mint'] {
+  --c-bg: 13 17 17;
+  --c-surface: 20 26 26;
+  --c-elevated: 28 36 36;
+  --c-line: 40 56 54;
+  --c-accent: 64 255 170;
+  --c-active: 0 224 255;
+  --c-danger: 255 92 92;
+  --c-warn: 255 168 38;
+  --c-ink: 230 245 240;
+  --c-muted: 122 150 144;
+  --c-on-accent: 8 16 14;
+}
+
+/* Premium theme: Monochrome Slate — desaturated, single cool accent. */
+[data-theme='monochrome-slate'] {
+  --c-bg: 16 18 20;
+  --c-surface: 24 27 30;
+  --c-elevated: 32 36 40;
+  --c-line: 54 60 66;
+  --c-accent: 200 210 220;
+  --c-active: 150 190 220;
+  --c-danger: 230 110 110;
+  --c-warn: 220 170 90;
+  --c-ink: 232 236 240;
+  --c-muted: 132 142 152;
+  --c-on-accent: 16 18 20;
+}
+
+/* Free theme: Midnight Indigo — deep navy with a cool blue accent. */
+[data-theme='midnight-indigo'] {
+  --c-bg: 14 18 32;
+  --c-surface: 20 26 44;
+  --c-elevated: 28 36 58;
+  --c-line: 44 54 84;
+  --c-accent: 91 140 255;
+  --c-active: 56 211 255;
+  --c-danger: 255 107 107;
+  --c-warn: 245 176 66;
+  --c-ink: 226 232 245;
+  --c-muted: 132 146 180;
+  --c-on-accent: 8 12 24;
+}
+
+/* Free theme: Arctic Frost — bright, icy light theme with teal + blue. */
+[data-theme='arctic-frost'] {
+  --c-bg: 244 248 251;
+  --c-surface: 255 255 255;
+  --c-elevated: 233 240 246;
+  --c-line: 210 222 232;
+  --c-accent: 14 165 183;
+  --c-active: 59 130 246;
+  --c-danger: 220 38 38;
+  --c-warn: 202 138 4;
+  --c-ink: 22 40 52;
+  --c-muted: 90 110 124;
+  --c-on-accent: 255 255 255;
+}
+
+/* Premium theme: Solar Flare — warm graphite with amber + orange. */
+[data-theme='solar-flare'] {
+  --c-bg: 22 16 6;
+  --c-surface: 30 22 10;
+  --c-elevated: 40 30 14;
+  --c-line: 62 48 24;
+  --c-accent: 255 176 32;
+  --c-active: 255 106 61;
+  --c-danger: 255 96 96;
+  --c-warn: 255 196 64;
+  --c-ink: 245 235 220;
+  --c-muted: 168 150 120;
+  --c-on-accent: 26 16 4;
+}
+
+/* Premium theme: Crimson Ember — dark red-black with coral highlights. */
+[data-theme='crimson-ember'] {
+  --c-bg: 22 12 12;
+  --c-surface: 30 16 16;
+  --c-elevated: 42 22 22;
+  --c-line: 66 34 34;
+  --c-accent: 255 92 92;
+  --c-active: 255 145 102;
+  --c-danger: 255 120 120;
+  --c-warn: 255 176 96;
+  --c-ink: 245 228 228;
+  --c-muted: 176 138 138;
+  --c-on-accent: 26 10 10;
+}
+
+/* Premium theme: Royal Gold — near-black with a refined gold accent. */
+[data-theme='royal-gold'] {
+  --c-bg: 18 16 10;
+  --c-surface: 26 22 14;
+  --c-elevated: 36 30 18;
+  --c-line: 60 50 28;
+  --c-accent: 231 195 73;
+  --c-active: 184 134 59;
+  --c-danger: 224 96 96;
+  --c-warn: 214 168 74;
+  --c-ink: 240 232 210;
+  --c-muted: 168 154 118;
+  --c-on-accent: 20 16 6;
+}
+
+/* Premium theme: Forest Moss — deep green-black with lime + green. */
+[data-theme='forest-moss'] {
+  --c-bg: 12 20 16;
+  --c-surface: 18 28 22;
+  --c-elevated: 26 38 30;
+  --c-line: 40 58 46;
+  --c-accent: 74 222 128;
+  --c-active: 132 204 22;
+  --c-danger: 248 113 113;
+  --c-warn: 217 160 66;
+  --c-ink: 224 240 228;
+  --c-muted: 128 158 138;
+  --c-on-accent: 8 16 12;
+}
+
+/* Premium theme: Deep Ocean — abyssal blue with cyan + teal. */
+[data-theme='deep-ocean'] {
+  --c-bg: 8 19 26;
+  --c-surface: 12 27 36;
+  --c-elevated: 18 38 50;
+  --c-line: 30 58 74;
+  --c-accent: 34 211 238;
+  --c-active: 45 212 191;
+  --c-danger: 255 107 107;
+  --c-warn: 240 176 64;
+  --c-ink: 220 238 244;
+  --c-muted: 120 150 164;
+  --c-on-accent: 6 16 22;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #dfe4e6;
+  color: rgb(var(--c-ink));
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin, technical scrollbars inside the phone frame. */
+.phone-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.phone-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--c-line));
+  border-radius: 2px;
+}
+
+/* Subtle technical grid backdrop behind the phone on desktop. */
+.lab-grid {
+  background-color: #dfe4e6;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.035) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(var(--c-accent) / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgb(var(--c-accent) / 0);
+  }
+}
+.pulse-ring {
+  animation: pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
