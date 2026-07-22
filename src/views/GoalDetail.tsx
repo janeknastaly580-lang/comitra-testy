@@ -468,17 +468,17 @@ export default function GoalDetail() {
         </Button>
       )}
 
-      {isPreActive || (isSoloGoal(goal) && goal.status === 'active') ? (
-        // Not-yet-started goals, and solo goals, can be cancelled by the creator.
-        <button onClick={() => setConfirmCancel(true)} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
-          Cancel goal
-        </button>
-      ) : isTerminal ? (
+      {isTerminal ? (
         <button onClick={remove} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
           Delete from history
         </button>
-      ) : !isSoloGoal(goal) && ['active', 'proof_pending', 'judge_review'].includes(goal.status) ? (
-        // Judged goal: the creator can't cancel — they ask the judge to.
+      ) : isSoloGoal(goal) ? (
+        // Solo (judge-less) goal: the creator can cancel it themselves.
+        <button onClick={() => setConfirmCancel(true)} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
+          Cancel goal
+        </button>
+      ) : (
+        // Any goal with a judge: the creator can't cancel — they ask the judge to.
         goal.cancelRequested ? (
           <p className="mt-3 text-center text-[11px] text-muted">
             You asked {goal.judge.name} to cancel this goal — they've been notified.
@@ -488,7 +488,7 @@ export default function GoalDetail() {
             Ask your judge to cancel this goal
           </button>
         )
-      ) : null}
+      )}
 
       <ConfirmDialog
         open={confirmCancel}

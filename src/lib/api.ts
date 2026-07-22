@@ -729,22 +729,28 @@ export async function updatePlannedAction(
   return goal;
 }
 
-/** Statuses where the creator may still cancel the goal themselves (not yet started). */
-const CREATOR_CANCELLABLE: GoalStatus[] = ['draft', 'waiting_for_judge_acceptance', 'waiting_for_recipients_acceptance'];
+/** Non-terminal statuses a goal can still be cancelled from. */
+const CANCELLABLE_STATUSES: GoalStatus[] = [
+  'draft',
+  'waiting_for_judge_acceptance',
+  'waiting_for_recipients_acceptance',
+  'active',
+  'proof_pending',
+  'judge_review',
+];
 
 export async function cancelGoal(goalId: string): Promise<Goal> {
   await delay();
   const goals = getGoals();
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
-  // The creator can cancel by themselves only: a not-yet-started goal, OR a solo
-  // (judge-less) goal. A goal that has a judge and is running can only be
-  // cancelled by that judge, once the creator asks them. See requestCancel /
-  // judgeCancelGoal.
-  const canSelfCancel = CREATOR_CANCELLABLE.includes(goal.status) || (goal.noJudge && goal.status === 'active');
-  if (!canSelfCancel) {
+  // ONLY a solo (judge-less) goal can be cancelled by the creator. A goal that
+  // has a judge — even before it starts — is cancelled by that judge, once the
+  // creator asks them. See requestCancel / judgeCancelGoal.
+  if (!goal.noJudge) {
     throw new Error('A goal with a judge can only be cancelled by the judge, once you ask them to.');
   }
+  if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
   saveGoals(goals);
@@ -765,9 +771,7 @@ export async function requestCancel(goalId: string, userId: string): Promise<Goa
   if (!goal) throw new Error('Goal not found.');
   if (goal.userId !== userId) throw new Error('Only the goal owner can ask to cancel.');
   if (goal.noJudge) throw new Error('This goal has no judge — you can cancel it yourself.');
-  if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
-    throw new Error('This goal cannot be cancelled now.');
-  }
+  if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.cancelRequested = true;
   saveGoals(goals);
   queueOutbox({
@@ -1110,9 +1114,7 @@ export async function judgeCancelGoal(goalId: string, token: string): Promise<Go
   const { goals, goal } = authorizeJudge(goalId, token);
   if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
   if (!goal.cancelRequested) throw new Error('The user has not asked you to cancel this goal.');
-  if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
-    throw new Error('This goal cannot be cancelled now.');
-  }
+  if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
   saveGoals(goals);
