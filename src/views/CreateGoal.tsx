@@ -250,19 +250,11 @@ export default function CreateGoal() {
               </Select>
               {numberNeeded && (
                 <div className="mt-2">
-                  <Label>Your number</Label>
-                  <Input
-                    inputMode="numeric"
-                    value={pickedNum}
-                    onChange={(e) => setPickedNum(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Enter a number"
-                  />
-                  {picked && pickedNum && (
-                    <p className="mt-1 text-[11px] text-muted">Your goal: {effectiveTitle}</p>
-                  )}
+                  <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted">Your goal — edit only the number</p>
+                  <GoalWithNumber template={picked} value={pickedNum} onChange={setPickedNum} />
                 </div>
               )}
-              <p className="mt-1 text-[11px] text-muted">
+              <p className="mt-2 text-[11px] text-muted">
                 Because a recipient will see this goal, it must be picked from the safe list — you can’t type your own.
               </p>
             </>
@@ -466,6 +458,28 @@ export default function CreateGoal() {
         onConfirm={createConfirmed}
         onCancel={() => setConfirmOpen(false)}
       />
+    </div>
+  );
+}
+
+/**
+ * Renders a picked goal as a sentence where ONLY the number ({n}) is an editable
+ * inline field — the rest of the goal text can't be changed.
+ */
+function GoalWithNumber({ template, value, onChange }: { template: string; value: string; onChange: (v: string) => void }) {
+  const [before, after = ''] = template.split('{n}');
+  return (
+    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 rounded-xl border border-line bg-elevated px-3.5 py-3 text-sm text-ink">
+      <span>{before}</span>
+      <input
+        inputMode="numeric"
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
+        placeholder="N"
+        aria-label="Number"
+        className="w-14 rounded-md border border-accent/60 bg-surface px-2 py-0.5 text-center font-semibold text-accent outline-none transition focus:border-accent"
+      />
+      <span>{after}</span>
     </div>
   );
 }

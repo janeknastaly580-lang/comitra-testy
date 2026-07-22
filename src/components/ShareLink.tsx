@@ -41,13 +41,31 @@ export default function ShareLink({
 
   function shareMessenger() {
     // Messenger has no universal "share arbitrary text" link like wa.me (that
-    // needs a registered Facebook app id). The reliable cross-platform behaviour
-    // is: copy the link, then open Messenger so the user can paste it.
+    // needs a registered Facebook app id). The reliable behaviour is: copy the
+    // link, then open Messenger so the user can paste it.
     navigator.clipboard?.writeText(link).catch(() => {});
     setMsgHint(true);
     setTimeout(() => setMsgHint(false), 3000);
-    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
-    window.open(isMobile ? 'fb-messenger://' : 'https://www.messenger.com/', '_blank', 'noopener');
+
+    const ua = navigator.userAgent || '';
+    const web = 'https://www.messenger.com/';
+
+    if (/Android/i.test(ua)) {
+      // In the Android app (Capacitor WebView) `window.open('fb-messenger://')`
+      // is blocked. An Android `intent:` URL launches the Messenger app for real,
+      // and falls back to the web if it isn't installed.
+      window.location.href =
+        `intent://#Intent;package=com.facebook.orca;S.browser_fallback_url=${encodeURIComponent(web)};end`;
+      return;
+    }
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      // iOS: try the app scheme, fall back to the web shortly after.
+      window.location.href = 'fb-messenger://';
+      setTimeout(() => { window.location.href = web; }, 800);
+      return;
+    }
+    // Desktop: open Messenger for the web.
+    window.open(web, '_blank', 'noopener');
   }
 
   return (
