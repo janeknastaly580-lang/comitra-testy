@@ -341,15 +341,23 @@ export default function Verifier() {
             </Card>
           )}
 
-          {/* Cancel at the user's request — the creator can no longer cancel an active goal. */}
+          {/* Cancel only when the creator has asked for it (they can't cancel a judged goal themselves). */}
           <Card className="mt-4 p-4">
             <Label>Cancel at the user's request</Label>
-            <p className="mb-2 text-[11px] text-muted">
-              If {goal.creatorName} asked you to stop this goal, you can cancel it here. No code is needed — cancelling never sends a message.
-            </p>
-            <Button variant="outline" className="w-full" disabled={busy} onClick={cancelByJudge}>
-              Cancel this goal
-            </Button>
+            {goal.cancelRequested ? (
+              <>
+                <p className="mb-2 text-[11px] text-muted">
+                  {goal.creatorName} asked you to cancel this goal. No code is needed — cancelling never sends a message.
+                </p>
+                <Button variant="outline" className="w-full" disabled={busy} onClick={cancelByJudge}>
+                  Cancel this goal
+                </Button>
+              </>
+            ) : (
+              <p className="text-[11px] text-muted">
+                You can only cancel this goal if {goal.creatorName} asks you to. If they do, a cancel button appears here.
+              </p>
+            )}
           </Card>
         </>
       )}

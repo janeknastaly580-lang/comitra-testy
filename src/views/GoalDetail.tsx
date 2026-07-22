@@ -166,6 +166,16 @@ export default function GoalDetail() {
       setNotice((err as Error).message);
     }
   }
+
+  async function askCancel() {
+    try {
+      await api.requestCancel(goal!.id, user!.id);
+      await load();
+      setNotice('Your judge has been asked to cancel this goal.');
+    } catch (err) {
+      setNotice((err as Error).message);
+    }
+  }
   async function remove() {
     try {
       await api.deleteGoal(goal!.id);
@@ -458,7 +468,8 @@ export default function GoalDetail() {
         </Button>
       )}
 
-      {isPreActive ? (
+      {isPreActive || (isSoloGoal(goal) && goal.status === 'active') ? (
+        // Not-yet-started goals, and solo goals, can be cancelled by the creator.
         <button onClick={() => setConfirmCancel(true)} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
           Cancel goal
         </button>
@@ -467,9 +478,16 @@ export default function GoalDetail() {
           Delete from history
         </button>
       ) : !isSoloGoal(goal) && ['active', 'proof_pending', 'judge_review'].includes(goal.status) ? (
-        <p className="mt-3 text-center text-[11px] text-muted">
-          An active goal can’t be deleted. Only your judge can cancel it — ask them to if you need to stop it.
-        </p>
+        // Judged goal: the creator can't cancel — they ask the judge to.
+        goal.cancelRequested ? (
+          <p className="mt-3 text-center text-[11px] text-muted">
+            You asked {goal.judge.name} to cancel this goal — they've been notified.
+          </p>
+        ) : (
+          <button onClick={askCancel} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
+            Ask your judge to cancel this goal
+          </button>
+        )
       ) : null}
 
       <ConfirmDialog

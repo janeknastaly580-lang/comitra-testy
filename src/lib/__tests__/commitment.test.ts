@@ -279,10 +279,21 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     expect(done.status).toBe('completed');
   });
 
-  it('the creator cannot cancel an active goal, but the judge can', async () => {
-    const { goal } = await activatedGoal();
+  it('a judged goal: creator cannot cancel; judge can only after the user asks', async () => {
+    const { goal, owner } = await activatedGoal();
     await expect(api.cancelGoal(goal.id)).rejects.toThrow(/judge/i);
+    // Judge cannot cancel until the user requests it.
+    await expect(api.judgeCancelGoal(goal.id, goal.judge.acceptToken)).rejects.toThrow(/asked|not asked/i);
+    await api.requestCancel(goal.id, owner.id);
     const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken);
+    expect(cancelled.status).toBe('cancelled');
+  });
+
+  it('the creator can cancel their own solo goal', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    const cancelled = await api.cancelGoal(goal.id);
     expect(cancelled.status).toBe('cancelled');
   });
 

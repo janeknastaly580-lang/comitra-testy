@@ -276,6 +276,8 @@ export interface Goal {
   appBlockUntil?: string;
   /** The creator asked the judge to decide before the deadline. */
   earlyDecisionRequested?: boolean;
+  /** The creator asked the judge to cancel the goal (required before the judge can). */
+  cancelRequested?: boolean;
   /** Set once the judge has been auto-notified to review (avoids duplicates). */
   judgeReviewNotifiedAt?: string;
 

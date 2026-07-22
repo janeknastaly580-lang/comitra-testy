@@ -737,15 +737,48 @@ export async function cancelGoal(goalId: string): Promise<Goal> {
   const goals = getGoals();
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
-  // Once a goal is active the creator can no longer cancel it themselves — only
-  // the judge can (at the creator's request). See judgeCancelGoal.
-  if (!CREATOR_CANCELLABLE.includes(goal.status)) {
-    throw new Error('An active goal can only be cancelled by the judge, at your request.');
+  // The creator can cancel by themselves only: a not-yet-started goal, OR a solo
+  // (judge-less) goal. A goal that has a judge and is running can only be
+  // cancelled by that judge, once the creator asks them. See requestCancel /
+  // judgeCancelGoal.
+  const canSelfCancel = CREATOR_CANCELLABLE.includes(goal.status) || (goal.noJudge && goal.status === 'active');
+  if (!canSelfCancel) {
+    throw new Error('A goal with a judge can only be cancelled by the judge, once you ask them to.');
   }
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
   saveGoals(goals);
+  cancelAppBlock(goal.id); // solo goal cancelled in time → no penalty
   logAudit({ actorId: goal.userId, actionType: 'goal_cancelled', entityType: 'goal', entityId: goal.id });
+  return goal;
+}
+
+/**
+ * The creator asks their judge to cancel a running goal (they can't cancel a
+ * judged goal themselves). Notifies the judge; the judge can only cancel after
+ * this. No secret code is involved in cancelling.
+ */
+export async function requestCancel(goalId: string, userId: string): Promise<Goal> {
+  await delay(80);
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can ask to cancel.');
+  if (goal.noJudge) throw new Error('This goal has no judge — you can cancel it yourself.');
+  if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
+    throw new Error('This goal cannot be cancelled now.');
+  }
+  goal.cancelRequested = true;
+  saveGoals(goals);
+  queueOutbox({
+    goalId: goal.id,
+    kind: 'judge_review_request',
+    to: 'judge',
+    channel: goal.judge.channel,
+    contact: goal.judge.judgeContact,
+    body: `${goal.creatorName} asks you to cancel their goal. Open your judge link and cancel it — no code needed.`,
+  });
+  logAudit({ actorId: userId, actionType: 'cancel_requested', entityType: 'goal', entityId: goal.id });
   return goal;
 }
 
@@ -1076,6 +1109,7 @@ export async function judgeCancelGoal(goalId: string, token: string): Promise<Go
   await delay();
   const { goals, goal } = authorizeJudge(goalId, token);
   if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
+  if (!goal.cancelRequested) throw new Error('The user has not asked you to cancel this goal.');
   if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
     throw new Error('This goal cannot be cancelled now.');
   }
