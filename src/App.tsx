@@ -12,6 +12,8 @@ import GoalDetail from './views/GoalDetail';
 import Profile from './views/Profile';
 import Social from './views/Social';
 import Friends from './views/Friends';
+import InviteFriends from './views/InviteFriends';
+import InviteAccept from './views/InviteAccept';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
 import Teams from './views/Teams';
@@ -60,6 +62,10 @@ export default function App() {
         <Route path="/recipient/:token" element={<Recipient />} />
         <Route path="/recipient" element={<Recipient />} />
 
+        {/* Public "become a judge" invite acceptance page */}
+        <Route path="/invite/:token" element={<InviteAccept />} />
+        <Route path="/invite" element={<InviteAccept />} />
+
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
 
@@ -69,6 +75,7 @@ export default function App() {
           <Route path="/goal/:id" element={<GoalDetail />} />
           <Route path="/social" element={<Social />} />
           <Route path="/friends" element={<Friends />} />
+          <Route path="/invite-friends" element={<InviteFriends />} />
           <Route path="/u/:userId" element={<UserProfile />} />
           <Route path="/feature-requests" element={<FeatureRequests />} />
           <Route path="/profile" element={<Profile />} />

@@ -24,8 +24,10 @@ import type {
   GoalEvidence,
   GoalJudge,
   GoalStatus,
+  InvitedJudge,
   JudgeCredential,
   JudgeDecision,
+  JudgeInvite,
   JudgeRating,
   League,
   LegalAcceptance,
@@ -884,6 +886,81 @@ export function hasStandingJudgeAcceptance(ownerUserId: string, judge: Pick<Goal
   return !!findJudgeCredential(ownerUserId, judgeKeyFor(judge));
 }
 
+/* ─────────────────────────── Invite friends as judges ── */
+
+function getJudgeInvites(): JudgeInvite[] {
+  return read<JudgeInvite[]>(KEYS.judgeInvites, []);
+}
+function getInvitedJudges(): InvitedJudge[] {
+  return read<InvitedJudge[]>(KEYS.invitedJudges, []);
+}
+
+/** Get (or create) the owner's reusable "invite a friend as judge" token. */
+export async function getOrCreateJudgeInvite(ownerUserId: string): Promise<JudgeInvite> {
+  await delay(60);
+  const list = getJudgeInvites();
+  const existing = list.find((i) => i.ownerUserId === ownerUserId);
+  if (existing) return existing;
+  const invite: JudgeInvite = { ownerUserId, token: uuid(), createdAt: new Date().toISOString() };
+  list.push(invite);
+  write(KEYS.judgeInvites, list);
+  return invite;
+}
+
+/** Resolve an invite token to the inviting owner (for the public accept page). */
+export async function getJudgeInvite(token: string): Promise<{ ownerName: string } | null> {
+  await delay(60);
+  const invite = getJudgeInvites().find((i) => i.token === token);
+  if (!invite) return null;
+  const owner = getUsers().find((u) => u.id === invite.ownerUserId);
+  return { ownerName: owner?.name ?? 'A Comitra user' };
+}
+
+/**
+ * The friend submits the invite form: their name, phone and secret code, and
+ * consents to Comitra messages about this owner's goals. This registers them as
+ * a pickable judge for that owner and stores their standing acceptance + code.
+ */
+export async function submitJudgeInvite(
+  token: string,
+  input: { name: string; phone: string; code: string },
+): Promise<InvitedJudge> {
+  await delay();
+  const invite = getJudgeInvites().find((i) => i.token === token);
+  if (!invite) throw new Error('This invite link is not valid.');
+  const phone = normalizePhone(input.phone);
+  if (phone.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
+  const code = (input.code ?? '').trim();
+  if (code.length < JUDGE_CODE_MIN) throw new Error(`Set a secret code of at least ${JUDGE_CODE_MIN} characters.`);
+  const name = input.name.trim() || 'Friend';
+
+  const list = getInvitedJudges();
+  const now = new Date().toISOString();
+  let record = list.find((j) => j.ownerUserId === invite.ownerUserId && j.phone === phone);
+  if (record) {
+    record.name = name;
+    record.consentedAt = now;
+  } else {
+    record = { id: uid('ij'), ownerUserId: invite.ownerUserId, name, phone, consentedAt: now, createdAt: now };
+    list.push(record);
+  }
+  write(KEYS.invitedJudges, list);
+
+  // Store the standing acceptance + secret code for this owner+judge.
+  upsertJudgeCredential(invite.ownerUserId, judgeKeyFor({ judgeContact: phone }), code);
+  logLegalAcceptance({ type: 'judge_role_ack', contact: phone, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
+  logAudit({ actorContact: phone, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });
+  return record;
+}
+
+/** Friends the owner invited who can be picked as a judge. */
+export async function listInvitedJudges(ownerUserId: string): Promise<InvitedJudge[]> {
+  await delay(60);
+  return getInvitedJudges()
+    .filter((j) => j.ownerUserId === ownerUserId)
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+}
+
 /* ───────────────────────────────────────────────── Judge acceptance ── */
 
 export type JudgeAccess =
@@ -992,12 +1069,12 @@ export async function judgeDecision(
 
 /**
  * The judge cancels a goal — used only when the creator asks them to (the
- * creator can no longer cancel an active goal themselves). Requires the code.
+ * creator can no longer cancel an active goal themselves). No code needed:
+ * cancelling never sends a message, so it's safe without the secret code.
  */
-export async function judgeCancelGoal(goalId: string, token: string, code: string): Promise<Goal> {
+export async function judgeCancelGoal(goalId: string, token: string): Promise<Goal> {
   await delay();
   const { goals, goal } = authorizeJudge(goalId, token);
-  verifyJudgeCode(goal, code);
   if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
   if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
     throw new Error('This goal cannot be cancelled now.');

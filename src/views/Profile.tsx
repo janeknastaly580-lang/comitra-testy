@@ -241,6 +241,7 @@ export default function Profile() {
 
       {/* Navigation */}
       <div className="space-y-2">
+        <NavRow label="Invite friends" onClick={() => navigate('/invite-friends')} />
         <NavRow label="Subscription" onClick={() => navigate('/subscription')} />
         <NavRow label="Team leagues" onClick={() => navigate('/teams')} />
         <NavRow label="Analytics & export" onClick={() => navigate('/analytics')} />

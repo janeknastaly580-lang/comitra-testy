@@ -83,4 +83,7 @@ export const KEYS = {
   judgeRatings: 'judgeRatings',
   // Notification outbox (recipient/judge messages)
   outbox: 'outbox',
+  // Invited judges (friends who registered as possible judges) + invite tokens
+  invitedJudges: 'invitedJudges',
+  judgeInvites: 'judgeInvites',
 } as const;

@@ -128,7 +128,7 @@ export default function Verifier() {
     setError('');
     setBusy(true);
     try {
-      await api.judgeCancelGoal(goalId, token, decideCode);
+      await api.judgeCancelGoal(goalId, token);
       await refresh();
     } catch (err) {
       setError((err as Error).message);
@@ -345,18 +345,9 @@ export default function Verifier() {
           <Card className="mt-4 p-4">
             <Label>Cancel at the user's request</Label>
             <p className="mb-2 text-[11px] text-muted">
-              If {goal.creatorName} asked you to stop this goal, you can cancel it here with your code.
+              If {goal.creatorName} asked you to stop this goal, you can cancel it here. No code is needed — cancelling never sends a message.
             </p>
-            {!pastDeadline && (
-              <Input
-                value={decideCode}
-                onChange={(e) => setDecideCode(e.target.value)}
-                placeholder="Your secret code"
-                autoComplete="off"
-                className="mb-2"
-              />
-            )}
-            <Button variant="outline" className="w-full" disabled={busy || !decideCode.trim()} onClick={cancelByJudge}>
+            <Button variant="outline" className="w-full" disabled={busy} onClick={cancelByJudge}>
               Cancel this goal
             </Button>
           </Card>

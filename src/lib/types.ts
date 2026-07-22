@@ -152,6 +152,30 @@ export interface JudgeCredential {
   createdAt: string;
 }
 
+/**
+ * A friend the user invited (via their reusable invite link) to be a possible
+ * judge. The friend submitted their phone, set their secret code (stored as a
+ * `JudgeCredential`), and agreed to receive Comitra messages about this owner's
+ * goals. These are the only phone numbers the owner can pick as a judge.
+ */
+export interface InvitedJudge {
+  id: string;
+  ownerUserId: string;
+  name: string;
+  /** Normalized phone (with country code). */
+  phone: string;
+  /** They agreed to receive goal-related messages from Comitra. */
+  consentedAt: string;
+  createdAt: string;
+}
+
+/** A reusable invite token that maps a link back to the inviting owner. */
+export interface JudgeInvite {
+  ownerUserId: string;
+  token: string;
+  createdAt: string;
+}
+
 /** One 0–5 rating of an account-holding judge, left by a goal owner. */
 export interface JudgeRating {
   id: string;

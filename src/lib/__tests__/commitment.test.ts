@@ -282,7 +282,7 @@ describe('recipients optional / solo goals / active-goal protection', () => {
   it('the creator cannot cancel an active goal, but the judge can', async () => {
     const { goal } = await activatedGoal();
     await expect(api.cancelGoal(goal.id)).rejects.toThrow(/judge/i);
-    const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken);
     expect(cancelled.status).toBe('cancelled');
   });
 

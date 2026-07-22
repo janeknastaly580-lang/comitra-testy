@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
@@ -20,7 +20,7 @@ import {
 import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import { buildFailureMessage, checkGoalContent, SENSITIVE_CONTENT_MESSAGE } from '../lib/messages';
 import { toLocalInputValue } from '../lib/format';
-import type { Channel, MessageTone } from '../lib/types';
+import type { Channel, InvitedJudge, MessageTone } from '../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
 import PhoneField from '../components/PhoneField';
@@ -54,11 +54,14 @@ export default function CreateGoal() {
   const [picked, setPicked] = useState('');
   const [pickedNum, setPickedNum] = useState('');
 
-  const [judgeName, setJudgeName] = useState('');
-  const [judgeChannel, setJudgeChannel] = useState<Channel>('phone');
-  const [judgeContact, setJudgeContact] = useState('');
-  const [judgePhoneIso, setJudgePhoneIso] = useState(DEFAULT_COUNTRY_ISO);
+  // The judge must be chosen from friends the user invited (Profile → Invite friends).
+  const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
+  const [judgeId, setJudgeId] = useState('');
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
+
+  useEffect(() => {
+    if (user) api.listInvitedJudges(user.id).then(setInvitedJudges);
+  }, [user]);
 
   const [tone, setTone] = useState<MessageTone>('neutral');
   // Revealing the goal to recipients forces choosing it from the safe library.
@@ -124,7 +127,8 @@ export default function CreateGoal() {
   const contactValid = (channel: Channel, contact: string) =>
     channel === 'phone' ? contact.replace(/\D/g, '').length >= 7 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.trim());
 
-  const judgeValid = judgeName.trim().length >= 2 && contactValid(judgeChannel, judgeContact);
+  const selectedJudge = invitedJudges.find((j) => j.id === judgeId) ?? null;
+  const judgeValid = !!selectedJudge;
   const filledRecipients = recipients.filter((r) => r.name.trim() || r.contact.trim());
   const hasRecipients = filledRecipients.length > 0;
   // In pick mode the goal MUST come from the library (and, if it has a numeric
@@ -152,7 +156,7 @@ export default function CreateGoal() {
     if (numberNeeded && !numberValid) return setError('Enter a number for your goal.');
     if (!pickMode && title.trim().length < 3) return setError('Give your goal a title.');
     if (new Date(deadline).getTime() <= Date.now()) return setError('The goal’s end date must be in the future.');
-    if (!judgeValid) return setError('Add a judge with a valid contact.');
+    if (!judgeValid) return setError('Choose a judge from your invited friends.');
     if (!recipientsValid) return setError('Each recipient needs a name and a valid contact (up to 3).');
     if (!ackJudgeContent) return setError('Please agree that your judge will see the goal’s title and details.');
     if (hasRecipients && !ackNotify) return setError('Please acknowledge the notification consent.');
@@ -184,9 +188,9 @@ export default function CreateGoal() {
         ackRevealFullContent: hasRecipients && reveal ? ackReveal : undefined,
         ackJudgeSeesContent: ackJudgeContent,
         judge: {
-          name: judgeName,
-          channel: judgeChannel,
-          contact: judgeChannel === 'phone' ? fullPhone(judgePhoneIso, judgeContact) : judgeContact,
+          name: selectedJudge!.name,
+          channel: 'phone',
+          contact: selectedJudge!.phone,
         },
         recipients: recips,
       });
@@ -303,26 +307,27 @@ export default function CreateGoal() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-danger">Required</span>
           </div>
           <p className="mb-3 text-[11px] text-muted">
-            This person confirms whether you completed the goal. They must accept before it starts. You cannot judge your own goal.
+            Pick a friend who confirms whether you completed the goal. You can only choose people who
+            accepted your invite (they set their own secret code). You cannot judge your own goal.
           </p>
 
-          <div className="space-y-2">
-            <Input value={judgeName} onChange={(e) => setJudgeName(e.target.value)} placeholder="Judge name" />
-            <Select value={judgeChannel} onChange={(e) => setJudgeChannel(e.target.value as Channel)}>
-              <option value="phone">Phone</option>
-              <option value="email">Email</option>
+          {invitedJudges.length === 0 ? (
+            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3">
+              <p className="text-[12px] text-ink">You haven't invited anyone yet.</p>
+              <p className="mt-1 text-[11px] text-muted">
+                Invite a friend in{' '}
+                <Link to="/invite-friends" className="text-accent underline">Profile → Invite friends</Link>
+                {' '}— once they join, they'll appear here.
+              </p>
+            </div>
+          ) : (
+            <Select value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
+              <option value="" disabled>Choose a judge…</option>
+              {invitedJudges.map((j) => (
+                <option key={j.id} value={j.id}>{j.name} · {j.phone}</option>
+              ))}
             </Select>
-            {judgeChannel === 'phone' ? (
-              <PhoneField
-                iso={judgePhoneIso}
-                number={judgeContact}
-                onIso={setJudgePhoneIso}
-                onNumber={setJudgeContact}
-              />
-            ) : (
-              <Input value={judgeContact} onChange={(e) => setJudgeContact(e.target.value)} placeholder="judge@email.com" />
-            )}
-          </div>
+          )}
 
           <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
             <input type="checkbox" checked={ackJudgeContent} onChange={(e) => setAckJudgeContent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
@@ -442,14 +447,14 @@ export default function CreateGoal() {
         message={
           hasRecipients ? (
             <>
-              The judge <span className="text-ink">{judgeName || 'you chose'}</span> must accept, and your{' '}
+              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your{' '}
               <span className="text-ink">{filledRecipients.length}</span> recipient(s) must accept before it starts. If it is later
               marked not completed, accepted recipients get a <span className="text-ink">{tone}</span> message.
             </>
           ) : (
             <>
-              The judge <span className="text-ink">{judgeName || 'you chose'}</span> must accept before it starts. No one else will be
-              notified — only your judge will see this goal.
+              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge and the goal starts right
+              away. No one else will be notified — only your judge will see this goal.
             </>
           )
         }

@@ -26,3 +26,8 @@ export function recipientLink(inviteToken: string): string {
 export function coachInviteLink(inviteToken: string): string {
   return `${base()}#/coach-invite/${inviteToken}`;
 }
+
+/** Absolute "invite a friend as a judge" link: `…/#/invite/<token>`. */
+export function judgeInviteLink(token: string): string {
+  return `${base()}#/invite/${token}`;
+}
