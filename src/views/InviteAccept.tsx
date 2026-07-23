@@ -9,7 +9,9 @@ import { Badge, Button, Card, Input, Label } from '../components/ui';
 
 export default function InviteAccept() {
   const { token = '' } = useParams();
-  const [state, setState] = useState<'loading' | 'not-found' | 'same-device' | 'ready' | 'done'>('loading');
+  const [state, setState] = useState<
+    'loading' | 'unreadable' | 'same-device' | 'same-account' | 'ready' | 'done'
+  >('loading');
   const [ownerName, setOwnerName] = useState('');
 
   const [name, setName] = useState('');
@@ -22,12 +24,15 @@ export default function InviteAccept() {
 
   useEffect(() => {
     (async () => {
-      if (!token) return setState('not-found');
       const res = await api.getJudgeInvite(token);
-      if (!res) return setState('not-found');
       setOwnerName(res.ownerName);
-      // The person being judged must not register as their own judge.
-      if (res.sameDevice) return setState('same-device');
+      // The person being judged must not register as their own judge —
+      // block (with a reason) when it's the same device or the same account.
+      if (!res.ok) {
+        if (res.reason === 'same-device') return setState('same-device');
+        if (res.reason === 'same-account') return setState('same-account');
+        return setState('unreadable');
+      }
       setState('ready');
     })();
   }, [token]);
@@ -45,12 +50,24 @@ export default function InviteAccept() {
 
   if (state === 'loading') return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
 
-  if (state === 'not-found') {
+  if (state === 'unreadable') {
     return (
       <Shell>
-        <Card className="p-6 text-center">
-          <p className="text-sm text-danger">This invite link is not valid.</p>
-          <Link to="/login" className="mt-3 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
+        <Card className="p-6">
+          <Badge tone="warn">Link couldn't be opened</Badge>
+          <p className="mt-3 text-sm text-ink">
+            We couldn't read this invite. It didn't work because one of these happened:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-muted">
+            <li>the link was <span className="font-semibold text-ink">cut off</span> when it was sent (long links can break in chat apps), or</li>
+            <li>it's an <span className="font-semibold text-ink">old link</span> from a previous version of the app.</li>
+          </ul>
+          <p className="mt-3 text-[13px] text-ink">
+            Ask your friend to open <span className="font-semibold">Profile → Invite friends</span> again and
+            send you the <span className="font-semibold">newest</span> link (best via “Copy link”, so nothing
+            gets cut off).
+          </p>
+          <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
         </Card>
       </Shell>
     );
@@ -59,13 +76,37 @@ export default function InviteAccept() {
   if (state === 'same-device') {
     return (
       <Shell>
-        <Card className="p-6 text-center">
-          <Badge tone="danger">Wrong device</Badge>
+        <Card className="p-6">
+          <Badge tone="danger">Same device — can't continue here</Badge>
           <p className="mt-3 text-sm text-ink">
-            This invite was created on this device. To keep things fair, {ownerName || 'the person'} can't be
-            their own judge — open this link on a <span className="font-semibold">different device</span>
-            {' '}(the judge's own phone or computer) to continue.
+            This invite was created on <span className="font-semibold">this device</span>, so the form is
+            hidden here. To keep things fair, {ownerName || 'the person'} can't be their own judge.
           </p>
+          <p className="mt-2 text-[13px] text-muted">
+            Open this same link on a <span className="font-semibold text-ink">different device</span> — the
+            judge's own phone or computer — and the form will appear.
+          </p>
+          <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
+        </Card>
+      </Shell>
+    );
+  }
+
+  if (state === 'same-account') {
+    return (
+      <Shell>
+        <Card className="p-6">
+          <Badge tone="danger">Same account — can't continue here</Badge>
+          <p className="mt-3 text-sm text-ink">
+            You're signed in as <span className="font-semibold">{ownerName || 'the person who created this invite'}</span>,
+            the person this invite belongs to — so the form is hidden. A judge has to be someone else.
+          </p>
+          <p className="mt-2 text-[13px] text-muted">
+            Ask the person you want as your judge to open this link on{' '}
+            <span className="font-semibold text-ink">their own device and account</span> (they can also just be
+            logged out). Then the form will appear.
+          </p>
+          <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
         </Card>
       </Shell>
     );

@@ -1006,36 +1006,59 @@ export async function getOrCreateJudgeInvite(
   return { ...invite, inviteToken };
 }
 
+/** Why an invite can't be accepted here (so we never show a bare "invalid"). */
+export type JudgeInviteBlockReason = 'unreadable' | 'same-device' | 'same-account';
+
 /** What the public accept page can resolve from an invite token. */
 export interface JudgeInviteInfo {
+  /** `false` when the token is missing/corrupted/from an old version. */
+  ok: boolean;
+  reason?: JudgeInviteBlockReason;
   ownerName: string;
   ownerUserId: string;
   /** True when opened on the same device that generated the link (must be blocked). */
   sameDevice: boolean;
+  /** True when the person opening it is logged in as the inviter (must be blocked). */
+  sameAccount: boolean;
 }
 
-/** Resolve an invite token to the inviting owner (for the public accept page). */
-export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo | null> {
+/**
+ * Resolve an invite token for the public accept page. Never returns null now:
+ * an unreadable token comes back as `{ ok:false, reason:'unreadable' }` so the
+ * page can explain the problem instead of just saying "invalid".
+ */
+export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
   await delay(60);
+  const sessionId = read<string | null>(KEYS.session, null);
+  const deviceId = getDeviceId();
+
+  const resolve = (ownerUserId: string, ownerName: string, inviterDeviceId?: string): JudgeInviteInfo => {
+    const sameDevice = !!inviterDeviceId && deviceId === inviterDeviceId;
+    const sameAccount = !!sessionId && sessionId === ownerUserId;
+    return {
+      ok: !sameDevice && !sameAccount,
+      reason: sameDevice ? 'same-device' : sameAccount ? 'same-account' : undefined,
+      ownerName,
+      ownerUserId,
+      sameDevice,
+      sameAccount,
+    };
+  };
+
   const payload = decodeInvitePayload(token);
   if (payload) {
     // Self-contained link — valid on any device.
     const owner = getUsers().find((u) => u.id === payload.o);
-    return {
-      ownerName: owner?.name ?? payload.n ?? 'A Comitra user',
-      ownerUserId: payload.o,
-      sameDevice: !!payload.d && getDeviceId() === payload.d,
-    };
+    return resolve(payload.o, owner?.name ?? payload.n ?? 'A Comitra user', payload.d);
   }
   // Legacy raw token (same-browser only).
-  const invite = getJudgeInvites().find((i) => i.token === token);
-  if (!invite) return null;
-  const owner = getUsers().find((u) => u.id === invite.ownerUserId);
-  return {
-    ownerName: owner?.name ?? 'A Comitra user',
-    ownerUserId: invite.ownerUserId,
-    sameDevice: !!invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId,
-  };
+  const invite = token ? getJudgeInvites().find((i) => i.token === token) : undefined;
+  if (invite) {
+    const owner = getUsers().find((u) => u.id === invite.ownerUserId);
+    return resolve(invite.ownerUserId, owner?.name ?? 'A Comitra user', invite.inviterDeviceId);
+  }
+  // Token missing / corrupted / from an old app version — explain, don't say "invalid".
+  return { ok: false, reason: 'unreadable', ownerName: '', ownerUserId: '', sameDevice: false, sameAccount: false };
 }
 
 /** Resolve the inviting owner (+ device) for a token, self-contained or legacy. */
@@ -1060,10 +1083,15 @@ export async function submitJudgeInvite(
 ): Promise<InvitedJudge> {
   await delay();
   const invite = resolveInvite(token);
-  if (!invite) throw new Error('This invite link is not valid.');
+  if (!invite) throw new Error("We couldn't read this invite link — ask your friend to send you a fresh one.");
   // Anti-cheat: the inviter must not register as their own judge from their device.
   if (invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId) {
     throw new Error('Open this invite on a different device than the one that created it.');
+  }
+  // Anti-cheat: the inviter must not register as their own judge from their account.
+  const sessionId = read<string | null>(KEYS.session, null);
+  if (sessionId && sessionId === invite.ownerUserId) {
+    throw new Error('You are signed in as the person who created this invite — a judge has to be someone else.');
   }
   const phone = normalizePhone(input.phone);
   if (phone.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
