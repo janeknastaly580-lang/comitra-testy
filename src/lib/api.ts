@@ -13,6 +13,12 @@ import { scheduleAppBlock, cancelAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
+import {
+  remoteListInvitedJudges,
+  remoteUpsertInvitedJudge,
+  supabaseEnabled,
+  type RemoteInvitedJudge,
+} from './supabase';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -884,6 +890,15 @@ function saveJudgeCredentials(list: JudgeCredential[]) {
 /** Minimum length of a judge's secret verification code. */
 export const JUDGE_CODE_MIN = 4;
 
+/**
+ * Placeholder hash stored for a judge whose acceptance was synced from another
+ * device. The real password hash never leaves the judge's own device, so on the
+ * owner's device we only need a marker that a standing acceptance EXISTS (used by
+ * `createGoal` to pre-accept). This value can never match a real code hash, which
+ * is fine: the owner is device-blocked from ever verifying a code themselves.
+ */
+const SYNCED_CODE_SENTINEL = 'synced:remote';
+
 /** Non-cryptographic hash so codes are never stored in the clear (MVP only). */
 function hashCode(code: string): string {
   const s = `comitra:judge:${code.trim()}`;
@@ -906,14 +921,23 @@ function findJudgeCredential(ownerUserId: string, judgeKey: string): JudgeCreden
 
 /** Create or update a judge's standing credential (acceptance + code) for an owner. */
 function upsertJudgeCredential(ownerUserId: string, judgeKey: string, code: string, judgeAccountUserId?: string): void {
-  if (!judgeKey) return;
+  upsertJudgeCredentialHash(ownerUserId, judgeKey, hashCode(code), judgeAccountUserId);
+}
+
+/**
+ * Same as `upsertJudgeCredential` but takes an already-hashed code. Used when a
+ * standing acceptance arrives from the shared store (another device), where only
+ * the hash — never the raw password — is available.
+ */
+function upsertJudgeCredentialHash(ownerUserId: string, judgeKey: string, codeHash: string, judgeAccountUserId?: string): void {
+  if (!judgeKey || !codeHash) return;
   const list = getJudgeCredentials();
   const existing = list.find((c) => c.ownerUserId === ownerUserId && c.judgeKey === judgeKey);
   if (existing) {
-    existing.codeHash = hashCode(code);
+    existing.codeHash = codeHash;
     if (judgeAccountUserId) existing.judgeAccountUserId = judgeAccountUserId;
   } else {
-    list.push({ id: uid('jc'), ownerUserId, judgeKey, codeHash: hashCode(code), judgeAccountUserId, createdAt: new Date().toISOString() });
+    list.push({ id: uid('jc'), ownerUserId, judgeKey, codeHash, judgeAccountUserId, createdAt: new Date().toISOString() });
   }
   saveJudgeCredentials(list);
 }
@@ -1123,15 +1147,96 @@ export async function submitJudgeInvite(
   write(KEYS.invitedJudges, list);
 
   // Store the standing acceptance + judge password for this owner+judge.
-  upsertJudgeCredential(invite.ownerUserId, judgeKeyFor({ judgeContact: phone }), code);
+  const codeHash = hashCode(code);
+  upsertJudgeCredentialHash(invite.ownerUserId, judgeKeyFor({ judgeContact: phone }), codeHash);
   logLegalAcceptance({ type: 'judge_role_ack', contact: phone, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
   logAudit({ actorContact: phone, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });
+
+  // Publish to the shared store so the inviter sees this judge on THEIR device.
+  // This is the whole point of the invite: without it, the registration would
+  // only ever live on the judge's phone. If Supabase is configured we require
+  // the sync to succeed (and tell the judge to retry on failure); if it isn't
+  // configured we keep the old same-browser-only behaviour.
+  //
+  // SECURITY: `codeHash` is deliberately NOT sent — the judge's password stays on
+  // this device only. The owner never verifies it (they can't judge their own
+  // goal), so they only need to know the judge exists (see mergeRemoteInvitedJudges).
+  if (supabaseEnabled()) {
+    try {
+      await remoteUpsertInvitedJudge({
+        id: record.id,
+        owner_user_id: record.ownerUserId,
+        name: record.name,
+        phone: record.phone,
+        judge_account_user_id: null,
+        consented_at: record.consentedAt ?? now,
+        created_at: record.createdAt,
+      });
+    } catch (err) {
+      throw new Error(
+        `You're almost set, but we couldn't reach the server to finish registering you. ` +
+          `Check your connection and tap “Become a judge” again. (${(err as Error).message})`,
+      );
+    }
+  }
   return record;
 }
 
-/** Friends the owner invited who can be picked as a judge. */
+/**
+ * Pull the judges registered for this owner from the shared store into the local
+ * cache, and materialise each one's standing credential so `createGoal` can
+ * pre-accept them. This is what makes a judge who signed up on another device
+ * actually appear in the owner's picker.
+ */
+function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudge[]): void {
+  if (remote.length === 0) return;
+  const local = getInvitedJudges();
+  let changed = false;
+  for (const r of remote) {
+    if (r.owner_user_id !== ownerUserId) continue;
+    const existing = local.find((j) => j.ownerUserId === ownerUserId && j.phone === r.phone);
+    if (existing) {
+      if (existing.name !== r.name) {
+        existing.name = r.name;
+        changed = true;
+      }
+    } else {
+      local.push({
+        id: r.id,
+        ownerUserId,
+        name: r.name,
+        phone: r.phone,
+        consentedAt: r.consented_at ?? r.created_at,
+        createdAt: r.created_at,
+      });
+      changed = true;
+    }
+    // Materialise a standing acceptance so a picked judge's goal skips
+    // waiting-for-judge. We only have a sentinel (never the real password hash),
+    // which is all the owner needs — they can't verify a code themselves anyway.
+    // Don't clobber a real local hash if one somehow already exists.
+    const existingCred = findJudgeCredential(ownerUserId, judgeKeyFor({ judgeContact: r.phone }));
+    if (!existingCred) {
+      upsertJudgeCredentialHash(
+        ownerUserId,
+        judgeKeyFor({ judgeContact: r.phone }),
+        SYNCED_CODE_SENTINEL,
+        r.judge_account_user_id ?? undefined,
+      );
+    }
+  }
+  if (changed) write(KEYS.invitedJudges, local);
+}
+
+/** Friends the owner invited who can be picked as a judge (synced across devices). */
 export async function listInvitedJudges(ownerUserId: string): Promise<InvitedJudge[]> {
   await delay(60);
+  if (supabaseEnabled()) {
+    // Best-effort: remoteListInvitedJudges returns [] on any failure, so a dead
+    // network just falls back to whatever is already cached locally.
+    const remote = await remoteListInvitedJudges(ownerUserId);
+    mergeRemoteInvitedJudges(ownerUserId, remote);
+  }
   return getInvitedJudges()
     .filter((j) => j.ownerUserId === ownerUserId)
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
