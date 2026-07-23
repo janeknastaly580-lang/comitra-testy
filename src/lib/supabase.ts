@@ -53,6 +53,65 @@ export interface RemoteInvitedJudge {
 
 const TABLE = 'comitra_invited_judges';
 
+/**
+ * What went wrong with a shared-store write, in terms the UI can act on.
+ *
+ * `setup` is the important one: the request reached Supabase and Supabase said
+ * no, because the one-time SQL install (table / policies) hasn't been run — or
+ * was only half-run. Nobody on the phone can fix that; the project owner has to
+ * run `supabase/comitra_invited_judges.sql`.
+ */
+export type SyncErrorKind = 'not-configured' | 'setup' | 'offline' | 'unknown';
+
+export class SyncError extends Error {
+  readonly kind: SyncErrorKind;
+  /** Raw server text, kept for logs — never shown verbatim to a user. */
+  readonly detail?: string;
+  constructor(kind: SyncErrorKind, message: string, detail?: string) {
+    super(message);
+    this.name = 'SyncError';
+    this.kind = kind;
+    this.detail = detail;
+  }
+}
+
+/** Map a failed PostgREST response onto a `SyncError` with human wording. */
+function classify(status: number, body: string): SyncError {
+  // 42501 = insufficient_privilege → RLS refused the write. This is BY FAR the
+  // most common setup mistake: the table exists (often created by hand in the
+  // Table Editor, which enables RLS and adds no policies) but the insert/update
+  // policies are missing, so every registration bounces.
+  if (body.includes('42501') || body.includes('row-level security')) {
+    return new SyncError(
+      'setup',
+      "Comitra's server isn't finished setting up, so your registration couldn't be saved. " +
+        'This is nothing you did wrong — tell the person who sent you this link, and try again after they fix it.',
+      `RLS policy missing (42501). Run supabase/comitra_invited_judges.sql. ${body}`,
+    );
+  }
+  // Missing table (PGRST205) or missing function (PGRST202).
+  if (status === 404 || body.includes('PGRST205') || body.includes('PGRST202') || body.includes('Could not find the table')) {
+    return new SyncError(
+      'setup',
+      "Comitra's server isn't set up for judges yet, so your registration couldn't be saved. " +
+        'Tell the person who sent you this link, and try again after they fix it.',
+      `Table or function missing (${status}). Run supabase/comitra_invited_judges.sql. ${body}`,
+    );
+  }
+  if (status === 401 || status === 403) {
+    return new SyncError(
+      'setup',
+      "Comitra's server refused to save your registration. Tell the person who sent you this link.",
+      `Rejected (${status}). ${body}`,
+    );
+  }
+  return new SyncError(
+    'unknown',
+    "We couldn't save your registration on the server. Check your connection and try again.",
+    `HTTP ${status}. ${body}`,
+  );
+}
+
 function headers(extra?: Record<string, string>): Record<string, string> {
   return {
     apikey: ANON_KEY as string,
@@ -80,27 +139,67 @@ async function timedFetch(url: string, init: RequestInit, ms = 8000): Promise<Re
  */
 export async function remoteUpsertInvitedJudge(row: RemoteInvitedJudge): Promise<void> {
   const base = restBase();
-  if (!base || !ANON_KEY) throw new Error('Sync is not configured.');
-  const res = await timedFetch(
-    `${base}/${TABLE}?on_conflict=owner_user_id,phone`,
-    {
-      method: 'POST',
-      headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
-      body: JSON.stringify(row),
-    },
-  );
+  if (!base || !ANON_KEY) {
+    throw new SyncError('not-configured', 'Sync is not configured.');
+  }
+  let res: Response;
+  try {
+    res = await timedFetch(
+      `${base}/${TABLE}?on_conflict=owner_user_id,phone`,
+      {
+        method: 'POST',
+        headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
+        body: JSON.stringify(row),
+      },
+    );
+  } catch {
+    throw new SyncError(
+      'offline',
+      "We couldn't reach the server. Check your connection and tap “Become a judge” again.",
+    );
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    // The one setup error worth calling out loudly: the shared table doesn't
-    // exist yet. Run supabase/comitra_invited_judges.sql once in the SQL editor.
-    if (res.status === 404 || text.includes('PGRST205') || text.includes('Could not find the table')) {
-      console.error(
-        '[supabase] The "comitra_invited_judges" table is missing. Run ' +
-          'supabase/comitra_invited_judges.sql once in your Supabase SQL editor.',
-      );
-      throw new Error('The judge-sync table is not set up on the server yet.');
+    const err = classify(res.status, text);
+    // The detail (raw server text, SQL file to run) belongs in the console, not
+    // on a phone screen — the person reading the invite page can't act on it.
+    console.error('[supabase] judge sync failed:', err.detail ?? text);
+    throw err;
+  }
+}
+
+/** Health of the shared store, as far as it can be told without writing data. */
+export type SyncHealth = 'off' | 'ok' | 'setup' | 'unreachable';
+
+/**
+ * Ask the server whether a friend would actually be able to register, before the
+ * inviter sends anyone a link.
+ *
+ * A missing write policy is invisible to a read — it only surfaces when someone
+ * tries to save, on THEIR phone, where the inviter never sees it. So the check
+ * goes through `comitra_sync_status`, which reports whether the insert/update
+ * policies exist. An older install won't have that function at all, which is
+ * itself the answer: setup is incomplete.
+ */
+export async function remoteSyncHealth(): Promise<SyncHealth> {
+  const base = restBase();
+  if (!supabaseEnabled() || !base || !ANON_KEY) return 'off';
+  try {
+    const res = await timedFetch(
+      `${base}/rpc/comitra_sync_status`,
+      { method: 'POST', headers: headers(), body: '{}' },
+      6000,
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return classify(res.status, text).kind === 'setup' ? 'setup' : 'unreachable';
     }
-    throw new Error(`Sync failed (${res.status}). ${text}`.trim());
+    // PostgREST returns a table-returning function as an array of rows.
+    const rows = (await res.json()) as { has_insert?: boolean; has_update?: boolean }[];
+    const row = Array.isArray(rows) ? rows[0] : undefined;
+    return row?.has_insert && row?.has_update ? 'ok' : 'setup';
+  } catch {
+    return 'unreachable';
   }
 }
 

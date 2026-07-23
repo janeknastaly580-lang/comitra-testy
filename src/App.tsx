@@ -17,6 +17,9 @@ import InviteAccept from './views/InviteAccept';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
 import Teams from './views/Teams';
+import TeamChallenges from './views/TeamChallenges';
+import CreateTeamChallenge from './views/CreateTeamChallenge';
+import TeamChallengeDetail from './views/TeamChallengeDetail';
 import Analytics from './views/Analytics';
 import Themes from './views/Themes';
 import Verifier from './views/Verifier';
@@ -84,6 +87,10 @@ export default function App() {
           <Route path="/premium" element={<Navigate to="/subscription" replace />} />
           <Route path="/wallet" element={<Navigate to="/subscription" replace />} />
           <Route path="/teams" element={<Teams />} />
+          {/* Team challenges: relay / tug of war between two equal teams */}
+          <Route path="/challenges" element={<TeamChallenges />} />
+          <Route path="/challenges/new" element={<CreateTeamChallenge />} />
+          <Route path="/challenge/:id" element={<TeamChallengeDetail />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/themes" element={<Themes />} />
         </Route>

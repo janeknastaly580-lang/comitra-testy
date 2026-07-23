@@ -6,9 +6,19 @@
  */
 import type { Goal } from './types';
 
+/**
+ * The address the app is served from — NOT whatever page the user happens to be
+ * on. Because routing is hash-based the path can be anything (`/register`, a
+ * bookmarked deep path, a host redirect), and baking that into a shared link
+ * produces a URL the recipient's browser 404s on before the app ever loads.
+ *
+ * The file:// case (Capacitor WebView) keeps its real path, since there the
+ * document filename is the only way back into the app.
+ */
 function base(): string {
-  const { origin, pathname } = window.location;
-  return `${origin}${pathname}`;
+  const { origin, pathname, protocol } = window.location;
+  if (protocol === 'file:' || pathname.endsWith('.html')) return `${origin}${pathname}`;
+  return `${origin}${import.meta.env.BASE_URL || '/'}`;
 }
 
 /** Absolute judge link: `…/#/verify/<goalId>/<token>`. */

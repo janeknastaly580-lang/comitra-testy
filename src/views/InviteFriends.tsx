@@ -2,15 +2,45 @@ import { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { judgeInviteLink } from '../lib/share';
+import type { SyncHealth } from '../lib/supabase';
 import type { InvitedJudge } from '../lib/types';
 import PageHeader from '../components/PageHeader';
 import ShareLink from '../components/ShareLink';
 import { Card } from '../components/ui';
 
+/**
+ * Whether a friend on another phone can actually complete the invite. Shown
+ * before the link is sent, because the failure otherwise happens on someone
+ * else's device where the owner never sees it.
+ */
+const HEALTH: Record<SyncHealth, { label: string; note: string; tone: string }> = {
+  ok: {
+    label: 'Sync · on',
+    note: 'Friends can join from their own phone and will show up here.',
+    tone: 'text-accent',
+  },
+  setup: {
+    label: 'Sync · not ready',
+    note: "The server isn't set up yet, so friends can't finish the invite. Sending the link now won't work.",
+    tone: 'text-danger',
+  },
+  unreachable: {
+    label: 'Sync · offline',
+    note: "Can't reach the server right now. Friends may not be able to finish the invite.",
+    tone: 'text-warn',
+  },
+  off: {
+    label: 'Sync · this device only',
+    note: 'No server is configured, so a friend can only join from this same browser.',
+    tone: 'text-muted',
+  },
+};
+
 export default function InviteFriends() {
   const { user } = useApp();
   const [token, setToken] = useState('');
   const [friends, setFriends] = useState<InvitedJudge[] | null>(null);
+  const [health, setHealth] = useState<SyncHealth | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -18,6 +48,7 @@ export default function InviteFriends() {
       const invite = await api.getOrCreateJudgeInvite(user.id);
       setToken(invite.inviteToken);
       setFriends(await api.listInvitedJudges(user.id));
+      setHealth(await api.getJudgeSyncHealth());
     })();
   }, [user]);
 
@@ -32,6 +63,15 @@ export default function InviteFriends() {
         pick a name, set a judge password, and agree to receive goal messages from Comitra. Once they've done
         that, you can pick them as a judge when you set a goal.
       </p>
+
+      {health && (
+        <div className="mb-4 rounded-xl border border-line bg-elevated px-3.5 py-2.5">
+          <p className={`font-mono text-[10px] uppercase tracking-widest ${HEALTH[health].tone}`}>
+            {HEALTH[health].label}
+          </p>
+          <p className="mt-1 text-[12px] text-muted">{HEALTH[health].note}</p>
+        </div>
+      )}
 
       {token && (
         <ShareLink

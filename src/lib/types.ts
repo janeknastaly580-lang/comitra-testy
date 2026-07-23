@@ -484,6 +484,96 @@ export interface AbuseReport {
   createdAt: string;
 }
 
+/* ──────────────────────────────────────────── Team challenges (2v2…8v8) ── */
+
+/**
+ * The two competition formats. Kept deliberately small — these are the only two
+ * the product ships.
+ *
+ *  • `relay`      — two parallel tracks; every approved goal moves that team's
+ *                   runner forward. A rejected goal is a stumble (no progress).
+ *  • `tug_of_war` — one rope, one marker. An approved goal pulls the marker
+ *                   toward the scoring team, a rejected one pulls it away.
+ */
+export type TeamChallengeMode = 'relay' | 'tug_of_war';
+
+export type TeamSide = 'A' | 'B';
+
+/** A member is either a competitor or the single judge assigned to one team. */
+export type ChallengeRole = 'player' | 'judge';
+
+export type ChallengeInviteStatus = 'pending' | 'accepted' | 'declined';
+
+/**
+ * `pending_invites` → every invited player AND both judges must accept before
+ * the challenge can start. One decline kills it (`cancelled`).
+ */
+export type TeamChallengeStatus = 'pending_invites' | 'active' | 'finished' | 'cancelled';
+
+export type ChallengeTaskStatus = 'pending' | 'approved' | 'rejected';
+
+/** One person in a challenge: which side they're on and whether they accepted. */
+export interface ChallengeMember {
+  id: string;
+  userId: string;
+  name: string;
+  avatar: string;
+  side: TeamSide;
+  role: ChallengeRole;
+  inviteStatus: ChallengeInviteStatus;
+  respondedAt?: string;
+  /** The creator, who accepts implicitly by setting the challenge up. */
+  isCreator?: boolean;
+  /**
+   * A seeded demo profile. They have no real account to log in with, so they
+   * respond and compete on a timer — otherwise a challenge involving them could
+   * never leave `pending_invites`. Real people always act for themselves.
+   */
+  demo?: boolean;
+}
+
+/** A player's claim that they did the challenge goal, ruled on by their judge. */
+export interface ChallengeTask {
+  id: string;
+  memberId: string;
+  side: TeamSide;
+  /** What was claimed — normally the challenge goal, restated per attempt. */
+  title: string;
+  note?: string;
+  status: ChallengeTaskStatus;
+  createdAt: string;
+  decidedAt?: string;
+  decidedByUserId?: string;
+  judgeNote?: string;
+}
+
+/** A head-to-head, goal-driven competition between two equally sized teams. */
+export interface TeamChallenge {
+  id: string;
+  createdByUserId: string;
+  mode: TeamChallengeMode;
+  name: string;
+  /** The goal every player on both sides commits to. */
+  task: string;
+  /** Players per side — identical for both teams by construction (1…8). */
+  teamSize: number;
+  teamAName: string;
+  teamBName: string;
+  /** Approved goals a side needs to win (relay laps / rope length). */
+  pointsToWin: number;
+  deadlineAt: string;
+  status: TeamChallengeStatus;
+  members: ChallengeMember[];
+  tasks: ChallengeTask[];
+  winner?: TeamSide | 'draw';
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  cancelledAt?: string;
+  /** Set when a challenge died because someone turned the invite down. */
+  declinedByName?: string;
+}
+
 /* ─────────────────────────────────────────────── Misc (unchanged) ── */
 
 export interface TeamMember {

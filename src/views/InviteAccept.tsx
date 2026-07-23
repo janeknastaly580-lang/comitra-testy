@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../lib/api';
 import { JUDGE_CODE_MIN } from '../lib/api';
+import { SyncError } from '../lib/supabase';
 import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import BrandMark from '../components/BrandMark';
 import PhoneField from '../components/PhoneField';
@@ -41,6 +42,9 @@ export default function InviteAccept() {
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // A server-setup failure is not the judge's to retry — it needs the inviter to
+  // finish Comitra's one-time setup, so the button is labelled differently.
+  const [errorIsSetup, setErrorIsSetup] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -140,12 +144,14 @@ export default function InviteAccept() {
 
   async function submit() {
     setError('');
+    setErrorIsSetup(false);
     setBusy(true);
     try {
       await api.submitJudgeInvite(token, { name, phone: fullPhone(phoneIso, phone), code });
       setState('done');
     } catch (err) {
       setError((err as Error).message);
+      setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
     } finally {
       setBusy(false);
     }
@@ -202,9 +208,22 @@ export default function InviteAccept() {
           </span>
         </label>
 
-        {error && <p className="mt-3 font-mono text-xs text-danger">{error}</p>}
+        {error && (
+          <div className="mt-3 rounded-xl border border-danger/40 bg-danger/5 p-3">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-danger">
+              {errorIsSetup ? "Server isn't ready" : "Couldn't save"}
+            </p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{error}</p>
+            {errorIsSetup && (
+              <p className="mt-1.5 text-[11px] text-muted">
+                Your details were kept on this device, so nothing is lost — reopen this link and tap the
+                button again once they've sorted it out.
+              </p>
+            )}
+          </div>
+        )}
         <Button className="mt-3 w-full" disabled={busy || !canSubmit} onClick={submit}>
-          {busy ? 'Saving…' : 'Become a judge'}
+          {busy ? 'Saving…' : error ? 'Try again' : 'Become a judge'}
         </Button>
       </Card>
     </Shell>

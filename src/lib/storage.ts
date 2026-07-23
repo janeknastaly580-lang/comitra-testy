@@ -86,4 +86,6 @@ export const KEYS = {
   // Invited judges (friends who registered as possible judges) + invite tokens
   invitedJudges: 'invitedJudges',
   judgeInvites: 'judgeInvites',
+  // Team challenges (relay / tug of war) between two equally sized teams
+  teamChallenges: 'teamChallenges',
 } as const;
