@@ -6,6 +6,21 @@ import type { RecipientConsent } from '../lib/types';
 import { Badge, Button, Card, Label, Textarea } from '../components/ui';
 import BrandMark from '../components/BrandMark';
 
+// Module-scope so it keeps a stable identity across renders — see InviteAccept:
+// an in-component Shell remounts every keystroke and inputs lose focus.
+function Shell({ children }: { children: ReactNode }) {
+  return (
+    <div className="phone-scroll flex h-full flex-col overflow-y-auto px-5 pb-8 pt-10">
+      <div className="mb-6 flex items-center gap-2">
+        <BrandMark className="h-7 w-7" />
+        <span className="font-mono text-sm font-bold tracking-[0.2em]">Comitra</span>
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted">Notifications</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function Recipient() {
   const routeParams = useParams();
   const [params] = useSearchParams();
@@ -33,17 +48,6 @@ export default function Recipient() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-
-  const Shell = ({ children }: { children: ReactNode }) => (
-    <div className="phone-scroll flex h-full flex-col overflow-y-auto px-5 pb-8 pt-10">
-      <div className="mb-6 flex items-center gap-2">
-        <BrandMark className="h-7 w-7" />
-        <span className="font-mono text-sm font-bold tracking-[0.2em]">Comitra</span>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted">Notifications</span>
-      </div>
-      {children}
-    </div>
-  );
 
   if (state === 'loading') {
     return (

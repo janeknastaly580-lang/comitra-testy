@@ -7,6 +7,26 @@ import BrandMark from '../components/BrandMark';
 import PhoneField from '../components/PhoneField';
 import { Badge, Button, Card, Input, Label } from '../components/ui';
 
+/**
+ * Page chrome. IMPORTANT: this lives at module scope, NOT inside InviteAccept.
+ * When it was defined inside the component it became a brand-new function on every
+ * render, so each keystroke made React remount the whole subtree and the inputs
+ * lost focus — on mobile the keyboard closed after every character, on desktop the
+ * caret dropped out of the field. A stable component identity keeps focus.
+ */
+function Shell({ children }: { children: ReactNode }) {
+  return (
+    <div className="phone-scroll flex h-full flex-col overflow-y-auto px-5 pb-8 pt-10">
+      <div className="mb-6 flex items-center gap-2">
+        <BrandMark className="h-7 w-7" />
+        <span className="font-mono text-sm font-bold tracking-[0.2em]">Comitra</span>
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted">Judge invite</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export default function InviteAccept() {
   const { token = '' } = useParams();
   const [state, setState] = useState<
@@ -36,17 +56,6 @@ export default function InviteAccept() {
       setState('ready');
     })();
   }, [token]);
-
-  const Shell = ({ children }: { children: ReactNode }) => (
-    <div className="phone-scroll flex h-full flex-col overflow-y-auto px-5 pb-8 pt-10">
-      <div className="mb-6 flex items-center gap-2">
-        <BrandMark className="h-7 w-7" />
-        <span className="font-mono text-sm font-bold tracking-[0.2em]">Comitra</span>
-        <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted">Judge invite</span>
-      </div>
-      {children}
-    </div>
-  );
 
   if (state === 'loading') return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
 
