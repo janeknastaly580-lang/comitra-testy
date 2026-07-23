@@ -33,6 +33,20 @@ alter table public.comitra_invited_judges drop column if exists code_hash;
 create index if not exists comitra_invited_judges_owner_idx
   on public.comitra_invited_judges (owner_user_id);
 
+-- Self-heal: the upsert (INSERT ... ON CONFLICT (owner_user_id, phone)) needs a
+-- unique key on those columns. If the table was created without it (e.g. via the
+-- Table Editor UI), add it now.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conrelid = 'public.comitra_invited_judges'::regclass and contype = 'u'
+  ) then
+    alter table public.comitra_invited_judges
+      add constraint comitra_invited_judges_owner_phone_key unique (owner_user_id, phone);
+  end if;
+end $$;
+
 alter table public.comitra_invited_judges enable row level security;
 
 -- A judge (anonymous visitor) may register / update their own row via the invite
