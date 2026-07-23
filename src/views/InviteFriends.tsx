@@ -16,7 +16,7 @@ export default function InviteFriends() {
     if (!user) return;
     (async () => {
       const invite = await api.getOrCreateJudgeInvite(user.id);
-      setToken(invite.token);
+      setToken(invite.inviteToken);
       setFriends(await api.listInvitedJudges(user.id));
     })();
   }, [user]);
@@ -28,14 +28,15 @@ export default function InviteFriends() {
       <PageHeader title="Invite friends" subtitle="Add people who can judge your goals" back />
 
       <p className="mb-4 text-[13px] text-muted">
-        Send this link to a friend. They'll add their phone and set a secret code, and agree to receive
-        goal messages from Comitra. Once they've done that, you can pick them as a judge when you set a goal.
+        Send this link to a friend. On <span className="font-semibold text-ink">their own device</span> they'll
+        pick a name, set a judge password, and agree to receive goal messages from Comitra. Once they've done
+        that, you can pick them as a judge when you set a goal.
       </p>
 
       {token && (
         <ShareLink
           title="Your invite link"
-          hint="Anyone with this link can register as one of your possible judges."
+          hint="Anyone with this link can register as one of your judges — but only from a different device than this one."
           link={judgeInviteLink(token)}
         />
       )}

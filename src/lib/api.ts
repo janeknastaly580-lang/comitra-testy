@@ -932,47 +932,158 @@ function getInvitedJudges(): InvitedJudge[] {
   return read<InvitedJudge[]>(KEYS.invitedJudges, []);
 }
 
-/** Get (or create) the owner's reusable "invite a friend as judge" token. */
-export async function getOrCreateJudgeInvite(ownerUserId: string): Promise<JudgeInvite> {
-  await delay(60);
-  const list = getJudgeInvites();
-  const existing = list.find((i) => i.ownerUserId === ownerUserId);
-  if (existing) return existing;
-  const invite: JudgeInvite = { ownerUserId, token: uuid(), createdAt: new Date().toISOString() };
-  list.push(invite);
-  write(KEYS.judgeInvites, list);
-  return invite;
+/**
+ * The identity an invite link carries in itself. Because everything the judge
+ * needs is embedded here (not looked up in the inviter's LocalStorage), the link
+ * opens on ANY device — this is what makes cross-device invites work without a
+ * shared backend. `d` (the inviter's device id) also powers the "accept from a
+ * different device" anti-cheat check.
+ */
+interface JudgeInvitePayload {
+  v: 1;
+  t: string; // reusable invite token (per owner)
+  o: string; // ownerUserId
+  n: string; // owner display name (fallback when the owner isn't on this device)
+  d: string; // inviter device id
 }
 
-/** Resolve an invite token to the inviting owner (for the public accept page). */
-export async function getJudgeInvite(token: string): Promise<{ ownerName: string } | null> {
-  await delay(60);
-  const invite = getJudgeInvites().find((i) => i.token === token);
-  if (!invite) return null;
-  const owner = getUsers().find((u) => u.id === invite.ownerUserId);
-  return { ownerName: owner?.name ?? 'A Comitra user' };
+/** UTF-8-safe base64url so owner names with accents survive the round-trip. */
+function b64urlEncode(s: string): string {
+  const bytes = new TextEncoder().encode(s);
+  let bin = '';
+  bytes.forEach((b) => (bin += String.fromCharCode(b)));
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(s: string): string {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+function encodeInvitePayload(p: JudgeInvitePayload): string {
+  return b64urlEncode(JSON.stringify(p));
+}
+function decodeInvitePayload(token: string): JudgeInvitePayload | null {
+  try {
+    const p = JSON.parse(b64urlDecode(token)) as JudgeInvitePayload;
+    return p && p.v === 1 && p.o ? p : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
- * The friend submits the invite form: their name, phone and secret code, and
+ * Get (or create) the owner's reusable invite token and return a **self-contained
+ * link token** that embeds who is inviting + which device generated it, so the
+ * link resolves on any device the friend opens it on.
+ */
+export async function getOrCreateJudgeInvite(
+  ownerUserId: string,
+): Promise<JudgeInvite & { inviteToken: string }> {
+  await delay(60);
+  const list = getJudgeInvites();
+  const deviceId = getDeviceId();
+  let invite = list.find((i) => i.ownerUserId === ownerUserId);
+  if (invite) {
+    // Backfill the inviter device on older invites so the device check works.
+    if (!invite.inviterDeviceId) {
+      invite.inviterDeviceId = deviceId;
+      write(KEYS.judgeInvites, list);
+    }
+  } else {
+    invite = { ownerUserId, token: uuid(), inviterDeviceId: deviceId, createdAt: new Date().toISOString() };
+    list.push(invite);
+    write(KEYS.judgeInvites, list);
+  }
+  const owner = getUsers().find((u) => u.id === ownerUserId);
+  const inviteToken = encodeInvitePayload({
+    v: 1,
+    t: invite.token,
+    o: ownerUserId,
+    n: owner?.name ?? 'A Comitra user',
+    d: invite.inviterDeviceId ?? deviceId,
+  });
+  return { ...invite, inviteToken };
+}
+
+/** What the public accept page can resolve from an invite token. */
+export interface JudgeInviteInfo {
+  ownerName: string;
+  ownerUserId: string;
+  /** True when opened on the same device that generated the link (must be blocked). */
+  sameDevice: boolean;
+}
+
+/** Resolve an invite token to the inviting owner (for the public accept page). */
+export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo | null> {
+  await delay(60);
+  const payload = decodeInvitePayload(token);
+  if (payload) {
+    // Self-contained link — valid on any device.
+    const owner = getUsers().find((u) => u.id === payload.o);
+    return {
+      ownerName: owner?.name ?? payload.n ?? 'A Comitra user',
+      ownerUserId: payload.o,
+      sameDevice: !!payload.d && getDeviceId() === payload.d,
+    };
+  }
+  // Legacy raw token (same-browser only).
+  const invite = getJudgeInvites().find((i) => i.token === token);
+  if (!invite) return null;
+  const owner = getUsers().find((u) => u.id === invite.ownerUserId);
+  return {
+    ownerName: owner?.name ?? 'A Comitra user',
+    ownerUserId: invite.ownerUserId,
+    sameDevice: !!invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId,
+  };
+}
+
+/** Resolve the inviting owner (+ device) for a token, self-contained or legacy. */
+function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: string } | null {
+  const payload = decodeInvitePayload(token);
+  if (payload) return { ownerUserId: payload.o, inviterDeviceId: payload.d };
+  const invite = getJudgeInvites().find((i) => i.token === token);
+  if (!invite) return null;
+  return { ownerUserId: invite.ownerUserId, inviterDeviceId: invite.inviterDeviceId };
+}
+
+/**
+ * The friend submits the invite form: their name, phone and judge password, and
  * consents to Comitra messages about this owner's goals. This registers them as
- * a pickable judge for that owner and stores their standing acceptance + code.
+ * a pickable judge for that owner and stores their standing acceptance + password.
+ * The name must be unique among this owner's judges, and the link must be opened
+ * on a different device than the one that created it.
  */
 export async function submitJudgeInvite(
   token: string,
   input: { name: string; phone: string; code: string },
 ): Promise<InvitedJudge> {
   await delay();
-  const invite = getJudgeInvites().find((i) => i.token === token);
+  const invite = resolveInvite(token);
   if (!invite) throw new Error('This invite link is not valid.');
+  // Anti-cheat: the inviter must not register as their own judge from their device.
+  if (invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId) {
+    throw new Error('Open this invite on a different device than the one that created it.');
+  }
   const phone = normalizePhone(input.phone);
   if (phone.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
   const code = (input.code ?? '').trim();
-  if (code.length < JUDGE_CODE_MIN) throw new Error(`Set a secret code of at least ${JUDGE_CODE_MIN} characters.`);
-  const name = input.name.trim() || 'Friend';
+  if (code.length < JUDGE_CODE_MIN) throw new Error(`Set a judge password of at least ${JUDGE_CODE_MIN} characters.`);
+  const name = input.name.trim();
+  if (name.length < 2) throw new Error('Enter your name (at least 2 characters).');
 
   const list = getInvitedJudges();
   const now = new Date().toISOString();
+  // The name must be unique among this owner's judges (a different person can't
+  // reuse a name already taken for this owner).
+  const nameKey = name.toLowerCase();
+  const nameTaken = list.some(
+    (j) => j.ownerUserId === invite.ownerUserId && j.name.trim().toLowerCase() === nameKey && j.phone !== phone,
+  );
+  if (nameTaken) {
+    throw new Error('That name is already used by one of this person’s judges. Please choose a different name.');
+  }
+
   let record = list.find((j) => j.ownerUserId === invite.ownerUserId && j.phone === phone);
   if (record) {
     record.name = name;
@@ -983,7 +1094,7 @@ export async function submitJudgeInvite(
   }
   write(KEYS.invitedJudges, list);
 
-  // Store the standing acceptance + secret code for this owner+judge.
+  // Store the standing acceptance + judge password for this owner+judge.
   upsertJudgeCredential(invite.ownerUserId, judgeKeyFor({ judgeContact: phone }), code);
   logLegalAcceptance({ type: 'judge_role_ack', contact: phone, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
   logAudit({ actorContact: phone, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });

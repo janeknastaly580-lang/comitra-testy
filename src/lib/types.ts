@@ -173,6 +173,8 @@ export interface InvitedJudge {
 export interface JudgeInvite {
   ownerUserId: string;
   token: string;
+  /** Device the invite was generated on — the judge must accept from a different one. */
+  inviterDeviceId?: string;
   createdAt: string;
 }
 

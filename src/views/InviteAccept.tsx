@@ -9,7 +9,7 @@ import { Badge, Button, Card, Input, Label } from '../components/ui';
 
 export default function InviteAccept() {
   const { token = '' } = useParams();
-  const [state, setState] = useState<'loading' | 'not-found' | 'ready' | 'done'>('loading');
+  const [state, setState] = useState<'loading' | 'not-found' | 'same-device' | 'ready' | 'done'>('loading');
   const [ownerName, setOwnerName] = useState('');
 
   const [name, setName] = useState('');
@@ -26,6 +26,8 @@ export default function InviteAccept() {
       const res = await api.getJudgeInvite(token);
       if (!res) return setState('not-found');
       setOwnerName(res.ownerName);
+      // The person being judged must not register as their own judge.
+      if (res.sameDevice) return setState('same-device');
       setState('ready');
     })();
   }, [token]);
@@ -54,14 +56,29 @@ export default function InviteAccept() {
     );
   }
 
+  if (state === 'same-device') {
+    return (
+      <Shell>
+        <Card className="p-6 text-center">
+          <Badge tone="danger">Wrong device</Badge>
+          <p className="mt-3 text-sm text-ink">
+            This invite was created on this device. To keep things fair, {ownerName || 'the person'} can't be
+            their own judge — open this link on a <span className="font-semibold">different device</span>
+            {' '}(the judge's own phone or computer) to continue.
+          </p>
+        </Card>
+      </Shell>
+    );
+  }
+
   if (state === 'done') {
     return (
       <Shell>
         <Card className="p-6 text-center">
           <Badge tone="accent">You're set</Badge>
           <p className="mt-3 text-sm text-ink">
-            {ownerName} can now pick you as a judge for their goals. Keep your secret code safe — you'll
-            need it to mark a goal completed or not completed.
+            {ownerName} can now pick you as a judge for their goals. Keep your judge password safe — you'll
+            need it every time you mark a goal completed or not completed.
           </p>
         </Card>
       </Shell>
@@ -94,24 +111,32 @@ export default function InviteAccept() {
 
       <Card className="p-4">
         <Label>Your name</Label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="mb-3" />
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
+        <p className="mb-3 mt-1.5 text-[11px] text-muted">
+          Pick a name {ownerName} will recognise. It has to be different from every other judge {ownerName}{' '}
+          already has.
+        </p>
 
         <Label>Your phone number</Label>
         <div className="mb-3">
           <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
         </div>
 
-        <Label>Set your secret code</Label>
+        <Label>Set your judge password</Label>
         <Input
+          type="password"
           value={code}
           onChange={(e) => setCode(e.target.value)}
           placeholder={`At least ${JUDGE_CODE_MIN} characters`}
-          autoComplete="off"
+          autoComplete="new-password"
         />
-        <p className="mt-1.5 text-[11px] text-muted">
-          Keep this code secret. Every time {ownerName} picks you as a judge, you'll enter it to mark
-          their goal completed or not completed. This code is just for {ownerName}'s goals — you can use
-          a different one with other people. (You can always cancel a goal at their request without any code.)
+        <p className="mt-1.5 text-[11px] font-semibold text-accent">
+          Remember this password and keep it secret — write it down somewhere safe. It can't be recovered.
+        </p>
+        <p className="mt-1 text-[11px] text-muted">
+          You'll enter it every single time you decide whether {ownerName} completed a goal. This password is
+          only for {ownerName}'s goals — you can use a different one with other people. (You can always cancel
+          a goal at their request without it.)
         </p>
 
         <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-line p-3">

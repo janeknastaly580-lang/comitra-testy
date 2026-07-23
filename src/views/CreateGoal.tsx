@@ -308,7 +308,7 @@ export default function CreateGoal() {
           </div>
           <p className="mb-3 text-[11px] text-muted">
             Pick a friend who confirms whether you completed the goal. You can only choose people who
-            accepted your invite (they set their own secret code). You cannot judge your own goal.
+            accepted your invite (they set their own judge password). You cannot judge your own goal.
           </p>
 
           {invitedJudges.length === 0 ? (
