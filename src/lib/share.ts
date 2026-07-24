@@ -18,7 +18,15 @@ import type { Goal } from './types';
 function base(): string {
   const { origin, pathname, protocol } = window.location;
   if (protocol === 'file:' || pathname.endsWith('.html')) return `${origin}${pathname}`;
-  return `${origin}${import.meta.env.BASE_URL || '/'}`;
+  // `import.meta.env.BASE_URL` is './' here (vite.config `base: './'`, so assets load
+  // by relative path inside the Capacitor WebView). That's correct for assets but
+  // INVALID inside an absolute share URL: `${origin}./` becomes
+  // `https://host./#/…` — a trailing-dot host the recipient's browser can't reach
+  // ("this site can't be reached"). Share links live at the web root, so use
+  // `${origin}/`, honouring only a genuine absolute sub-path base if one is ever set.
+  const b = import.meta.env.BASE_URL || '/';
+  const path = b.startsWith('/') ? b : '/';
+  return `${origin}${path}`;
 }
 
 /** Absolute judge link: `…/#/verify/<goalId>/<token>`. */
