@@ -16,7 +16,6 @@ import InviteFriends from './views/InviteFriends';
 import InviteAccept from './views/InviteAccept';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
-import Teams from './views/Teams';
 import TeamChallenges from './views/TeamChallenges';
 import CreateTeamChallenge from './views/CreateTeamChallenge';
 import TeamChallengeDetail from './views/TeamChallengeDetail';
@@ -86,7 +85,6 @@ export default function App() {
           {/* Legacy alias */}
           <Route path="/premium" element={<Navigate to="/subscription" replace />} />
           <Route path="/wallet" element={<Navigate to="/subscription" replace />} />
-          <Route path="/teams" element={<Teams />} />
           {/* Team challenges: relay / tug of war between two equal teams */}
           <Route path="/challenges" element={<TeamChallenges />} />
           <Route path="/challenges/new" element={<CreateTeamChallenge />} />
