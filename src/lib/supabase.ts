@@ -59,7 +59,17 @@ export interface RemoteInvitedJudge {
  * was only half-run. Nobody on the phone can fix that; the project owner has to
  * run `supabase/comitra_invited_judges.sql`.
  */
-export type SyncErrorKind = 'not-configured' | 'setup' | 'offline' | 'unknown';
+export type SyncErrorKind =
+  | 'not-configured'
+  | 'setup'
+  | 'offline'
+  | 'unknown'
+  /** The SMS code the person typed was wrong or has expired. */
+  | 'invalid-code'
+  /** Too many code requests/attempts too fast (server rate limit). */
+  | 'rate-limited'
+  /** The phone number itself isn't a valid E.164 number. */
+  | 'bad-phone';
 
 export class SyncError extends Error {
   readonly kind: SyncErrorKind;
@@ -235,5 +245,144 @@ export async function remoteListInvitedJudges(ownerUserId: string): Promise<Remo
     return Array.isArray(data) ? data : [];
   } catch {
     return [];
+  }
+}
+
+/* ─────────────────────────────── Phone (SMS) verification via Supabase Auth ── */
+
+/**
+ * Base URL of the project's GoTrue (Auth) API, e.g. `https://x.supabase.co/auth/v1`.
+ * Derived from the same `VITE_SUPABASE_URL` used for the REST base — the auth
+ * endpoints live under `/auth/v1` on the same project origin.
+ *
+ * SMS verification rides on Supabase's built-in phone auth: Supabase generates the
+ * random 6-digit code, stores it hashed, expires it, rate-limits it, and hands the
+ * text to whichever SMS provider (Twilio / MessageBird / Vonage / …) the project
+ * owner configured. No code and no provider secret ever reaches the browser.
+ */
+function authBase(): string | null {
+  if (!RAW_URL) return null;
+  const origin = RAW_URL.replace(/\/+$/, '')
+    .replace(/\/rest\/v1$/, '')
+    .replace(/\/auth\/v1$/, '');
+  return `${origin}/auth/v1`;
+}
+
+/** Map a failed GoTrue OTP response onto a `SyncError` with human wording. */
+function classifyOtp(status: number, body: string, phase: 'send' | 'verify'): SyncError {
+  const b = body.toLowerCase();
+  // A malformed phone number — the person can fix this by correcting the field.
+  if (b.includes('invalid phone') || b.includes('e.164') || b.includes('invalid format')) {
+    return new SyncError('bad-phone', "That phone number doesn't look right. Check the country and number, then try again.", `OTP ${phase} bad phone (${status}). ${body}`);
+  }
+  // Provider not wired up yet: phone auth off, no/invalid SMS provider, or phone
+  // signups disabled. Nobody on the phone can fix this — the project owner must
+  // finish the Supabase phone-auth setup (see SMS-SETUP.md).
+  if (
+    b.includes('signups not allowed') ||
+    b.includes('phone provider') ||
+    b.includes('unsupported phone') ||
+    b.includes('sms provider') ||
+    b.includes('phone_provider_disabled') ||
+    b.includes('otp_disabled') ||
+    (status === 422 && (b.includes('provider') || b.includes('disabled') || b.includes('not enabled')))
+  ) {
+    return new SyncError(
+      'setup',
+      "Text-message verification isn't finished being set up yet. This is nothing you did wrong — tell the person who sent you this link, and try again once they've turned it on.",
+      `OTP ${phase} setup incomplete (${status}). ${body}`,
+    );
+  }
+  if (status === 429 || b.includes('rate limit') || b.includes('too many') || b.includes('for security purposes') || b.includes('over_sms_send_rate_limit')) {
+    return new SyncError('rate-limited', 'Too many attempts — wait about a minute, then request a new code.', `OTP ${phase} rate-limited (${status}). ${body}`);
+  }
+  if (phase === 'verify' && (status === 400 || status === 401 || status === 403 || b.includes('invalid') || b.includes('expired'))) {
+    return new SyncError('invalid-code', "That code isn't right, or it has expired. Check the text and try again, or resend a new code.", `OTP verify invalid (${status}). ${body}`);
+  }
+  // Sending depends on the SMS provider; a 5xx almost always means bad provider
+  // credentials on the server, not anything the person can fix.
+  if (status >= 500) {
+    return new SyncError(
+      'setup',
+      "The text message couldn't be sent — the SMS provider looks misconfigured. Tell the person who sent you this link.",
+      `OTP ${phase} server error (${status}). ${body}`,
+    );
+  }
+  return new SyncError('unknown', 'Something went wrong verifying your phone. Please try again in a moment.', `OTP ${phase} HTTP ${status}. ${body}`);
+}
+
+/**
+ * Whether Supabase phone (SMS) auth is switched on for this project. Lets the
+ * judge-invite flow decide if it should require an SMS code. Best-effort: any
+ * failure (not configured, unreachable, unexpected shape) reports `false`, so the
+ * app simply falls back to registering a judge without an SMS step — nothing
+ * breaks before the owner finishes SMS setup.
+ */
+export async function remotePhoneAuthEnabled(): Promise<boolean> {
+  const base = authBase();
+  if (!base || !ANON_KEY) return false;
+  try {
+    const res = await timedFetch(`${base}/settings`, { method: 'GET', headers: headers() }, 6000);
+    if (!res.ok) return false;
+    const data = (await res.json()) as { external?: Record<string, boolean> };
+    return data?.external?.phone === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ask Supabase to text a random 6-digit code to this phone (E.164). Throws a
+ * `SyncError` the invite page can act on: `setup` (owner must finish SMS setup),
+ * `rate-limited`, `bad-phone`, `offline`, or `unknown`.
+ */
+export async function remoteSendPhoneOtp(phone: string): Promise<void> {
+  const base = authBase();
+  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Phone verification is not configured.');
+  let res: Response;
+  try {
+    res = await timedFetch(`${base}/otp`, {
+      method: 'POST',
+      headers: headers(),
+      // `create_user` lets a brand-new phone receive a code (the judge has no
+      // Supabase account) — it still needs "phone signups" enabled on the project.
+      body: JSON.stringify({ phone, channel: 'sms', create_user: true }),
+    });
+  } catch {
+    throw new SyncError('offline', "We couldn't reach the server to text your code. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err = classifyOtp(res.status, text, 'send');
+    console.error('[supabase] send OTP failed:', err.detail ?? text);
+    throw err;
+  }
+}
+
+/**
+ * Verify the 6-digit code the judge received by SMS. Resolves when the code is
+ * correct (Supabase confirms it server-side, so a success genuinely proves the
+ * person holds the number); throws `SyncError('invalid-code')` when it's wrong or
+ * expired. The session Supabase returns on success is intentionally ignored — we
+ * only use this to prove phone ownership, not to sign anyone in.
+ */
+export async function remoteVerifyPhoneOtp(phone: string, code: string): Promise<void> {
+  const base = authBase();
+  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Phone verification is not configured.');
+  let res: Response;
+  try {
+    res = await timedFetch(`${base}/verify`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ type: 'sms', phone, token: code }),
+    });
+  } catch {
+    throw new SyncError('offline', "We couldn't reach the server to check your code. Check your connection and try again.");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err = classifyOtp(res.status, text, 'verify');
+    console.error('[supabase] verify OTP failed:', err.detail ?? text);
+    throw err;
   }
 }

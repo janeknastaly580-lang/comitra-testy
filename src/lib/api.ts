@@ -24,8 +24,11 @@ import {
 } from './teamChallenge';
 import {
   remoteListInvitedJudges,
+  remotePhoneAuthEnabled,
+  remoteSendPhoneOtp,
   remoteSyncHealth,
   remoteUpsertInvitedJudge,
+  remoteVerifyPhoneOtp,
   supabaseEnabled,
   SyncError,
   type RemoteInvitedJudge,
@@ -1111,16 +1114,55 @@ function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: 
   return { ownerUserId: invite.ownerUserId, inviterDeviceId: invite.inviterDeviceId };
 }
 
+/* ─────────────────────────────── Phone (SMS) verification ── */
+
+/**
+ * Whether the judge-invite flow should require an SMS code before someone can
+ * become a judge. True only when Supabase phone auth is actually switched on, so:
+ *  • the app keeps working before the owner finishes SMS setup (falls back to no
+ *    SMS step), and
+ *  • tests stay hermetic (`supabaseEnabled()` is false under MODE==='test').
+ * `VITE_SMS_VERIFY` can force it `on` or `off`; the default `auto` probes Supabase.
+ */
+export async function phoneVerificationAvailable(): Promise<boolean> {
+  if (!supabaseEnabled()) return false;
+  const mode = import.meta.env.VITE_SMS_VERIFY?.trim().toLowerCase();
+  if (mode === 'off') return false;
+  if (mode === 'on') return true;
+  return remotePhoneAuthEnabled();
+}
+
+/**
+ * Text a random 6-digit verification code to a judge's phone (E.164). Used by the
+ * invite page to prove the number really belongs to the person accepting.
+ */
+export async function startPhoneVerification(phone: string): Promise<void> {
+  await delay(60);
+  const normalized = normalizePhone(phone);
+  if (normalized.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
+  await remoteSendPhoneOtp(normalized);
+}
+
+/** Check the 6-digit code the judge received by SMS. Throws if it's wrong/expired. */
+export async function verifyPhoneCode(phone: string, code: string): Promise<void> {
+  await delay(60);
+  const normalized = normalizePhone(phone);
+  const digits = (code ?? '').replace(/\D/g, '');
+  if (digits.length < 4) throw new Error('Enter the code from the text message.');
+  await remoteVerifyPhoneOtp(normalized, digits);
+}
+
 /**
  * The friend submits the invite form: their name, phone and judge password, and
  * consents to Comitra messages about this owner's goals. This registers them as
  * a pickable judge for that owner and stores their standing acceptance + password.
  * The name must be unique among this owner's judges, and the link must be opened
- * on a different device than the one that created it.
+ * on a different device than the one that created it. `phoneVerified` records that
+ * they passed the SMS check (the UI only sets it after `verifyPhoneCode` succeeds).
  */
 export async function submitJudgeInvite(
   token: string,
-  input: { name: string; phone: string; code: string },
+  input: { name: string; phone: string; code: string; phoneVerified?: boolean },
 ): Promise<InvitedJudge> {
   await delay();
   const invite = resolveInvite(token);
@@ -1157,8 +1199,17 @@ export async function submitJudgeInvite(
   if (record) {
     record.name = name;
     record.consentedAt = now;
+    if (input.phoneVerified) record.phoneVerifiedAt = now;
   } else {
-    record = { id: uid('ij'), ownerUserId: invite.ownerUserId, name, phone, consentedAt: now, createdAt: now };
+    record = {
+      id: uid('ij'),
+      ownerUserId: invite.ownerUserId,
+      name,
+      phone,
+      consentedAt: now,
+      phoneVerifiedAt: input.phoneVerified ? now : undefined,
+      createdAt: now,
+    };
     list.push(record);
   }
   write(KEYS.invitedJudges, list);

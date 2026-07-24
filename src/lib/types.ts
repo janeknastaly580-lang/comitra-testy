@@ -166,6 +166,8 @@ export interface InvitedJudge {
   phone: string;
   /** They agreed to receive goal-related messages from Comitra. */
   consentedAt: string;
+  /** When they proved they own this phone via an SMS code (undefined = not verified). */
+  phoneVerifiedAt?: string;
   createdAt: string;
 }
 

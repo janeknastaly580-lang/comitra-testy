@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../lib/api';
 import { JUDGE_CODE_MIN } from '../lib/api';
@@ -28,10 +28,13 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+/** Seconds to block a re-send after a code is texted (matches Supabase's SMS throttle). */
+const RESEND_COOLDOWN = 60;
+
 export default function InviteAccept() {
   const { token = '' } = useParams();
   const [state, setState] = useState<
-    'loading' | 'unreadable' | 'same-device' | 'same-account' | 'ready' | 'done'
+    'loading' | 'unreadable' | 'same-device' | 'same-account' | 'ready' | 'verify' | 'done'
   >('loading');
   const [ownerName, setOwnerName] = useState('');
 
@@ -46,6 +49,18 @@ export default function InviteAccept() {
   // finish Comitra's one-time setup, so the button is labelled differently.
   const [errorIsSetup, setErrorIsSetup] = useState(false);
 
+  // Whether this project requires an SMS code to become a judge. `null` = not
+  // probed yet; the answer only changes the button label, never blocks the form.
+  const [smsRequired, setSmsRequired] = useState<boolean | null>(null);
+
+  // SMS verification step state.
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState('');
+  const [resendIn, setResendIn] = useState(0);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+
+  const fullNumber = fullPhone(phoneIso, phone);
+
   useEffect(() => {
     (async () => {
       const res = await api.getJudgeInvite(token);
@@ -58,8 +73,18 @@ export default function InviteAccept() {
         return setState('unreadable');
       }
       setState('ready');
+      // Probe whether an SMS code is required (best-effort; falls back to false).
+      api.phoneVerificationAvailable().then(setSmsRequired).catch(() => setSmsRequired(false));
     })();
   }, [token]);
+
+  // Count the re-send cooldown down to zero.
+  const resendRef = useRef<ReturnType<typeof setInterval>>();
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    resendRef.current = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(resendRef.current);
+  }, [resendIn > 0]);
 
   if (state === 'loading') return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
 
@@ -130,6 +155,9 @@ export default function InviteAccept() {
       <Shell>
         <Card className="p-6 text-center">
           <Badge tone="accent">You're set</Badge>
+          {phoneVerified && (
+            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent">✓ Phone number verified</p>
+          )}
           <p className="mt-3 text-sm text-ink">
             {ownerName} can now pick you as a judge for their goals. Keep your judge password safe — you'll
             need it every time you mark a goal completed or not completed.
@@ -142,19 +170,135 @@ export default function InviteAccept() {
   const phoneValid = phone.replace(/\D/g, '').length >= 7;
   const canSubmit = name.trim().length >= 2 && phoneValid && code.trim().length >= JUDGE_CODE_MIN && consent;
 
-  async function submit() {
+  /** Register the judge (optionally recording that they passed the SMS check). */
+  async function finishRegistration(verified: boolean) {
+    await api.submitJudgeInvite(token, { name, phone: fullNumber, code, phoneVerified: verified });
+    setPhoneVerified(verified);
+    setState('done');
+  }
+
+  /** Turn a thrown error into the on-screen message + "is this a setup problem?" flag. */
+  function showError(err: unknown, set: (m: string) => void) {
+    set((err as Error).message);
+    setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
+  }
+
+  // Primary button on the details form: either text a code first, or (when SMS
+  // verification isn't active) register straight away, as before.
+  async function onPrimary() {
     setError('');
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.submitJudgeInvite(token, { name, phone: fullPhone(phoneIso, phone), code });
-      setState('done');
+      // Resolve availability now if the background probe hasn't answered yet, so a
+      // fast tapper never slips past the SMS gate on a project that requires it.
+      const needsSms = smsRequired ?? (await api.phoneVerificationAvailable());
+      setSmsRequired(needsSms);
+      if (needsSms) {
+        await api.startPhoneVerification(fullNumber);
+        setOtp('');
+        setOtpError('');
+        setResendIn(RESEND_COOLDOWN);
+        setState('verify');
+      } else {
+        await finishRegistration(false);
+      }
     } catch (err) {
-      setError((err as Error).message);
-      setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
+      showError(err, setError);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function onResend() {
+    if (resendIn > 0) return;
+    setOtpError('');
+    setBusy(true);
+    try {
+      await api.startPhoneVerification(fullNumber);
+      setResendIn(RESEND_COOLDOWN);
+    } catch (err) {
+      showError(err, setOtpError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // On the verify step: check the SMS code, then finish registration.
+  async function onVerify() {
+    setOtpError('');
+    setErrorIsSetup(false);
+    setBusy(true);
+    try {
+      await api.verifyPhoneCode(fullNumber, otp);
+      await finishRegistration(true);
+    } catch (err) {
+      showError(err, setOtpError);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (state === 'verify') {
+    const otpReady = otp.replace(/\D/g, '').length >= 6;
+    return (
+      <Shell>
+        <h1 className="mb-1 text-xl font-bold text-ink">Confirm your phone</h1>
+        <p className="mb-4 text-sm text-muted">
+          We texted a 6-digit code to <span className="font-semibold text-ink">{fullNumber}</span>. Enter it
+          below to prove this number is yours.
+        </p>
+
+        <Card className="p-4">
+          <Label>Verification code</Label>
+          <Input
+            value={otp}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            maxLength={6}
+            className="text-center text-lg tracking-[0.4em]"
+          />
+
+          {otpError && (
+            <div className="mt-3 rounded-xl border border-danger/40 bg-danger/5 p-3">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-danger">
+                {errorIsSetup ? "Server isn't ready" : "Couldn't verify"}
+              </p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{otpError}</p>
+            </div>
+          )}
+
+          <Button className="mt-3 w-full" disabled={busy || !otpReady} onClick={onVerify}>
+            {busy ? 'Checking…' : 'Verify & become a judge'}
+          </Button>
+
+          <div className="mt-3 flex items-center justify-between text-[12px]">
+            <button
+              type="button"
+              className="text-accent hover:underline disabled:text-muted disabled:no-underline"
+              disabled={busy || resendIn > 0}
+              onClick={onResend}
+            >
+              {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+            </button>
+            <button
+              type="button"
+              className="text-muted hover:text-ink hover:underline"
+              disabled={busy}
+              onClick={() => {
+                setState('ready');
+                setOtp('');
+                setOtpError('');
+              }}
+            >
+              Change number
+            </button>
+          </div>
+        </Card>
+      </Shell>
+    );
   }
 
   return (
@@ -174,9 +318,15 @@ export default function InviteAccept() {
         </p>
 
         <Label>Your phone number</Label>
-        <div className="mb-3">
+        <div className="mb-1">
           <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
         </div>
+        {smsRequired && (
+          <p className="mb-3 mt-1 text-[11px] text-muted">
+            We'll text a 6-digit code to this number so you can confirm it's really yours.
+          </p>
+        )}
+        {!smsRequired && <div className="mb-3" />}
 
         <Label>Set your judge password</Label>
         <Input
@@ -222,8 +372,18 @@ export default function InviteAccept() {
             )}
           </div>
         )}
-        <Button className="mt-3 w-full" disabled={busy || !canSubmit} onClick={submit}>
-          {busy ? 'Saving…' : error ? 'Try again' : 'Become a judge'}
+        <Button className="mt-3 w-full" disabled={busy || !canSubmit} onClick={onPrimary}>
+          {busy
+            ? smsRequired
+              ? 'Texting code…'
+              : 'Saving…'
+            : error
+              ? 'Try again'
+              : smsRequired
+                ? 'Send verification code'
+                : smsRequired === null
+                  ? 'Continue'
+                  : 'Become a judge'}
         </Button>
       </Card>
     </Shell>
