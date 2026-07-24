@@ -2,30 +2,21 @@
 -- Comitra · cross-device judge sync  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
--- No secret ever leaves your dashboard, which is why this is the method chosen
--- for maximum security.
 --
--- WHY YOU MIGHT BE RUNNING THIS AGAIN
---   The "become a judge" page failing with
---       Sync failed (401) … "code":"42501" …
---       new row violates row-level security policy for table "comitra_invited_judges"
---   means the TABLE exists but its RLS POLICIES do not. That happens when the
---   table was created by hand in the Table Editor (which turns RLS on and adds
---   no policies), or when an earlier run of this script rolled back part-way —
---   the SQL editor runs the whole script in ONE transaction, so a single failing
---   statement undoes everything after it. This version is written so that no
---   statement can fail on an existing install.
+-- WHY THE OLD APPROACH FAILED (error 42501 no matter how often you ran it):
+--   The app used to write with a direct `INSERT ... ON CONFLICT DO UPDATE` upsert.
+--   Under row-level security that operation ALSO needs a SELECT policy — but a
+--   SELECT policy would let anyone with the public key dump every phone number.
+--   So the design was self-contradictory: secure OR working, never both.
 --
--- Security model:
---   • RLS is ON. A visitor (anon key, which ships inside the app) may only
---     INSERT/UPDATE a judge row. There is deliberately NO select policy, so a
---     direct read of the table returns zero rows — the phone numbers in it
---     cannot be enumerated with the public key.
---   • Reads go through a SECURITY DEFINER function that requires the owner id,
---     so you can only list judges for an owner id you already know.
---   • The judge's PASSWORD is never stored here (not even hashed). It stays on
---     the judge's own device. This table only holds name + phone so the inviter
---     can see and pick the judge.
+-- THE FIX (this file): the table is fully LOCKED to the public key — no direct
+-- read, insert, or update at all. Every access goes through a SECURITY DEFINER
+-- function that runs with the owner's rights and does exactly one scoped thing:
+--   • comitra_register_invited_judge(...)  — upserts one judge row (write)
+--   • comitra_list_invited_judges(owner)   — lists judges for an owner you know
+--   • comitra_sync_status()                — "is the backend ready?" probe
+-- The table itself can't be read or dumped with the anon key, and the judge's
+-- password never touches the server. Maximum security AND it actually works.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── 1. Table ────────────────────────────────────────────────────────────────
@@ -40,27 +31,22 @@ create table if not exists public.comitra_invited_judges (
   unique (owner_user_id, phone)
 );
 
--- Self-heal a table that was created by hand with only some of the columns.
+-- Self-heal a table created by hand with only some columns / a legacy password col.
 alter table public.comitra_invited_judges add column if not exists owner_user_id         text;
 alter table public.comitra_invited_judges add column if not exists name                  text;
 alter table public.comitra_invited_judges add column if not exists phone                 text;
 alter table public.comitra_invited_judges add column if not exists judge_account_user_id text;
 alter table public.comitra_invited_judges add column if not exists consented_at          timestamptz;
 alter table public.comitra_invited_judges add column if not exists created_at            timestamptz not null default now();
-
--- Drop a legacy password column if an earlier version of this file created one.
-alter table public.comitra_invited_judges drop column if exists code_hash;
+alter table public.comitra_invited_judges drop  column if exists code_hash;
 
 create index if not exists comitra_invited_judges_owner_idx
   on public.comitra_invited_judges (owner_user_id);
 
--- The app upserts with ON CONFLICT (owner_user_id, phone), which needs a unique
--- key on exactly those columns. Add it only if it isn't already there.
+-- The upsert conflict target needs a unique key on exactly (owner_user_id, phone).
 do $$
 begin
   if not exists (
-    -- Any unique index covering exactly (owner_user_id, phone), whatever it is
-    -- called and in whichever column order.
     select 1
     from   pg_index i
     where  i.indrelid = 'public.comitra_invited_judges'::regclass
@@ -76,32 +62,42 @@ begin
   end if;
 end $$;
 
--- ── 2. Row level security ───────────────────────────────────────────────────
+-- ── 2. Lock the table down completely ───────────────────────────────────────
+-- RLS on + no policies + no grants = the anon/authenticated keys cannot touch
+-- the table directly at all. Only the SECURITY DEFINER functions below can.
 alter table public.comitra_invited_judges enable row level security;
-
--- Supabase already grants these to anon by default; stated explicitly so the
--- install does not depend on project defaults.
-grant insert, update on public.comitra_invited_judges to anon;
-grant insert, update on public.comitra_invited_judges to authenticated;
-
--- THE PART THAT WAS MISSING when you saw error 42501. Without these two
--- policies RLS rejects every write, whatever the grants say.
+revoke all on public.comitra_invited_judges from anon, authenticated;
 drop policy if exists comitra_ij_insert on public.comitra_invited_judges;
-create policy comitra_ij_insert on public.comitra_invited_judges
-  for insert to anon, authenticated
-  with check (true);
-
 drop policy if exists comitra_ij_update on public.comitra_invited_judges;
-create policy comitra_ij_update on public.comitra_invited_judges
-  for update to anon, authenticated
-  using (true) with check (true);
+drop policy if exists comitra_ij_select on public.comitra_invited_judges;
 
--- NOTE: there is intentionally no SELECT policy. Reading the table directly
--- therefore returns an empty list, and the only read path is the function below.
+-- ── 3. Write path (the ONLY way to write) ───────────────────────────────────
+create or replace function public.comitra_register_invited_judge(
+  p_id                    text,
+  p_owner_user_id         text,
+  p_name                  text,
+  p_phone                 text,
+  p_judge_account_user_id text,
+  p_consented_at          timestamptz,
+  p_created_at            timestamptz
+) returns void
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.comitra_invited_judges
+    (id, owner_user_id, name, phone, judge_account_user_id, consented_at, created_at)
+  values
+    (p_id, p_owner_user_id, p_name, p_phone, p_judge_account_user_id, p_consented_at, coalesce(p_created_at, now()))
+  on conflict (owner_user_id, phone) do update
+    set name                  = excluded.name,
+        judge_account_user_id = coalesce(excluded.judge_account_user_id, public.comitra_invited_judges.judge_account_user_id),
+        consented_at          = excluded.consented_at;
+$$;
 
--- ── 3. Read path (the only way to read rows) ────────────────────────────────
--- Dropped first so a signature change from an older install can never fail with
--- "cannot change return type of existing function".
+grant execute on function public.comitra_register_invited_judge(text,text,text,text,text,timestamptz,timestamptz) to anon, authenticated;
+
+-- ── 4. Read path (the ONLY way to read) ─────────────────────────────────────
 drop function if exists public.comitra_list_invited_judges(text);
 
 create function public.comitra_list_invited_judges(p_owner text)
@@ -114,13 +110,11 @@ as $$
   select * from public.comitra_invited_judges where owner_user_id = p_owner;
 $$;
 
-grant execute on function public.comitra_list_invited_judges(text) to anon;
-grant execute on function public.comitra_list_invited_judges(text) to authenticated;
+grant execute on function public.comitra_list_invited_judges(text) to anon, authenticated;
 
--- ── 3b. Setup probe ─────────────────────────────────────────────────────────
--- Lets the app tell the inviter, before they send a link, whether a friend will
--- actually be able to register. A missing write policy is invisible from a read,
--- so the app asks here instead of finding out on someone else's phone.
+-- ── 5. Setup probe ──────────────────────────────────────────────────────────
+-- Lets Profile → Invite friends show "Sync · on" before a link is sent. Ready
+-- means the write function exists (kept as has_insert/has_update for the client).
 drop function if exists public.comitra_sync_status();
 
 create function public.comitra_sync_status()
@@ -131,28 +125,21 @@ security definer
 set search_path = public
 as $$
   select
-    exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'comitra_invited_judges' and cmd = 'INSERT'
-    ),
-    exists (
-      select 1 from pg_policies
-      where schemaname = 'public' and tablename = 'comitra_invited_judges' and cmd = 'UPDATE'
-    );
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'comitra_register_invited_judge'),
+    exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+            where n.nspname = 'public' and p.proname = 'comitra_register_invited_judge');
 $$;
 
-grant execute on function public.comitra_sync_status() to anon;
-grant execute on function public.comitra_sync_status() to authenticated;
+grant execute on function public.comitra_sync_status() to anon, authenticated;
 
--- ── 4. Verification — read the output of this query ─────────────────────────
--- You should get exactly two rows: comitra_ij_insert and comitra_ij_update.
--- If you get zero rows, the script did not commit — re-run it and read the
--- error message the editor shows.
-select policyname, cmd, roles
-from   pg_policies
-where  schemaname = 'public'
-and    tablename  = 'comitra_invited_judges'
-order  by policyname;
+-- ── 6. Verification — read the output of this query ─────────────────────────
+-- Expect three rows: comitra_list_invited_judges, comitra_register_invited_judge,
+-- comitra_sync_status. If you get fewer, re-run and read the editor's error.
+select proname
+from   pg_proc p join pg_namespace n on n.oid = p.pronamespace
+where  n.nspname = 'public' and proname like 'comitra\_%'
+order  by proname;
 
 -- Done. Reload the app; invite → “Become a judge” → the judge shows up in the
 -- inviter's judge picker on their own device.

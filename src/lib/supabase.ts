@@ -51,8 +51,6 @@ export interface RemoteInvitedJudge {
   created_at: string;
 }
 
-const TABLE = 'comitra_invited_judges';
-
 /**
  * What went wrong with a shared-store write, in terms the UI can act on.
  *
@@ -144,12 +142,25 @@ export async function remoteUpsertInvitedJudge(row: RemoteInvitedJudge): Promise
   }
   let res: Response;
   try {
+    // Writes go through a SECURITY DEFINER function, NOT a direct table insert.
+    // The table is fully locked to the anon key (it can't be read/dumped, and a
+    // direct `INSERT ... ON CONFLICT` upsert is impossible without a SELECT policy
+    // that would leak every phone number). The function performs the upsert
+    // server-side. See supabase/comitra_invited_judges.sql.
     res = await timedFetch(
-      `${base}/${TABLE}?on_conflict=owner_user_id,phone`,
+      `${base}/rpc/comitra_register_invited_judge`,
       {
         method: 'POST',
-        headers: headers({ Prefer: 'resolution=merge-duplicates,return=minimal' }),
-        body: JSON.stringify(row),
+        headers: headers(),
+        body: JSON.stringify({
+          p_id: row.id,
+          p_owner_user_id: row.owner_user_id,
+          p_name: row.name,
+          p_phone: row.phone,
+          p_judge_account_user_id: row.judge_account_user_id,
+          p_consented_at: row.consented_at,
+          p_created_at: row.created_at,
+        }),
       },
     );
   } catch {
