@@ -372,6 +372,17 @@ export interface Subscription {
 /** Account type. `trainer` unlocks the coach panel and being a client's judge. */
 export type AccountType = 'standard' | 'trainer';
 
+/**
+ * Who may see the Profile tab (a user's finished goals + success rates).
+ *  • `public`  — anyone
+ *  • `friends` — only people you follow who also follow you back
+ *  • `private` — only you
+ * The owner always sees their own. Goal CONTENT is a separate, per-goal opt-in
+ * (`Goal.isPublic`): a visible goal the owner never published still shows as
+ * "Goal #N".
+ */
+export type ProfileVisibility = 'public' | 'friends' | 'private';
+
 export interface User {
   id: string;
   name: string;
@@ -399,6 +410,12 @@ export interface User {
   bio: string;
   avatar: string;
   following: string[];
+  /** Who can see this account's goals. Backfilled from `isPrivate` for old rows. */
+  profileVisibility: ProfileVisibility;
+  /**
+   * Mirror of `profileVisibility === 'private'`, kept in sync by `normalizeUser`.
+   * Still the flag that hides the follower/following lists.
+   */
   isPrivate: boolean;
 
   // ── DEPRECATED money fields (kept so old accounts still load) ────────────

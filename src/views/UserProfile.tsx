@@ -2,14 +2,12 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import type { Relationship, SocialProfile } from '../lib/api';
-import { goalRefTitle, isPublicGoal } from '../lib/goal';
-import { statusMeta } from '../lib/status';
-import type { Goal } from '../lib/types';
+import type { ProfileGoalsView, Relationship, SocialProfile } from '../lib/api';
 import { Avatar } from '../components/Avatar';
 import AuthModal from '../components/AuthModal';
 import FollowListModal from '../components/FollowListModal';
 import PageHeader from '../components/PageHeader';
+import ProfileGoals from '../components/ProfileGoals';
 import { Badge, Button, Card } from '../components/ui';
 
 const STATUS_BADGE: Record<Relationship, { label: string; tone: 'accent' | 'active' | 'neutral' } | null> = {
@@ -28,11 +26,11 @@ function followLabel(status: Relationship) {
 }
 
 /**
- * Dedicated public-profile page (Instagram-style), reached by tapping a user in
- * the Social tab. Shows the person's avatar, network counts, and completed
- * challenges. Private challenges hide their content to outside viewers — only the
- * outcome and the amount staked remain. Guests can browse but must sign up to
- * follow. Visiting your own id renders an owner view (no follow button).
+ * Someone else's profile, reached by tapping a user in the Social tab. The
+ * identity card (avatar, counts, follow button) is always visible; their goals
+ * and success rates sit below it and are gated by their own visibility setting —
+ * `api.getProfileGoals` makes that call, not this screen. Guests can browse but
+ * must sign up to follow. Visiting your own id renders an owner view.
  */
 export default function UserProfile() {
   const { user, refresh } = useApp();
@@ -40,7 +38,7 @@ export default function UserProfile() {
   const navigate = useNavigate();
 
   const [profile, setProfile] = useState<SocialProfile | null>(null);
-  const [goals, setGoals] = useState<Goal[] | null>(null);
+  const [goalsView, setGoalsView] = useState<ProfileGoalsView | null>(null);
   const [judgeRating, setJudgeRating] = useState<{ avg: number; count: number }>({ avg: 0, count: 0 });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -55,14 +53,14 @@ export default function UserProfile() {
     setProfile(p);
     setLoading(false);
     if (p) {
-      api.listCompletedGoals(userId).then(setGoals);
+      api.getProfileGoals(viewerId, userId).then(setGoalsView);
       api.getJudgeRatingSummary(userId).then(setJudgeRating);
     }
   }
 
   useEffect(() => {
     setLoading(true);
-    setGoals(null);
+    setGoalsView(null);
     setJudgeRating({ avg: 0, count: 0 });
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -111,7 +109,9 @@ export default function UserProfile() {
               <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
                 <p className="text-xl font-bold text-ink">{profile.name}</p>
                 {badge && <Badge tone={badge.tone}>{badge.label}</Badge>}
-                {profile.isPrivate && <Badge tone="neutral">Private</Badge>}
+                {profile.visibility !== 'public' && (
+                  <Badge tone="neutral">{profile.visibility === 'private' ? 'Private' : 'Friends only'}</Badge>
+                )}
               </div>
               {profile.bio && <p className="mt-1 text-sm text-muted">{profile.bio}</p>}
 
@@ -166,23 +166,9 @@ export default function UserProfile() {
             </div>
           </Card>
 
-          {/* Completed challenges — outcome + whether money was staked. */}
-          <h2 className="mb-2 mt-5 font-mono text-xs uppercase tracking-widest text-muted">
-            Completed challenges {goals && `· ${goals.length}`}
-          </h2>
-          {goals === null ? (
-            <p className="py-6 text-center text-xs text-muted">Loading…</p>
-          ) : goals.length === 0 ? (
-            <Card className="p-5 text-center">
-              <p className="text-sm text-muted">No completed challenges yet.</p>
-            </Card>
-          ) : (
-            <div className="space-y-1.5">
-              {goals.map((g) => (
-                <CompletedGoalRow key={g.id} goal={g} hideContent={!isOwner && !isPublicGoal(g)} />
-              ))}
-            </div>
-          )}
+          {/* Their goals + success rate, if their visibility setting allows it. */}
+          <h2 className="mb-2 mt-5 font-mono text-xs uppercase tracking-widest text-muted">Goals</h2>
+          <ProfileGoals view={goalsView} isOwner={isOwner} ownerName={profile.name.split(' ')[0]} />
         </>
       )}
 
@@ -206,25 +192,3 @@ export default function UserProfile() {
   );
 }
 
-/**
- * One row of someone's FINISHED goals. Goal content belongs to its owner, so
- * another person sees the number and the result — unless the owner published
- * that particular goal. Running goals never reach this list at all.
- */
-function CompletedGoalRow({ goal, hideContent }: { goal: Goal; hideContent: boolean }) {
-  const meta = statusMeta(goal.status);
-  return (
-    <div className="flex items-center gap-2 rounded border border-line bg-elevated px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        {hideContent ? (
-          <p className="flex items-center gap-1.5 truncate text-xs font-medium text-muted">
-            <span aria-hidden>🔒</span> {goalRefTitle(goal)}
-          </p>
-        ) : (
-          <p className="truncate text-xs font-medium text-ink">{goal.title}</p>
-        )}
-      </div>
-      <Badge tone={meta.tone}>{meta.short}</Badge>
-    </div>
-  );
-}

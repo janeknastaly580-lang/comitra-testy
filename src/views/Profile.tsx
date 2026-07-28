@@ -3,17 +3,29 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { downscaleImage } from '../lib/image';
+import type { ProfileVisibility } from '../lib/types';
 import { Avatar, AVATAR_PRESETS, PresetAvatarSvg } from '../components/Avatar';
 import ConfirmDialog from '../components/ConfirmDialog';
 import FollowListModal from '../components/FollowListModal';
 import PageHeader from '../components/PageHeader';
+import ProfileGoals from '../components/ProfileGoals';
 import { Badge, Button, Card, Input, Label, PremiumTag, Textarea } from '../components/ui';
+
+/** The two halves of your own profile: what people see, and everything you set. */
+type Tab = 'profile' | 'settings';
+
+const VISIBILITY_OPTIONS: { id: ProfileVisibility; label: string; blurb: string }[] = [
+  { id: 'public', label: 'Public', blurb: 'Anyone can see your goals and success rate.' },
+  { id: 'friends', label: 'Public for friends', blurb: 'Only people you follow who also follow you back.' },
+  { id: 'private', label: 'Private', blurb: 'Only you. Your follower lists are hidden too.' },
+];
 
 export default function Profile() {
   const { user, logout, deleteAccount, refresh, patchUser } = useApp();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [tab, setTab] = useState<Tab>('profile');
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
@@ -24,6 +36,9 @@ export default function Profile() {
 
   const [stats, setStats] = useState({ followers: 0, following: 0 });
   const [followList, setFollowList] = useState<'followers' | 'following' | null>(null);
+  const [goalsView, setGoalsView] = useState<api.ProfileGoalsView | null>(null);
+  // Opening up is the change worth a second thought; locking down never is.
+  const [confirmVisibility, setConfirmVisibility] = useState<ProfileVisibility | null>(null);
 
   const userId = user?.id;
   async function loadStats() {
@@ -35,10 +50,27 @@ export default function Profile() {
   }
   useEffect(() => {
     loadStats();
+    if (userId) api.getProfileGoals(userId, userId).then(setGoalsView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
   if (!user) return null;
+
+  const visibility: ProfileVisibility = user.profileVisibility ?? (user.isPrivate ? 'private' : 'public');
+
+  /** Private needs no confirmation; opening the profile up does. */
+  function pickVisibility(next: ProfileVisibility) {
+    if (next === visibility) return;
+    if (next === 'private') return applyVisibility(next);
+    setConfirmVisibility(next);
+  }
+
+  async function applyVisibility(next: ProfileVisibility) {
+    setBusy(true);
+    await patchUser({ profileVisibility: next, isPrivate: next === 'private' });
+    setBusy(false);
+    setConfirmVisibility(null);
+  }
 
   const entitled = api.hasEntitlement(user);
   const subStatus = user.subscription.status;
@@ -89,7 +121,14 @@ export default function Profile() {
         title="Profile"
         action={
           !editing && (
-            <Button variant="outline" className="px-3 py-2" onClick={startEdit}>
+            <Button
+              variant="outline"
+              className="px-3 py-2"
+              onClick={() => {
+                setTab('settings');
+                startEdit();
+              }}
+            >
               Edit
             </Button>
           )
@@ -104,7 +143,9 @@ export default function Profile() {
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold text-ink">{user.name}</p>
               {user.isPremium && <PremiumTag />}
-              {user.isPrivate && <Badge tone="neutral">Private</Badge>}
+              {visibility !== 'public' && (
+                <Badge tone="neutral">{visibility === 'private' ? 'Private' : 'Friends only'}</Badge>
+              )}
             </div>
             <p className="truncate text-xs text-muted">{user.email}</p>
             {user.bio && <p className="mt-1 line-clamp-2 text-xs text-ink">{user.bio}</p>}
@@ -130,6 +171,29 @@ export default function Profile() {
         </div>
       </Card>
 
+      {/* Tabs — the identity card above stays visible for both of them. */}
+      <div className="mb-4 grid grid-cols-2 gap-1.5 rounded-xl border border-line bg-elevated p-1">
+        {([{ id: 'profile', label: 'Profile' }, { id: 'settings', label: 'Settings' }] as const).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setTab(t.id)}
+            className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
+              tab === t.id ? 'bg-accent text-on-accent' : 'text-muted hover:text-ink'
+            }`}
+            aria-pressed={tab === t.id}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'profile' && (
+        <ProfileGoals view={goalsView} isOwner ownerName={user.name} />
+      )}
+
+      {tab === 'settings' && (
+      <>
       {/* Edit profile */}
       {editing && (
         <Card className="mb-4 p-4">
@@ -215,28 +279,38 @@ export default function Profile() {
         </Button>
       </Card>
 
-      {/* Privacy */}
+      {/* Privacy — who may open your Profile tab. */}
       <Card className="mb-4 p-4">
-        <div className="mb-3 flex items-center gap-2">
-          <span className="font-mono text-xs uppercase tracking-widest text-muted">Privacy</span>
+        <div className="mb-1 flex items-center gap-2">
+          <span className="font-mono text-xs uppercase tracking-widest text-muted">Who can see your goals</span>
         </div>
-        <label className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm text-ink">Private profile</p>
-            <p className="text-[11px] text-muted">
-              When on, other people can't see who follows you or who you follow.
-            </p>
-          </div>
-          <Toggle
-            on={user.isPrivate}
-            disabled={busy}
-            onChange={async (v) => {
-              setBusy(true);
-              await patchUser({ isPrivate: v });
-              setBusy(false);
-            }}
-          />
-        </label>
+        <p className="mb-3 text-[11px] text-muted">
+          This covers the Profile tab: your finished goals and your success rate. You can change it
+          back at any time.
+        </p>
+        <div className="space-y-2">
+          {VISIBILITY_OPTIONS.map((o) => (
+            <label
+              key={o.id}
+              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${
+                visibility === o.id ? 'border-accent bg-accent/5' : 'border-line'
+              }`}
+            >
+              <input
+                type="radio"
+                name="visibility"
+                checked={visibility === o.id}
+                disabled={busy}
+                onChange={() => pickVisibility(o.id)}
+                className="mt-1 h-4 w-4 shrink-0 accent-[color:rgb(var(--c-accent))]"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">{o.label}</p>
+                <p className="text-[11px] text-muted">{o.blurb}</p>
+              </div>
+            </label>
+          ))}
+        </div>
       </Card>
 
       {/* Navigation */}
@@ -267,6 +341,33 @@ export default function Profile() {
       >
         Delete account
       </button>
+      </>
+      )}
+
+      <ConfirmDialog
+        open={confirmVisibility !== null}
+        title={confirmVisibility === 'friends' ? 'Show your goals to friends?' : 'Make your profile public?'}
+        confirmLabel={confirmVisibility === 'friends' ? 'Yes, show friends' : 'Yes, make it public'}
+        cancelLabel="Keep it as it is"
+        busy={busy}
+        message={
+          confirmVisibility === 'friends' ? (
+            <>
+              People you follow who also follow you back will be able to see your finished goals and
+              your success rate. Goals you haven't published still show only as{' '}
+              <span className="text-ink">“Goal #N”</span>. You can switch back whenever you like.
+            </>
+          ) : (
+            <>
+              <span className="text-ink">Anyone</span> will be able to see your finished goals and your
+              success rate. Goals you haven't published still show only as{' '}
+              <span className="text-ink">“Goal #N”</span>. You can switch back whenever you like.
+            </>
+          )
+        }
+        onConfirm={() => applyVisibility(confirmVisibility!)}
+        onCancel={() => setConfirmVisibility(null)}
+      />
 
       <ConfirmDialog
         open={confirmDelete}
@@ -324,44 +425,3 @@ function NavRow({
   );
 }
 
-function Toggle({
-  on,
-  onChange,
-  disabled,
-}: {
-  on: boolean;
-  onChange: (v: boolean) => void;
-  disabled?: boolean;
-}) {
-  // Track is 44×24 with a 1px border, so the padding box is 42×22 and a 16px knob
-  // sits 3px from either end. The offsets are inline because they must stay exact:
-  // an off-by-a-pixel class here is what pushed the knob outside the pill.
-  const KNOB = 16;
-  const INSET = 3;
-  const TRAVEL = 42 - KNOB - INSET * 2;
-
-  return (
-    // `shrink-0` keeps the track at its full width in a flex row — without it a
-    // long label squeezed the track while the knob kept its fixed offset, so the
-    // knob slid out past the pill. `overflow-hidden` is the belt-and-braces guard.
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => onChange(!on)}
-      className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full border transition disabled:opacity-50 ${
-        on ? 'border-accent bg-accent/20' : 'border-line bg-elevated'
-      }`}
-      aria-pressed={on}
-    >
-      <span
-        className={`absolute rounded-full transition-all duration-200 ${on ? 'bg-accent' : 'bg-muted'}`}
-        style={{
-          width: KNOB,
-          height: KNOB,
-          top: INSET,
-          left: on ? INSET + TRAVEL : INSET,
-        }}
-      />
-    </button>
-  );
-}

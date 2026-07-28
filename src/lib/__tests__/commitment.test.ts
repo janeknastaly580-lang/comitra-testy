@@ -265,6 +265,93 @@ describe('publishing one finished goal', () => {
   });
 });
 
+describe('profile visibility (public / friends / private)', () => {
+  /** An owner with one completed solo goal and one judged goal that was missed. */
+  async function ownerWithHistory() {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const solo = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    await api.completeSoloGoal(solo.id, owner.id);
+    const judged = await api.createGoal(goalInput(owner.id, { recipients: [] }));
+    setDevice('judge-device');
+    await api.acceptJudge(judged.id, judged.judge.acceptToken, JUDGE_CODE);
+    await api.requestEarlyDecision(judged.id, owner.id);
+    await api.judgeDecision(judged.id, judged.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    setDevice('creator-device');
+    return { owner, solo, judged };
+  }
+
+  it('splits goals into no-judge / judged and computes each success rate', async () => {
+    const { owner, solo, judged } = await ownerWithHistory();
+    const view = await api.getProfileGoals(owner.id, owner.id);
+    expect(view.allowed).toBe(true);
+    expect(view.solo.goals.map((g) => g.id)).toEqual([solo.id]);
+    expect(view.judged.goals.map((g) => g.id)).toEqual([judged.id]);
+    expect(view.solo.successRate).toBe(100); // 1 completed, 0 missed
+    expect(view.judged.successRate).toBe(0); // 0 completed, 1 missed
+  });
+
+  it('a running goal never appears on a profile', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const running = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    const view = await api.getProfileGoals(owner.id, owner.id);
+    expect([...view.solo.goals, ...view.judged.goals].map((g) => g.id)).not.toContain(running.id);
+  });
+
+  it('private hides the goals from everyone but the owner', async () => {
+    const { owner } = await ownerWithHistory();
+    await api.setProfileVisibility(owner.id, 'private');
+    const stranger = await freshOwner();
+
+    const asOwner = await api.getProfileGoals(owner.id, owner.id);
+    expect(asOwner.allowed).toBe(true);
+
+    const asStranger = await api.getProfileGoals(stranger.id, owner.id);
+    expect(asStranger.allowed).toBe(false);
+    expect(asStranger.blockedBy).toBe('private');
+    expect(asStranger.solo.goals).toHaveLength(0);
+  });
+
+  it('friends-only needs a follow in BOTH directions', async () => {
+    const { owner } = await ownerWithHistory();
+    await api.setProfileVisibility(owner.id, 'friends');
+    const other = await freshOwner();
+
+    // Nobody follows anybody yet.
+    expect((await api.getProfileGoals(other.id, owner.id)).blockedBy).toBe('friends-only');
+
+    // One-way follow is still not enough.
+    await api.toggleFollow(other.id, owner.id);
+    expect((await api.getProfileGoals(other.id, owner.id)).allowed).toBe(false);
+
+    // Followed back → friends → allowed.
+    await api.toggleFollow(owner.id, other.id);
+    expect((await api.getProfileGoals(other.id, owner.id)).allowed).toBe(true);
+  });
+
+  it('public lets anyone see them', async () => {
+    const { owner } = await ownerWithHistory();
+    await api.setProfileVisibility(owner.id, 'public');
+    const stranger = await freshOwner();
+    expect((await api.getProfileGoals(stranger.id, owner.id)).allowed).toBe(true);
+  });
+
+  it('visibility never reveals goal content — that stays per goal', async () => {
+    const { owner, solo } = await ownerWithHistory();
+    await api.setProfileVisibility(owner.id, 'public');
+    const stranger = await freshOwner();
+    const view = await api.getProfileGoals(stranger.id, owner.id);
+    // The goal is visible in the list, but still unpublished…
+    expect(view.solo.goals[0].id).toBe(solo.id);
+    expect(view.solo.goals[0].isPublic).toBe(false);
+    // …until the owner publishes that one goal.
+    await api.setGoalVisibility(solo.id, owner.id, true);
+    const after = await api.getProfileGoals(stranger.id, owner.id);
+    expect(after.solo.goals[0].isPublic).toBe(true);
+  });
+});
+
 describe('a missed goal must be reflected on before a new one', () => {
   /** Create a solo goal and force it past its deadline so it is "missed". */
   async function missedSoloGoal() {

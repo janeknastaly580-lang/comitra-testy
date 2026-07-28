@@ -61,6 +61,7 @@ import type {
   OutboxMessage,
   PlanId,
   PlannedAction,
+  ProfileVisibility,
   RecipientConsent,
   Subscription,
   TeamChallenge,
@@ -253,6 +254,14 @@ function normalizeUser(user: User): User {
   if (next.avatar === undefined) { next.avatar = 'preset-1'; changed = true; }
   if (next.bio === undefined) { next.bio = ''; changed = true; }
   if (next.isPrivate === undefined) { next.isPrivate = false; changed = true; }
+  // Accounts made before the three-way setting existed: derive it from the old
+  // boolean, then keep the boolean as a mirror so follower-list hiding still works.
+  if (next.profileVisibility === undefined) {
+    next.profileVisibility = next.isPrivate ? 'private' : 'public';
+    changed = true;
+  }
+  const derivedPrivate = next.profileVisibility === 'private';
+  if (next.isPrivate !== derivedPrivate) { next.isPrivate = derivedPrivate; changed = true; }
 
   return changed ? persistUser(next) : next;
 }
@@ -311,6 +320,7 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
     bio: '',
     avatar: 'preset-1',
     following: [],
+    profileVisibility: 'public',
     isPrivate: false,
     ...over,
   };
@@ -2041,6 +2051,9 @@ export interface SocialProfile {
   status: Relationship;
   followers: number;
   following: number;
+  /** Who this account lets see its goals. */
+  visibility: ProfileVisibility;
+  /** True when `visibility === 'private'` — also hides the follower lists. */
   isPrivate: boolean;
 }
 
@@ -2089,6 +2102,7 @@ function blankFakeUser(p: (typeof FAKE_PROFILES)[number]): User {
     bio: p.bio,
     avatar: p.avatar,
     following: [],
+    profileVisibility: 'public',
     isPrivate: false,
   };
 }
@@ -2206,8 +2220,14 @@ function toSocialProfile(u: User, me: User, followerCount: Map<string, number>):
     status: relationship(me, u),
     followers: (followerCount.get(u.id) ?? 0) + (POPULARITY.get(u.id) ?? 0),
     following: u.following.length,
-    isPrivate: u.isPrivate ?? false,
+    visibility: visibilityOf(u),
+    isPrivate: visibilityOf(u) === 'private',
   };
+}
+
+/** A user's goal visibility, defaulting old rows from the legacy boolean. */
+function visibilityOf(u: User): ProfileVisibility {
+  return u.profileVisibility ?? (u.isPrivate ? 'private' : 'public');
 }
 
 export async function listProfiles(currentUserId: string): Promise<SocialProfile[]> {
@@ -2387,6 +2407,98 @@ export async function listJournal(userId: string): Promise<JournalEntry[]> {
 }
 
 /** A user's finished (terminal) goals, newest first, for their public profile. */
+/* ────────────────────────────────────── Profile goals + success rate ── */
+
+/** One tab of the profile: the goals in it and how they went. */
+export interface GoalTabStats {
+  goals: Goal[];
+  completed: number;
+  missed: number;
+  /** completed / (completed + missed) as a whole percent; null with nothing decided. */
+  successRate: number | null;
+}
+
+/** Why a viewer may not see someone's goals. */
+export type ProfileGoalsBlock = 'private' | 'friends-only';
+
+export interface ProfileGoalsView {
+  allowed: boolean;
+  blockedBy?: ProfileGoalsBlock;
+  /** Goals the user set for themselves, with no judge. */
+  solo: GoalTabStats;
+  /** Goals a judge ruled on. */
+  judged: GoalTabStats;
+}
+
+function tabStats(goals: Goal[]): GoalTabStats {
+  const completed = goals.filter((g) => g.status === 'completed').length;
+  const missed = goals.filter((g) => g.status === 'failed_notified').length;
+  const decided = completed + missed;
+  return {
+    goals,
+    completed,
+    missed,
+    successRate: decided > 0 ? Math.round((completed / decided) * 100) : null,
+  };
+}
+
+const emptyTab = (): GoalTabStats => ({ goals: [], completed: 0, missed: 0, successRate: null });
+
+/**
+ * The finished goals shown on someone's profile, split into "no judge" and
+ * "with a judge", each with its success rate.
+ *
+ * The visibility rule lives HERE rather than in the view, so no screen can leak
+ * a private profile by forgetting to check: `private` → owner only, `friends` →
+ * mutual follows only, `public` → anyone. Goal CONTENT is still per goal — the
+ * caller renders an unpublished goal as "Goal #N" (see `goalPublicLabel`).
+ */
+export async function getProfileGoals(viewerId: string, targetId: string): Promise<ProfileGoalsView> {
+  await delay(80);
+  resolveExpired();
+  const users = getUsers();
+  const target = users.find((u) => u.id === targetId);
+  const viewer = users.find((u) => u.id === viewerId);
+  if (!target) return { allowed: false, blockedBy: 'private', solo: emptyTab(), judged: emptyTab() };
+
+  const isOwner = viewerId === targetId;
+  const visibility = visibilityOf(target);
+  if (!isOwner && visibility !== 'public') {
+    if (visibility === 'private') {
+      return { allowed: false, blockedBy: 'private', solo: emptyTab(), judged: emptyTab() };
+    }
+    // 'friends' — mutual follow required, in both directions.
+    const friends =
+      !!viewer && viewer.following.includes(targetId) && target.following.includes(viewerId);
+    if (!friends) {
+      return { allowed: false, blockedBy: 'friends-only', solo: emptyTab(), judged: emptyTab() };
+    }
+  }
+
+  const finished = getGoals()
+    .filter((g) => g.userId === targetId && TERMINAL_STATUSES.includes(g.status))
+    .sort(
+      (a, b) =>
+        +new Date(b.failedAt ?? b.completedAt ?? b.createdAt) -
+        +new Date(a.failedAt ?? a.completedAt ?? a.createdAt),
+    );
+
+  return {
+    allowed: true,
+    solo: tabStats(finished.filter((g) => g.noJudge)),
+    judged: tabStats(finished.filter((g) => !g.noJudge)),
+  };
+}
+
+/** Change who can see this account's goals. Always reversible. */
+export async function setProfileVisibility(userId: string, visibility: ProfileVisibility): Promise<User> {
+  await delay(60);
+  const user = getUsers().find((u) => u.id === userId);
+  if (!user) throw new Error('User not found.');
+  logAudit({ actorId: userId, actionType: 'profile_visibility_changed', entityType: 'user', entityId: userId, metadata: { visibility } });
+  return normalizeUser(persistUser({ ...user, profileVisibility: visibility, isPrivate: visibility === 'private' }));
+}
+
 /**
  * A user's FINISHED goals — what a profile shows. Running goals are deliberately
  * excluded: while a goal is live it is nobody's business but the owner's.
