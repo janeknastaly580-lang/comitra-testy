@@ -77,7 +77,7 @@ export default function Privacy() {
               'Account data: email address and a display name.',
               'Authentication data: a password (when you register with email) that you set yourself.',
               'Profile data: optional bio and a profile photo (either a preset avatar or an image you upload).',
-              'Content you enter: goals (title, description, deadline), the message tone you choose, and any proof of completion you add.',
+              'Content you enter: goals (title, description, deadline), the message tone you choose, any proof of completion you add, and the answers you write after a goal you did not complete. A goal’s title and description, and those answers, are shown only to you — your judge and your recipients receive the goal’s number (e.g. “goal #3”) and nothing else.',
               'Judge and recipient data: the name and contact details (e.g. phone number or email) of the judge you nominate and of the people you choose to be notified. You are responsible for having a lawful basis to share another person’s details with us, and each of them must accept before taking part.',
               'Support and community data: messages you send us, feature requests you post, votes you cast, and tester applications you submit.',
             ]}

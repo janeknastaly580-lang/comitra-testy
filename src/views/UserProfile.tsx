@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import type { Relationship, SocialProfile } from '../lib/api';
+import { goalRefTitle } from '../lib/goal';
 import { statusMeta } from '../lib/status';
 import type { Goal } from '../lib/types';
 import { Avatar } from '../components/Avatar';
@@ -178,7 +179,7 @@ export default function UserProfile() {
           ) : (
             <div className="space-y-1.5">
               {goals.map((g) => (
-                <CompletedGoalRow key={g.id} goal={g} hideContent={!!g.isPrivate && !isOwner} />
+                <CompletedGoalRow key={g.id} goal={g} hideContent={!isOwner} />
               ))}
             </div>
           )}
@@ -205,6 +206,10 @@ export default function UserProfile() {
   );
 }
 
+/**
+ * One row of someone's goal history. Goal content belongs to its owner alone, so
+ * anyone else sees the goal's number and its result — never the title.
+ */
 function CompletedGoalRow({ goal, hideContent }: { goal: Goal; hideContent: boolean }) {
   const meta = statusMeta(goal.status);
   return (
@@ -212,7 +217,7 @@ function CompletedGoalRow({ goal, hideContent }: { goal: Goal; hideContent: bool
       <div className="min-w-0 flex-1">
         {hideContent ? (
           <p className="flex items-center gap-1.5 truncate text-xs font-medium text-muted">
-            <span aria-hidden>🔒</span> Private goal
+            <span aria-hidden>🔒</span> {goalRefTitle(goal)}
           </p>
         ) : (
           <p className="truncate text-xs font-medium text-ink">{goal.title}</p>

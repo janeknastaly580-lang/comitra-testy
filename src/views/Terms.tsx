@@ -104,8 +104,13 @@ export default function Terms() {
             A message is sent to a recipient only if all of these are true: the judge marked the goal
             as not completed; the recipient had accepted; and the recipient had not withdrawn consent.
             Before a goal starts you choose the message tone and see a preview of exactly what would be
-            sent. By default the message does not reveal your goal's content unless you explicitly turn
-            that on.
+            sent.
+          </P>
+          <P>
+            Your goal's content is never shared. Messages to your judge and to your recipients contain
+            only your name and the goal's number (for example "goal #3") — never its title or details,
+            and there is no setting that changes this. If you want your judge to know what the goal is,
+            you tell them yourself.
           </P>
         </Section>
 

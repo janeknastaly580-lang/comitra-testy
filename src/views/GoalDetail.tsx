@@ -4,13 +4,14 @@ import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { BLOCK_DURATIONS } from '../lib/constants';
 import { countdown, dateTime, shortDate } from '../lib/format';
-import { deadlineElapsedPct, goalStart, isSoloGoal } from '../lib/goal';
+import { deadlineElapsedPct, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
 import { failureMessageForGoal } from '../lib/messages';
 import { judgeLink, recipientLink } from '../lib/share';
 import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
-import type { Goal, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
+import type { Goal, GoalReflection, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
+import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
 
@@ -28,6 +29,7 @@ export default function GoalDetail() {
   const [consents, setConsents] = useState<RecipientConsent[]>([]);
   const [notes, setNotes] = useState<NotificationLog[]>([]);
   const [outbox, setOutbox] = useState<OutboxMessage[]>([]);
+  const [reflection, setReflection] = useState<GoalReflection | null>(null);
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [rateVal, setRateVal] = useState('');
@@ -47,6 +49,7 @@ export default function GoalDetail() {
     setGoal(g);
     setConsents(await api.listOwnerConsents(user.id));
     setOutbox(await api.listOutbox(id));
+    setReflection(await api.getGoalReflection(id));
     if (g && g.status === 'failed_notified') setNotes(await api.listGoalNotifications(g.id));
   }
 
@@ -191,6 +194,44 @@ export default function GoalDetail() {
 
       {goal.description && <p className="mb-4 text-sm text-muted">{goal.description}</p>}
 
+      {/* The number is what everyone else sees — the title above never leaves this screen. */}
+      <Card className="mb-4 border-accent/30 bg-accent/5 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-accent">
+              {isSoloGoal(goal) ? 'Your reference' : 'What your judge sees'}
+            </p>
+            <p className="mt-0.5 text-base font-bold text-ink">{goalRefTitle(goal)}</p>
+          </div>
+          <Badge tone="accent">#{goal.goalNumber}</Badge>
+        </div>
+        {!isSoloGoal(goal) && (
+          <p className="mt-2 text-[11px] leading-relaxed text-muted">
+            The notification sent to your judge does not contain your goal’s content — only this number.
+            Tell {goal.judge.name} yourself what {goalRefTitle(goal).toLowerCase()} is.
+            {goal.recipients.length > 0 && ' Recipients only ever see this number too.'}
+          </p>
+        )}
+      </Card>
+
+      {/* Answers owed after a missed goal — private to the user. */}
+      {(goal.status === 'failed_notified' || goal.status === 'failed_pending_notification') && (
+        <div className="mb-4">
+          {reflection ? (
+            <Card className="p-4">
+              <Label>Your answers</Label>
+              <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted">Why didn’t it work out?</p>
+              <p className="text-sm text-ink">{reflection.whyFailed}</p>
+              <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-muted">What will you do next time?</p>
+              <p className="text-sm text-ink">{reflection.nextTime}</p>
+              <p className="mt-2 text-[11px] text-muted">Only you can see this.</p>
+            </Card>
+          ) : (
+            <ReflectionForm goal={goal} onDone={load} />
+          )}
+        </div>
+      )}
+
       {/* Deadline progress — how much of the goal period has elapsed */}
       <Card className="mb-4 p-4">
         <div className="mb-1 flex items-center justify-between">
@@ -209,8 +250,9 @@ export default function GoalDetail() {
         </div>
       </Card>
 
-      {/* Solo penalty: app block */}
-      {isSoloGoal(goal) && goal.appBlock && (
+      {/* Penalty: app block. Solo goals fire it on a missed deadline, judged goals
+          when the judge marks the goal as not completed. */}
+      {goal.appBlock && (
         <Card className="mb-4 border-danger/30 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">If you miss this goal</p>
           <p className="mt-1 text-sm text-ink">
@@ -222,7 +264,11 @@ export default function GoalDetail() {
               🔒 {goal.appBlock.appLabel} is blocked until {dateTime(goal.appBlockUntil)}.
             </p>
           ) : (
-            <p className="mt-1 text-[11px] text-muted">The block runs on Android; it starts if the deadline passes before you mark the goal done.</p>
+            <p className="mt-1 text-[11px] text-muted">
+              {isSoloGoal(goal)
+                ? 'The block runs on Android; it starts if the deadline passes before you mark the goal done.'
+                : `The block runs on Android; it starts if ${goal.judge.name} marks this goal as not completed.`}
+            </p>
           )}
         </Card>
       )}
@@ -347,7 +393,7 @@ export default function GoalDetail() {
         <div className="mb-4">
           <ShareLink
             title="Invite your judge"
-            hint="Send this so the judge can accept the role and later decide the outcome."
+            hint="Send this so the judge can accept the role and later decide the outcome. The link shows them the goal number only — not what the goal is."
             link={judgeLink(goal)}
             phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
           />
@@ -358,7 +404,10 @@ export default function GoalDetail() {
       {goal.recipients.length > 0 && (
       <Card className="mb-4 p-4">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Recipients ({goal.recipients.length})</p>
-        <p className="mb-3 text-[11px] text-muted">Only recipients who accept can ever receive a message. They can opt out anytime.</p>
+        <p className="mb-3 text-[11px] text-muted">
+          Only recipients who accept can ever receive a message. They can opt out anytime. They are told
+          only that {goalRefTitle(goal).toLowerCase()} was not completed — never what it was.
+        </p>
         <div className="space-y-3">
           {goal.recipients.map((r) => {
             const c = consentFor(r.consentId);

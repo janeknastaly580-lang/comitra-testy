@@ -24,10 +24,7 @@ function goalInput(userId: string, over: Partial<CreateGoalInput> = {}): CreateG
     requiredActionsCount: 3,
     deadlineAt: future(),
     messageTone: 'neutral',
-    includeGoalTitleInFailureMessage: false,
-    includeGoalDescriptionInFailureMessage: false,
     ackNotifyConsent: true,
-    ackJudgeSeesContent: true,
     judge: { name: 'Judge', channel: 'phone', contact: '+48500100200' },
     recipients: [
       { name: 'Alice', channel: 'phone', contact: '+48111222333' },
@@ -151,22 +148,119 @@ describe('message tone', () => {
   });
 });
 
-describe('goal content is private by default', () => {
-  it('does not include the goal title in the failure message by default', async () => {
-    const { goal, alice } = await activatedGoal(); // includeTitle defaults false
+describe('goal content is never shared — only the goal number', () => {
+  it('the failure message carries the goal number, never the title or details', async () => {
+    const { goal, alice } = await activatedGoal();
     await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
     const notes = await api.listGoalNotifications(goal.id);
     const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
     expect(body).not.toContain('Study 3 times');
     expect(body).not.toContain(goal.title);
+    expect(body).not.toContain(goal.description);
+    expect(body).toContain(`goal #${goal.goalNumber}`);
   });
 
-  it('includes the title only when explicitly opted in', async () => {
-    const { goal, alice } = await activatedGoal({ includeGoalTitleInFailureMessage: true });
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
-    const notes = await api.listGoalNotifications(goal.id);
-    const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
-    expect(body).toContain(goal.title);
+  it('every tone keeps the goal content out of the message', async () => {
+    for (const tone of ['neutral', 'supportive', 'firm'] as const) {
+      const { goal, alice } = await activatedGoal({ messageTone: tone });
+      await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+      const notes = await api.listGoalNotifications(goal.id);
+      const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
+      expect(body).not.toContain(goal.title);
+      expect(body).toContain(`goal #${goal.goalNumber}`);
+    }
+  });
+
+  it('the messages queued for the judge never contain the goal content', async () => {
+    const { goal } = await activatedGoal();
+    const messages = await api.listOutbox(goal.id);
+    const toJudge = messages.filter((m) => m.to === 'judge');
+    expect(toJudge.length).toBeGreaterThan(0);
+    for (const m of toJudge) {
+      expect(m.body).not.toContain(goal.title);
+      expect(m.body).not.toContain(goal.description);
+      expect(m.body).toContain(`goal #${goal.goalNumber}`);
+    }
+  });
+
+  it('numbers goals per owner, starting at 1', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const first = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    expect(first.goalNumber).toBe(1);
+    await api.completeSoloGoal(first.id, owner.id);
+    const second = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    expect(second.goalNumber).toBe(2);
+    // A different owner starts their own count at 1.
+    const other = await freshOwner();
+    const theirs = await api.createGoal(goalInput(other.id, { recipients: [], judge: undefined }));
+    expect(theirs.goalNumber).toBe(1);
+  });
+});
+
+describe('a missed goal must be reflected on before a new one', () => {
+  /** Create a solo goal and force it past its deadline so it is "missed". */
+  async function missedSoloGoal() {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
+    for (const g of stored) if (g.id === goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
+    localStorage.setItem('fineline:goals', JSON.stringify(stored));
+    expect((await api.getGoal(goal.id))!.status).toBe('failed_notified');
+    return { owner, goal };
+  }
+
+  it('blocks a new goal until both questions are answered', async () => {
+    const { owner, goal } = await missedSoloGoal();
+    expect((await api.listUnreflectedGoals(owner.id)).map((g) => g.id)).toEqual([goal.id]);
+    await expect(api.createGoal(goalInput(owner.id, { recipients: [] }))).rejects.toThrow(/two questions/i);
+
+    await api.submitGoalReflection(
+      goal.id,
+      owner.id,
+      'I left it until the last day and ran out of time.',
+      'I will do one small part of it every single morning.',
+    );
+    expect(await api.listUnreflectedGoals(owner.id)).toHaveLength(0);
+    const next = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    expect(next.id).toBeTruthy();
+  });
+
+  it('rejects answers shorter than the minimum', async () => {
+    const { owner, goal } = await missedSoloGoal();
+    await expect(api.submitGoalReflection(goal.id, owner.id, 'no time', 'try harder next time please'))
+      .rejects.toThrow(new RegExp(`${api.REFLECTION_MIN_CHARS} characters`));
+    await expect(api.submitGoalReflection(goal.id, owner.id, 'I ran out of time completely', 'be better'))
+      .rejects.toThrow(new RegExp(`${api.REFLECTION_MIN_CHARS} characters`));
+    expect(await api.listUnreflectedGoals(owner.id)).toHaveLength(1);
+  });
+
+  it('a completed goal owes no answers', async () => {
+    const { goal, owner } = await activatedGoal();
+    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    expect(await api.listUnreflectedGoals(owner.id)).toHaveLength(0);
+  });
+});
+
+describe('app-block penalty on a judged goal', () => {
+  it('starts the block when the judge marks the goal not completed', async () => {
+    const { goal } = await activatedGoal({
+      appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
+    });
+    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    expect(decided.status).toBe('failed_notified');
+    expect(decided.appBlockUntil).toBeTruthy();
+    expect(+new Date(decided.appBlockUntil!)).toBeGreaterThan(Date.now());
+  });
+
+  it('does not block when the judge marks the goal completed', async () => {
+    const { goal } = await activatedGoal({
+      appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
+    });
+    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    expect(decided.status).toBe('completed');
+    expect(decided.appBlockUntil).toBeUndefined();
   });
 });
 

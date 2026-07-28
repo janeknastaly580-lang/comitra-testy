@@ -8,6 +8,7 @@ import { PRE_ACTIVE, TERMINAL } from '../lib/status';
 import { toLocalInputValue } from '../lib/format';
 import GoalCard from '../components/GoalCard';
 import PageHeader from '../components/PageHeader';
+import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
 import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
 
 const deadlineInDays = (days: number) => {
@@ -22,6 +23,9 @@ export default function Dashboard() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [streak, setStreak] = useState({ goals: 0 });
   const [loaded, setLoaded] = useState(false);
+
+  // A missed goal must be reflected on before any new goal can be started.
+  const { pending: owedReflections, blocked, reload: reloadPending } = usePendingReflections(user?.id);
 
   // Quick "goal without a judge" (solo) creator, kept here so it doesn't clutter
   // the full goal-creation screen.
@@ -65,8 +69,6 @@ export default function Dashboard() {
         startsAt: new Date().toISOString(),
         deadlineAt: new Date(soloDeadline).toISOString(),
         messageTone: 'neutral',
-        includeGoalTitleInFailureMessage: false,
-        includeGoalDescriptionInFailureMessage: false,
         ackNotifyConsent: false,
         recipients: [],
         // No judge → a solo, self-tracked goal. Penalty: block an app if missed.
@@ -98,6 +100,24 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* A missed goal has to be reflected on before a new one can be set. */}
+      {owedReflections.length > 0 && (
+        <div className="mb-5 space-y-3">
+          <ReflectionForm
+            goal={owedReflections[0]}
+            onDone={() => {
+              reloadPending();
+              reload();
+            }}
+          />
+          {owedReflections.length > 1 && (
+            <p className="text-center text-[11px] text-muted">
+              {owedReflections.length - 1} more missed goal{owedReflections.length - 1 === 1 ? '' : 's'} to answer for.
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Two ways to start a goal */}
       <div className="mb-5 space-y-3">
         {/* With a judge */}
@@ -105,9 +125,12 @@ export default function Dashboard() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">With a judge</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
           <p className="mt-1 text-[12px] text-muted">
-            A judge you choose confirms whether you did it. You can also add people who’ll be told if you don’t.
+            A judge you choose confirms whether you did it. They only ever see your goal’s number — you tell
+            them what it is yourself. You can also add people who’ll be told if you don’t do it.
           </p>
-          <Button className="mt-3 w-full" onClick={() => navigate('/create')}>Set a goal with a judge</Button>
+          <Button className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
+            {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
+          </Button>
         </Card>
 
         {/* Without a judge */}
@@ -118,8 +141,13 @@ export default function Dashboard() {
             No judge, no one else. If you miss it, a chosen app gets blocked on your phone for a while.
           </p>
           {!soloOpen ? (
-            <Button variant="outline" className="mt-3 w-full" onClick={() => { setSoloErr(''); setSoloOpen(true); }}>
-              Set a goal without a judge
+            <Button
+              variant="outline"
+              className="mt-3 w-full"
+              disabled={blocked}
+              onClick={() => { setSoloErr(''); setSoloOpen(true); }}
+            >
+              {blocked ? 'Answer the questions above first' : 'Set a goal without a judge'}
             </Button>
           ) : (
             <div className="mt-3 rounded-xl border border-line bg-surface p-3">

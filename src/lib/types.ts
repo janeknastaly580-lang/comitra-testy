@@ -227,7 +227,10 @@ export interface GoalRecipient {
   suppressReason?: string;
 }
 
-/** The app-block penalty attached to a solo goal. */
+/**
+ * The app-block penalty attached to a goal. It fires when a solo goal passes its
+ * deadline unfinished, or when a judge marks a judged goal as not completed.
+ */
 export interface AppBlockPenalty {
   /** Android package name of the app to block. */
   packageName: string;
@@ -235,12 +238,38 @@ export interface AppBlockPenalty {
   durationMinutes: number;
 }
 
+/**
+ * The two answers a user must write after a goal is not completed. Until this
+ * exists for every missed goal, the user cannot create a new goal — the point is
+ * to make them think about the miss before committing again. Both answers are
+ * private to the user: they are never shown to a judge or a recipient.
+ */
+export interface GoalReflection {
+  id: string;
+  goalId: string;
+  userId: string;
+  /** "Why didn't it work out?" — at least REFLECTION_MIN_CHARS characters. */
+  whyFailed: string;
+  /** "What can I do to succeed next time?" — same minimum. */
+  nextTime: string;
+  createdAt: string;
+}
+
 /* ─────────────────────────────────────────────────────────────── Goal ── */
 
 export interface Goal {
   id: string;
   userId: string;
+  /**
+   * Per-owner sequential number, starting at 1. This is the ONLY thing a judge
+   * or a recipient ever learns about a goal — the title and description never
+   * leave the owner's own screens, so the owner tells their judge what the goal
+   * is themselves.
+   */
+  goalNumber: number;
+  /** Private to the owner. Never sent to a judge or a recipient. */
   title: string;
+  /** Private to the owner. Never sent to a judge or a recipient. */
   description: string;
 
   /** Total steps/actions that must be done to complete the goal. */
@@ -256,10 +285,10 @@ export interface Goal {
 
   /** Tone of the failure message the user previews and approves up front. */
   messageTone: MessageTone;
-  /** Off by default — only include the goal title in the failure message if set. */
-  includeGoalTitleInFailureMessage: boolean;
-  /** Off by default — only include the description if the user opts in. */
-  includeGoalDescriptionInFailureMessage: boolean;
+  /** @deprecated goal content is never shared — the message carries only the number. */
+  includeGoalTitleInFailureMessage?: boolean;
+  /** @deprecated goal content is never shared — the message carries only the number. */
+  includeGoalDescriptionInFailureMessage?: boolean;
 
   evidence: GoalEvidence[];
   judge: GoalJudge;
@@ -267,14 +296,14 @@ export interface Goal {
 
   /** Legal acknowledgement: recipients may be messaged on failure. */
   ackNotifyConsent: boolean;
-  /** Legal acknowledgement recorded when full goal content is revealed. */
+  /** @deprecated goal content can no longer be revealed to recipients. */
   ackRevealFullContent?: boolean;
-  /** Acknowledgement that the judge will see the goal's title + details. */
+  /** @deprecated the judge never sees the goal's title or details. */
   ackJudgeSeesContent?: boolean;
 
   /** When true the goal has no judge — the creator tracks + completes it alone. */
   noJudge?: boolean;
-  /** Solo-goal penalty: block a chosen app for a while if the goal is missed. */
+  /** Penalty: block a chosen app for a while if the goal is not completed. */
   appBlock?: AppBlockPenalty;
   /** ISO time the app block is active until (set when the penalty triggers). */
   appBlockUntil?: string;

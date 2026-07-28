@@ -4,17 +4,12 @@ import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import type { RecipientInput } from '../lib/api';
 import {
-  ALL_LIBRARY_GOALS,
-  displayGoalTemplate,
-  fillGoalNumber,
-  GOAL_DIFFICULTIES,
-  GOAL_LIBRARY,
+  APP_BLOCK_TARGETS,
+  BLOCK_DURATIONS,
   GOAL_TEMPLATES,
-  goalHasNumber,
   MAX_RECIPIENTS_PER_GOAL,
   PERIOD_CHOICES,
   TONE_OPTIONS,
-  type GoalDifficulty,
   type GoalTemplate,
 } from '../lib/constants';
 import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
@@ -24,6 +19,7 @@ import type { Channel, InvitedJudge, MessageTone } from '../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
 import PhoneField from '../components/PhoneField';
+import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
 import { Button, Card, Input, Label, Select, Textarea } from '../components/ui';
 
 interface RecipientRow {
@@ -49,45 +45,41 @@ export default function CreateGoal() {
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState(() => deadlineInDays(7));
 
-  // Library picker (used when the user reveals the goal to recipients).
-  const [pickCat, setPickCat] = useState<GoalDifficulty>('easy');
-  const [picked, setPicked] = useState('');
-  const [pickedNum, setPickedNum] = useState('');
-
   // The judge must be chosen from friends the user invited (Profile → Invite friends).
   const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
   const [judgeId, setJudgeId] = useState('');
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
+  // The number the judge and any recipients will see — the goal's only identifier
+  // outside this screen.
+  const [goalNumber, setGoalNumber] = useState<number | null>(null);
+
+  // A missed goal must be reflected on before a new one can be set.
+  const { pending, reload: reloadPending } = usePendingReflections(user?.id);
 
   useEffect(() => {
-    if (user) api.listInvitedJudges(user.id).then(setInvitedJudges);
+    if (user) {
+      api.listInvitedJudges(user.id).then(setInvitedJudges);
+      api.getNextGoalNumber(user.id).then(setGoalNumber);
+    }
   }, [user]);
 
   const [tone, setTone] = useState<MessageTone>('neutral');
-  // Revealing the goal to recipients forces choosing it from the safe library.
-  const [reveal, setReveal] = useState(false);
-  const [ackReveal, setAckReveal] = useState(false);
   const [ackNotify, setAckNotify] = useState(false);
-  const [ackJudgeContent, setAckJudgeContent] = useState(false);
+
+  // Optional penalty: block an app when the judge marks the goal not completed.
+  const [blockOn, setBlockOn] = useState(false);
+  const [blockApp, setBlockApp] = useState(APP_BLOCK_TARGETS[0].packageName);
+  const [blockDuration, setBlockDuration] = useState(BLOCK_DURATIONS[1].minutes);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Pick mode: the goal must come from the library and there is no free description.
-  const pickMode = reveal;
-  const numberNeeded = pickMode && goalHasNumber(picked);
-  const effectiveTitle = pickMode ? fillGoalNumber(picked, pickedNum) : title;
-  const effectiveDescription = pickMode ? '' : description;
-
-  const contentCheck = useMemo(
-    () => checkGoalContent(effectiveTitle, effectiveDescription),
-    [effectiveTitle, effectiveDescription],
-  );
+  const contentCheck = useMemo(() => checkGoalContent(title, description), [title, description]);
 
   const preview = useMemo(
-    () => buildFailureMessage({ ownerName: user?.name ?? 'You', tone, includeTitle: reveal, includeDescription: false, title: effectiveTitle, description: effectiveDescription }),
-    [user?.name, tone, reveal, effectiveTitle, effectiveDescription],
+    () => buildFailureMessage({ ownerName: user?.name ?? 'You', tone, goalNumber: goalNumber ?? 1 }),
+    [user?.name, tone, goalNumber],
   );
 
   if (!user) return null;
@@ -105,6 +97,16 @@ export default function CreateGoal() {
             See subscription
           </Button>
         </Card>
+      </div>
+    );
+  }
+
+  // Blocked until the questions about the last missed goal are answered.
+  if (pending.length > 0) {
+    return (
+      <div className="px-4 py-5">
+        <PageHeader title="Set a goal" back />
+        <ReflectionForm goal={pending[0]} onDone={reloadPending} />
       </div>
     );
   }
@@ -131,36 +133,23 @@ export default function CreateGoal() {
   const judgeValid = !!selectedJudge;
   const filledRecipients = recipients.filter((r) => r.name.trim() || r.contact.trim());
   const hasRecipients = filledRecipients.length > 0;
-  // In pick mode the goal MUST come from the library (and, if it has a numeric
-  // slot, the user must fill it with a number). Otherwise free text is fine.
-  const numberValid = !numberNeeded || Number(pickedNum) >= 1;
-  const titleValid = pickMode ? ALL_LIBRARY_GOALS.includes(picked) && numberValid : title.trim().length >= 3;
+  const titleValid = title.trim().length >= 3;
   const recipientsValid =
     filledRecipients.length <= MAX_RECIPIENTS_PER_GOAL &&
     filledRecipients.every((r) => r.name.trim().length >= 2 && contactValid(r.channel, r.contact));
 
   const canSubmit =
-    titleValid &&
-    judgeValid &&
-    recipientsValid &&
-    ackJudgeContent &&
-    (!hasRecipients || ackNotify) &&
-    (!reveal || ackReveal) &&
-    contentCheck.ok;
+    titleValid && judgeValid && recipientsValid && (!hasRecipients || ackNotify) && contentCheck.ok;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     if (!contentCheck.ok) return setError(SENSITIVE_CONTENT_MESSAGE);
-    if (pickMode && !ALL_LIBRARY_GOALS.includes(picked)) return setError('Choose a goal from the list.');
-    if (numberNeeded && !numberValid) return setError('Enter a number for your goal.');
-    if (!pickMode && title.trim().length < 3) return setError('Give your goal a title.');
+    if (!titleValid) return setError('Give your goal a title.');
     if (new Date(deadline).getTime() <= Date.now()) return setError('The goal’s end date must be in the future.');
     if (!judgeValid) return setError('Choose a judge from your invited friends.');
     if (!recipientsValid) return setError('Each recipient needs a name and a valid contact (up to 3).');
-    if (!ackJudgeContent) return setError('Please agree that your judge will see the goal’s title and details.');
     if (hasRecipients && !ackNotify) return setError('Please acknowledge the notification consent.');
-    if (reveal && !ackReveal) return setError('Please confirm you understand recipients may see your goal.');
     setConfirmOpen(true);
   }
 
@@ -172,27 +161,27 @@ export default function CreateGoal() {
         channel: r.channel,
         contact: r.channel === 'phone' ? fullPhone(r.phoneIso, r.contact) : r.contact,
       }));
+      const app = APP_BLOCK_TARGETS.find((a) => a.packageName === blockApp) ?? APP_BLOCK_TARGETS[0];
       const goal = await api.createGoal({
         userId: user!.id,
         creatorName: user!.name,
         creatorAvatar: user!.avatar,
-        title: effectiveTitle,
-        description: effectiveDescription,
+        title,
+        description,
         requiredActionsCount: 1,
         startsAt: new Date().toISOString(),
         deadlineAt: new Date(deadline).toISOString(),
         messageTone: tone,
-        includeGoalTitleInFailureMessage: hasRecipients && reveal,
-        includeGoalDescriptionInFailureMessage: false,
         ackNotifyConsent: hasRecipients ? ackNotify : false,
-        ackRevealFullContent: hasRecipients && reveal ? ackReveal : undefined,
-        ackJudgeSeesContent: ackJudgeContent,
         judge: {
           name: selectedJudge!.name,
           channel: 'phone',
           contact: selectedJudge!.phone,
         },
         recipients: recips,
+        appBlock: blockOn
+          ? { packageName: app.packageName, appLabel: app.label, durationMinutes: blockDuration }
+          : undefined,
       });
       setConfirmOpen(false);
       navigate(`/goal/${goal.id}`, { replace: true });
@@ -208,72 +197,46 @@ export default function CreateGoal() {
     <div className="px-4 py-5">
       <PageHeader title="Set a goal" subtitle="Pick a template or build your own. Then pick a judge." back />
 
-      {/* Templates — only when the user can type their own goal (pick mode off) */}
-      {!pickMode && (
-        <div className="mb-5">
-          <Label>Starter goals</Label>
-          <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-            {GOAL_TEMPLATES.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => applyTemplate(t)}
-                className="shrink-0 rounded-full border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/10"
-              >
-                {t.title}
-              </button>
-            ))}
-          </div>
+      {/* The one place the privacy rule is stated up front. */}
+      <Card className="mb-5 border-accent/30 bg-accent/5 p-4">
+        <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Your goal stays private</p>
+        <p className="mt-1 text-[12px] leading-relaxed text-ink">
+          The notification sent to your judge does not contain your goal’s content. They are only asked
+          whether you completed {goalNumber ? `goal #${goalNumber}` : 'your goal'} — telling them what
+          the goal is, is up to you.
+        </p>
+      </Card>
+
+      <div className="mb-5">
+        <Label>Starter goals</Label>
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          {GOAL_TEMPLATES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => applyTemplate(t)}
+              className="shrink-0 rounded-full border border-accent/40 bg-accent/5 px-3 py-1.5 text-xs font-medium text-accent transition hover:bg-accent/10"
+            >
+              {t.title}
+            </button>
+          ))}
         </div>
-      )}
+      </div>
 
       <form onSubmit={onSubmit} className="space-y-5">
         <div>
           <Label>Goal</Label>
-          {pickMode ? (
-            <>
-              <div className="mb-2 flex gap-1.5">
-                {GOAL_DIFFICULTIES.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => { setPickCat(d.id); setPicked(''); }}
-                    className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
-                      pickCat === d.id ? 'border-accent bg-accent/10 text-accent' : 'border-line text-muted hover:text-ink'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-              <Select value={picked} onChange={(e) => { setPicked(e.target.value); setPickedNum(''); }}>
-                <option value="" disabled>Choose a {GOAL_DIFFICULTIES.find((d) => d.id === pickCat)?.label.toLowerCase()} goal…</option>
-                {GOAL_LIBRARY[pickCat].map((g) => (
-                  <option key={g} value={g}>{displayGoalTemplate(g)}</option>
-                ))}
-              </Select>
-              {numberNeeded && (
-                <div className="mt-2">
-                  <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted">Your goal — edit only the number</p>
-                  <GoalWithNumber template={picked} value={pickedNum} onChange={setPickedNum} />
-                </div>
-              )}
-              <p className="mt-2 text-[11px] text-muted">
-                Because a recipient will see this goal, it must be picked from the safe list — you can’t type your own.
-              </p>
-            </>
-          ) : (
-            <Input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Finish the project by Friday" />
-          )}
+          <Input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Finish the project by Friday" />
+          <p className="mt-2 text-[11px] text-muted">
+            Only you can read this. Everyone else sees{' '}
+            <span className="font-semibold text-ink">{goalNumber ? `goal #${goalNumber}` : 'the goal number'}</span>.
+          </p>
         </div>
 
-        {/* No free-text details when the goal is picked from the list. */}
-        {!pickMode && (
-          <div>
-            <Label>Details (optional)</Label>
-            <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What exactly counts as done?" />
-          </div>
-        )}
+        <div>
+          <Label>Details (optional)</Label>
+          <Textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What exactly counts as done?" />
+        </div>
 
         {!contentCheck.ok && (
           <Card className="border-danger/50 bg-danger/5 p-4">
@@ -310,6 +273,11 @@ export default function CreateGoal() {
             Pick a friend who confirms whether you completed the goal. You can only choose people who
             accepted your invite (they set their own judge password). You cannot judge your own goal.
           </p>
+          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
+            The notification sent to your judge does not contain your goal’s content. They are asked
+            only: “Did {user.name.split(' ')[0]} complete {goalNumber ? `goal #${goalNumber}` : 'this goal'}?”
+            Tell them what the goal is yourself.
+          </p>
 
           {invitedJudges.length === 0 ? (
             <div className="rounded-xl border border-warn/40 bg-warn/5 p-3">
@@ -329,12 +297,38 @@ export default function CreateGoal() {
             </Select>
           )}
 
-          <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
-            <input type="checkbox" checked={ackJudgeContent} onChange={(e) => setAckJudgeContent(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
-            <span className="text-[12px] leading-relaxed text-ink">
-              I agree that my judge will see the full title and details of this goal so they can decide the result.
-            </span>
-          </label>
+        </Card>
+
+        {/* Penalty: block an app if the judge marks the goal not completed */}
+        <Card className="p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-sm font-semibold text-ink">If you don’t do it</span>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
+          </div>
+          <p className="mb-3 text-[11px] text-muted">
+            Block an app on your phone when your judge marks this goal as not completed.
+          </p>
+          <ToggleRow label="Block an app if I miss this goal" checked={blockOn} onChange={setBlockOn} />
+          {blockOn && (
+            <div className="mt-3">
+              <Label>Block this app…</Label>
+              <Select value={blockApp} onChange={(e) => setBlockApp(e.target.value)} className="mb-2">
+                {APP_BLOCK_TARGETS.map((a) => (
+                  <option key={a.packageName} value={a.packageName}>{a.label}</option>
+                ))}
+              </Select>
+              <Label>…for</Label>
+              <Select value={String(blockDuration)} onChange={(e) => setBlockDuration(Number(e.target.value))}>
+                {BLOCK_DURATIONS.map((d) => (
+                  <option key={d.minutes} value={d.minutes}>{d.label}</option>
+                ))}
+              </Select>
+              <p className="mt-2 text-[11px] text-muted">
+                The block runs on your phone (Android). It starts the moment your judge marks the goal
+                as not completed.
+              </p>
+            </div>
+          )}
         </Card>
 
         {/* Recipients */}
@@ -345,6 +339,10 @@ export default function CreateGoal() {
             </span>
           </div>
           <p className="mb-3 text-[11px] text-muted">Optional. If the judge marks the goal not completed, these people (once they accept) receive a message. Up to 3. Leave empty to keep the goal between you and your judge only.</p>
+          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
+            Recipients never see your goal’s content either — the message says only that{' '}
+            {goalNumber ? `goal #${goalNumber}` : 'the goal'} was not completed.
+          </p>
           <div className="space-y-3">
             {recipients.map((r, i) => (
               <div key={i} className="rounded-xl border border-line bg-elevated p-3">
@@ -396,32 +394,13 @@ export default function CreateGoal() {
           </div>
         </Card>
 
-        {/* Reveal content */}
-        <Card className="p-4">
-          <Label>What recipients see</Label>
-          <p className="mb-3 text-[11px] text-muted">By default the message only says a goal was not completed — no goal content.</p>
-          <ToggleRow
-            label="Show recipients my goal"
-            checked={reveal}
-            onChange={(v) => { setReveal(v); if (!v) setAckReveal(false); }}
-          />
-          {reveal && (
-            <>
-              <p className="mt-2 text-[11px] text-muted">
-                To show your goal, choose it from the safe list at the top — free-typed goals stay private.
-              </p>
-              <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
-                <input type="checkbox" checked={ackReveal} onChange={(e) => setAckReveal(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
-                <span className="text-[12px] leading-relaxed text-ink">I understand that the chosen people will see my goal if it is not completed.</span>
-              </label>
-            </>
-          )}
-        </Card>
-
         {/* Preview */}
         <Card className="p-4">
           <Label>Message preview</Label>
-          <p className="mb-2 text-[11px] text-muted">Sent only if the judge marks the goal as not completed.</p>
+          <p className="mb-2 text-[11px] text-muted">
+            Sent only if the judge marks the goal as not completed. This is the whole message — there is
+            no option to add your goal’s content to it.
+          </p>
           <div className="whitespace-pre-line rounded-xl border border-line bg-elevated p-3 text-sm text-ink">{preview}</div>
         </Card>
 
@@ -449,12 +428,14 @@ export default function CreateGoal() {
             <>
               <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your{' '}
               <span className="text-ink">{filledRecipients.length}</span> recipient(s) must accept before it starts. If it is later
-              marked not completed, accepted recipients get a <span className="text-ink">{tone}</span> message.
+              marked not completed, accepted recipients get a <span className="text-ink">{tone}</span> message about{' '}
+              <span className="text-ink">goal #{goalNumber ?? 1}</span> — never its content.
             </>
           ) : (
             <>
               <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge and the goal starts right
-              away. No one else will be notified — only your judge will see this goal.
+              away. They will be asked only whether you completed <span className="text-ink">goal #{goalNumber ?? 1}</span>; no one
+              sees what the goal is.
             </>
           )
         }
@@ -463,28 +444,6 @@ export default function CreateGoal() {
         onConfirm={createConfirmed}
         onCancel={() => setConfirmOpen(false)}
       />
-    </div>
-  );
-}
-
-/**
- * Renders a picked goal as a sentence where ONLY the number ({n}) is an editable
- * inline field — the rest of the goal text can't be changed.
- */
-function GoalWithNumber({ template, value, onChange }: { template: string; value: string; onChange: (v: string) => void }) {
-  const [before, after = ''] = template.split('{n}');
-  return (
-    <div className="flex flex-wrap items-center gap-x-1 gap-y-1 rounded-xl border border-line bg-elevated px-3.5 py-3 text-sm text-ink">
-      <span>{before}</span>
-      <input
-        inputMode="numeric"
-        value={value}
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, ''))}
-        placeholder="N"
-        aria-label="Number"
-        className="w-14 rounded-md border border-accent/60 bg-surface px-2 py-0.5 text-center font-semibold text-accent outline-none transition focus:border-accent"
-      />
-      <span>{after}</span>
     </div>
   );
 }

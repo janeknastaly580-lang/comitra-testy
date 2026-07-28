@@ -3,7 +3,7 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import * as api from '../lib/api';
 import type { JudgeAccess } from '../lib/api';
 import { countdown, dateTime } from '../lib/format';
-import { goalRequired } from '../lib/goal';
+import { goalRef, goalRefTitle } from '../lib/goal';
 import type { JudgeDecision } from '../lib/types';
 import { JUDGE_CODE_MIN } from '../lib/api';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
@@ -163,17 +163,25 @@ export default function Verifier() {
 
   return (
     <Shell>
+      {/* PRIVACY: the judge is shown the goal's NUMBER only — never its title or
+          details. The person who set the goal tells their judge what it is. */}
       <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted">
         {goal.creatorName} asked you to judge
       </p>
-      <h1 className="mb-1 text-xl font-bold text-ink">{goal.title}</h1>
-      {goal.description && <p className="mb-4 text-sm text-muted">{goal.description}</p>}
+      <h1 className="mb-1 text-xl font-bold text-ink">
+        Did {goal.creatorName} complete {goalRef(goal)}?
+      </h1>
+      <p className="mb-4 text-[12px] text-muted">
+        Comitra doesn’t show you what the goal is — {goal.creatorName} tells you that themselves. You
+        only decide whether they did it.
+      </p>
 
       <Card className="mb-4 p-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Steps</p>
-            <p className="font-mono text-sm text-ink">{goal.evidence.length} / {goalRequired(goal)}</p>
+            <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Goal</p>
+            <p className="font-mono text-sm text-ink">{goalRefTitle(goal)}</p>
+            <p className="text-[11px] text-muted">{goal.evidence.length} proof(s) added</p>
           </div>
           <div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Deadline</p>
@@ -215,8 +223,9 @@ export default function Verifier() {
           <Card className="p-4">
             <Label>Judge role</Label>
             <p className="mb-3 text-sm text-ink">
-              You've been chosen to decide whether {goal.creatorName} completed this goal.
-              You should decide honestly based on the available proof.
+              You've been chosen to decide whether {goal.creatorName} completed {goalRef(goal)}.
+              You should decide honestly, based on what they told you the goal is and on any proof
+              they add here.
             </p>
             <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
               <input
@@ -268,12 +277,12 @@ export default function Verifier() {
 
           <Card className="mb-4 p-4">
             <p className="text-sm text-ink">
-              {`${goal.creatorName} planned to complete this goal in this period (${goal.evidence.length} of ${goalRequired(goal)} steps have proof). Check the proof and mark the result.`}
+              {`${goal.creatorName} committed to complete ${goalRef(goal)} within this period. Decide whether they did it — you know what the goal is because they told you.`}
             </p>
           </Card>
 
           <Card className="mb-4 p-4">
-            <Label>Proof from {goal.creatorName}</Label>
+            <Label>Proof {goal.creatorName} chose to share</Label>
             {goal.evidence.length === 0 ? (
               <p className="text-[12px] text-muted">No proof has been added yet.</p>
             ) : (
@@ -331,17 +340,18 @@ export default function Verifier() {
               {error && <p className="mb-3 font-mono text-xs text-danger">{error}</p>}
               <div className="space-y-2">
                 <Button className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('completed')}>
-                  Goal completed
+                  {goalRefTitle(goal)} completed
                 </Button>
                 <Button variant="danger" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('not_completed')}>
-                  Goal not completed
+                  {goalRefTitle(goal)} not completed
                 </Button>
                 <Button variant="outline" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('needs_proof')}>
                   Need proof / can't decide
                 </Button>
               </div>
               <p className="mt-3 text-[11px] text-muted">
-                “Not completed” sends the pre-set message to the recipients who accepted.
+                “Not completed” sends the pre-set message to the recipients who accepted, and starts any
+                app block {goal.creatorName} set for themselves. The message never says what the goal was.
               </p>
             </Card>
           )}

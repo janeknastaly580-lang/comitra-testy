@@ -11,6 +11,7 @@
  */
 import { scheduleAppBlock, cancelAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
+import { goalRef } from './goal';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
 import {
@@ -46,6 +47,7 @@ import type {
   Goal,
   GoalEvidence,
   GoalJudge,
+  GoalReflection,
   GoalStatus,
   InvitedJudge,
   JudgeCredential,
@@ -131,16 +133,26 @@ export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
   return getOutbox().filter((m) => m.goalId === goalId);
 }
 
-/** Compose the "please review this goal" message sent to the judge. */
+/**
+ * Compose the "please review this goal" message sent to the judge.
+ *
+ * PRIVACY RULE: the judge is told only WHO and WHICH numbered goal — never the
+ * title or the details. The user tells their judge what the goal is themselves.
+ */
 function judgeReviewMessage(goal: Goal, reason: 'deadline' | 'early' | 'ready'): string {
   const who = goal.creatorName || 'Someone';
+  const ref = goalRef(goal);
   const head =
     reason === 'deadline'
-      ? `The deadline for ${who}'s goal has passed.`
+      ? `The deadline for ${who}'s ${ref} has passed.`
       : reason === 'early'
-        ? `${who} is asking you to decide their goal now, before the deadline.`
-        : `${who} marked their goal ready and added proof.`;
-  return `${head} Open your judge link to review the proof and mark it completed or not completed. You'll need your secret code.`;
+        ? `${who} is asking you to decide their ${ref} now, before the deadline.`
+        : `${who} marked their ${ref} ready and added proof.`;
+  return (
+    `${head} Did ${who} complete ${ref}? Open your judge link to mark it completed or not ` +
+    `completed. You'll need your secret code. Comitra does not show you what the goal is — ` +
+    `${who} tells you that themselves.`
+  );
 }
 
 /** Record a judge-review notification once per goal (no duplicates). */
@@ -446,23 +458,54 @@ export interface CreateGoalInput {
   userId: string;
   creatorName: string;
   creatorAvatar?: string;
+  /** Private to the owner — never sent to the judge or to recipients. */
   title: string;
+  /** Private to the owner — never sent to the judge or to recipients. */
   description: string;
   requiredActionsCount: number;
   startsAt?: string; // ISO
   deadlineAt: string; // ISO
   messageTone: MessageTone;
-  includeGoalTitleInFailureMessage: boolean;
-  includeGoalDescriptionInFailureMessage: boolean;
   ackNotifyConsent: boolean;
-  ackRevealFullContent?: boolean;
-  /** The user agrees the judge will see the goal's title + details. */
-  ackJudgeSeesContent?: boolean;
   /** Omit the judge entirely to create a solo (self-tracked) goal. */
   judge?: { name: string; channel: Channel; contact?: string; judgeUserId?: string };
   recipients: RecipientInput[];
-  /** Solo-goal penalty: block an app for a while if the goal is missed. */
+  /** Penalty: block an app for a while if the goal is not completed. */
   appBlock?: AppBlockPenalty;
+}
+
+/* ────────────────────────────────────────────────── Goal numbering ── */
+
+/** The next free per-owner goal number (1-based). */
+function nextGoalNumber(ownerUserId: string, goals = getGoals()): number {
+  const max = goals
+    .filter((g) => g.userId === ownerUserId)
+    .reduce((m, g) => Math.max(m, g.goalNumber ?? 0), 0);
+  return max + 1;
+}
+
+/** The number the user's next goal will get — shown while they set it up. */
+export async function getNextGoalNumber(userId: string): Promise<number> {
+  await delay(40);
+  ensureGoalNumbers();
+  return nextGoalNumber(userId);
+}
+
+/**
+ * Give a number to any goal saved before goal numbering existed, so a judge or a
+ * recipient always has something to refer to. Ordered by creation time per owner.
+ */
+function ensureGoalNumbers(): void {
+  const goals = getGoals();
+  const missing = goals.filter((g) => !g.goalNumber);
+  if (missing.length === 0) return;
+  const nextByOwner = new Map<string, number>();
+  for (const g of [...missing].sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))) {
+    const n = nextByOwner.get(g.userId) ?? nextGoalNumber(g.userId, goals);
+    g.goalNumber = n;
+    nextByOwner.set(g.userId, n + 1);
+  }
+  saveGoals(goals);
 }
 
 /** Build the planned steps for a new goal. */
@@ -547,10 +590,85 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
   return consent;
 }
 
+/* ─────────────────────────────────── Post-failure reflection ── */
+
+/** Every reflection answer must be at least this long. */
+export const REFLECTION_MIN_CHARS = 20;
+
+/** Statuses that count as "you missed this goal" and owe a reflection. */
+const FAILED_STATUSES: GoalStatus[] = ['failed_pending_notification', 'failed_notified'];
+
+function getReflections(): GoalReflection[] {
+  return read<GoalReflection[]>(KEYS.goalReflections, []);
+}
+function saveReflections(list: GoalReflection[]) {
+  write(KEYS.goalReflections, list);
+}
+
+/** The reflection written for a goal, if the user has already answered. */
+export async function getGoalReflection(goalId: string): Promise<GoalReflection | null> {
+  await delay(40);
+  return getReflections().find((r) => r.goalId === goalId) ?? null;
+}
+
 /**
- * Create + submit a goal. Requires an active subscription or live trial. Invites
- * the judge and each recipient (reusing standing consents). Never activates
- * until the judge accepts AND every recipient has an accepted consent.
+ * Missed goals this user still owes a reflection for, oldest first. While this
+ * is non-empty the user cannot create a new goal (see `createGoal`).
+ */
+export async function listUnreflectedGoals(userId: string): Promise<Goal[]> {
+  await delay(60);
+  resolveExpired();
+  return unreflectedGoals(userId);
+}
+
+function unreflectedGoals(userId: string): Goal[] {
+  const answered = new Set(getReflections().filter((r) => r.userId === userId).map((r) => r.goalId));
+  return getGoals()
+    .filter((g) => g.userId === userId && FAILED_STATUSES.includes(g.status) && !answered.has(g.id))
+    .sort((a, b) => +new Date(a.failedAt ?? a.deadlineAt) - +new Date(b.failedAt ?? b.deadlineAt));
+}
+
+/**
+ * Answer the two questions owed after a missed goal. Both answers are private to
+ * the user — no judge and no recipient ever sees them.
+ */
+export async function submitGoalReflection(
+  goalId: string,
+  userId: string,
+  whyFailed: string,
+  nextTime: string,
+): Promise<GoalReflection> {
+  await delay();
+  const goal = getGoals().find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can answer these questions.');
+  if (!FAILED_STATUSES.includes(goal.status)) throw new Error('This goal was not missed.');
+  const why = whyFailed.trim();
+  const next = nextTime.trim();
+  if (why.length < REFLECTION_MIN_CHARS || next.length < REFLECTION_MIN_CHARS) {
+    throw new Error(`Write at least ${REFLECTION_MIN_CHARS} characters in both answers.`);
+  }
+
+  const list = getReflections().filter((r) => r.goalId !== goalId);
+  const record: GoalReflection = {
+    id: uid('refl'),
+    goalId,
+    userId,
+    whyFailed: why,
+    nextTime: next,
+    createdAt: new Date().toISOString(),
+  };
+  list.push(record);
+  saveReflections(list);
+  logAudit({ actorId: userId, actionType: 'goal_reflection_written', entityType: 'goal', entityId: goalId });
+  return record;
+}
+
+/**
+ * Create + submit a goal. Requires an active subscription or live trial, and no
+ * outstanding reflection on a missed goal. Invites the judge and each recipient
+ * (reusing standing consents). Never activates until the judge accepts AND every
+ * recipient has an accepted consent.
  */
 export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   await delay();
@@ -559,6 +677,13 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   if (!hasEntitlement(normalizeUser(owner))) {
     throw new Error('A subscription is required to create goals.');
   }
+  // A missed goal must be reflected on before a new one can be started.
+  resolveExpired();
+  if (unreflectedGoals(input.userId).length > 0) {
+    throw new Error(
+      'Answer the two questions about your missed goal before you set a new one.',
+    );
+  }
   const recips = input.recipients.filter((r) => r.name.trim() || r.contact || r.recipientUserId);
   // Recipients are optional now — but if there are any, the notify consent is required.
   if (recips.length > 0 && !input.ackNotifyConsent) {
@@ -566,9 +691,6 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   }
   if (recips.length > MAX_RECIPIENTS_PER_GOAL) {
     throw new Error(`You can add at most ${MAX_RECIPIENTS_PER_GOAL} recipients.`);
-  }
-  if (input.judge && !input.ackJudgeSeesContent) {
-    throw new Error('You must agree that your judge will see the goal’s title and details.');
   }
   // Anti-spam: count how many of these are brand-new invites.
   const newInvites = recips.filter((r) => {
@@ -618,9 +740,11 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     }
   }
 
+  const goals = getGoals();
   const goal: Goal = {
     id: uuid(),
     userId: input.userId,
+    goalNumber: nextGoalNumber(input.userId, goals),
     creatorName: input.creatorName.trim() || 'Someone',
     creatorAvatar: input.creatorAvatar,
     creatorDeviceId: getDeviceId(),
@@ -632,13 +756,11 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     deadlineAt: input.deadlineAt,
     status: 'waiting_for_judge_acceptance',
     messageTone: input.messageTone,
-    includeGoalTitleInFailureMessage: input.includeGoalTitleInFailureMessage,
-    includeGoalDescriptionInFailureMessage: input.includeGoalDescriptionInFailureMessage,
     ackNotifyConsent: input.ackNotifyConsent,
-    ackRevealFullContent: input.ackRevealFullContent,
-    ackJudgeSeesContent: input.ackJudgeSeesContent,
     noJudge,
-    appBlock: noJudge ? input.appBlock : undefined,
+    // The app-block penalty works for solo AND judged goals: a judged goal fires
+    // it when the judge marks the goal not completed (see applyJudgeDecision).
+    appBlock: input.appBlock,
     evidence: [],
     judge,
     recipients: consents.map((c) => ({ consentId: c.id })),
@@ -646,11 +768,11 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     createdAt: new Date().toISOString(),
   };
 
-  const goals = getGoals();
   goals.push(recompute(goal));
   saveGoals(goals);
 
   // Notification #2: ask the chosen judge to accept the role (unless pre-accepted).
+  // Carries the goal NUMBER only — never the title or the details.
   if (input.judge && judge.status !== 'accepted') {
     queueOutbox({
       goalId: goal.id,
@@ -658,15 +780,15 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
       to: 'judge',
       channel: judge.channel,
       contact: judge.judgeContact,
-      body: `${goal.creatorName} asks you to be the judge for their goal. Open your judge link to accept the role, set your secret code, and later decide the outcome.`,
+      body:
+        `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
+        `link to accept the role, set your secret code, and later say whether they completed it. ` +
+        `Comitra does not show you what the goal is — ${goal.creatorName} tells you that themselves.`,
     });
   }
 
   if (recips.length > 0) {
     logLegalAcceptance({ type: 'goal_notify_ack', userId: input.userId, goalId: goal.id });
-  }
-  if (input.ackRevealFullContent) {
-    logLegalAcceptance({ type: 'goal_reveal_full_content_ack', userId: input.userId, goalId: goal.id });
   }
   logAudit({ actorId: input.userId, actionType: 'goal_created', entityType: 'goal', entityId: goal.id, metadata: { tone: goal.messageTone, recipients: consents.length } });
   return getGoals().find((g) => g.id === goal.id)!;
@@ -863,6 +985,7 @@ export async function deleteGoal(id: string): Promise<void> {
 
 /** Move active goals past their deadline into proof/decision, and expire stale ones. */
 function resolveExpired() {
+  ensureGoalNumbers();
   const now = Date.now();
   const goals = getGoals();
   let changed = false;
@@ -873,11 +996,7 @@ function resolveExpired() {
         // for `durationMinutes` starting now). See src/lib/appBlock.ts.
         g.status = 'failed_notified';
         g.failedAt = new Date().toISOString();
-        if (g.appBlock) {
-          const untilMs = now + g.appBlock.durationMinutes * 60_000;
-          g.appBlockUntil = new Date(untilMs).toISOString();
-          scheduleAppBlock(g.id, g.appBlock.packageName, g.appBlock.appLabel, untilMs);
-        }
+        applyAppBlockPenalty(g, now);
       } else {
         // Judged goal past its deadline → wait for the judge and notify them.
         g.status = 'proof_pending';
@@ -1443,6 +1562,7 @@ export async function judgeCancelGoal(goalId: string, token: string): Promise<Go
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
   saveGoals(goals);
+  cancelAppBlock(goal.id); // cancelled → no penalty
   logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_cancelled_goal', entityType: 'goal', entityId: goal.id });
   return getGoals().find((g) => g.id === goal.id)!;
 }
@@ -1482,14 +1602,30 @@ function applyJudgeDecision(
     goal.status = 'completed';
     goal.completedAt = at;
     saveGoals(goals);
+    cancelAppBlock(goal.id); // completed → no penalty
     logAudit({ ...actor, actionType: 'goal_completed', entityType: 'goal', entityId: goal.id });
     return;
   }
   goal.status = 'failed_pending_notification';
   goal.failedAt = at;
+  // Judged goal marked not completed → apply the same app-block penalty a missed
+  // solo goal gets (blocks the chosen app for `durationMinutes` starting now).
+  applyAppBlockPenalty(goal);
   saveGoals(goals);
   logAudit({ ...actor, actionType: 'goal_not_completed', entityType: 'goal', entityId: goal.id });
   dispatchFailureNotifications(goal.id);
+}
+
+/**
+ * Start the app-block penalty for a goal that was not completed. Shared by the
+ * missed-solo-goal path (`resolveExpired`) and the judge's `not_completed`
+ * decision, so both behave identically. Caller persists the goal.
+ */
+function applyAppBlockPenalty(goal: Goal, now = Date.now()): void {
+  if (!goal.appBlock) return;
+  const untilMs = now + goal.appBlock.durationMinutes * 60_000;
+  goal.appBlockUntil = new Date(untilMs).toISOString();
+  scheduleAppBlock(goal.id, goal.appBlock.packageName, goal.appBlock.appLabel, untilMs);
 }
 
 /* ─────────────────────────────────────────────── Judge ratings ── */
@@ -1920,13 +2056,21 @@ function blankFakeUser(p: (typeof FAKE_PROFILES)[number]): User {
   };
 }
 
-function fakeTerminalGoal(userId: string, name: string, status: GoalStatus, hoursAgo: number, title: string): Goal {
+function fakeTerminalGoal(
+  userId: string,
+  name: string,
+  status: GoalStatus,
+  hoursAgo: number,
+  title: string,
+  goalNumber: number,
+): Goal {
   const at = new Date(Date.now() - hoursAgo * 3_600_000).toISOString();
   const decision: JudgeDecision | undefined =
     status === 'completed' ? 'completed' : status === 'failed_notified' ? 'not_completed' : undefined;
   return {
     id: uuid(),
     userId,
+    goalNumber,
     creatorName: name,
     creatorDeviceId: 'seed-device',
     title,
@@ -1936,8 +2080,6 @@ function fakeTerminalGoal(userId: string, name: string, status: GoalStatus, hour
     deadlineAt: at,
     status,
     messageTone: 'neutral',
-    includeGoalTitleInFailureMessage: false,
-    includeGoalDescriptionInFailureMessage: false,
     ackNotifyConsent: true,
     evidence: [],
     judge: { name: 'Seed', channel: 'internal', status: decision ? 'accepted' : 'pending', acceptToken: uuid(), decision, decisionAt: decision ? at : undefined },
@@ -1963,11 +2105,12 @@ function ensureDemoGraph() {
     // Seed some finished goals for profile history + leaderboards.
     const existing = goals.filter((g) => g.userId === p.id).length;
     if (existing === 0) {
+      let n = 1;
       for (let i = 0; i < (p.completed ?? 0); i++) {
-        goals.push(fakeTerminalGoal(p.id, p.name, 'completed', 24 * (i + 2), TITLES[i % TITLES.length]));
+        goals.push(fakeTerminalGoal(p.id, p.name, 'completed', 24 * (i + 2), TITLES[i % TITLES.length], n++));
       }
       for (let i = 0; i < (p.failed ?? 0); i++) {
-        goals.push(fakeTerminalGoal(p.id, p.name, 'failed_notified', 24 * (i + 2) + 6, TITLES[(i + 3) % TITLES.length]));
+        goals.push(fakeTerminalGoal(p.id, p.name, 'failed_notified', 24 * (i + 2) + 6, TITLES[(i + 3) % TITLES.length], n++));
       }
     }
   }

@@ -46,6 +46,24 @@ export function isSoloGoal(g: Goal): boolean {
   return !!g.noJudge;
 }
 
+/**
+ * The goal's per-owner number. Everyone other than the owner (judge, recipients)
+ * only ever sees this number — never the title or the details.
+ */
+export function goalNumberOf(g: Pick<Goal, 'goalNumber'>): number {
+  return g.goalNumber && g.goalNumber > 0 ? g.goalNumber : 1;
+}
+
+/** How a goal is referred to outside the owner's own screens, e.g. "goal #3". */
+export function goalRef(g: Pick<Goal, 'goalNumber'>): string {
+  return `goal #${goalNumberOf(g)}`;
+}
+
+/** Title-case variant of `goalRef`, e.g. "Goal #3". */
+export function goalRefTitle(g: Pick<Goal, 'goalNumber'>): string {
+  return `Goal #${goalNumberOf(g)}`;
+}
+
 /** The next open (planned) step, earliest scheduled first. */
 export function nextPlannedAction(g: Goal): PlannedAction | null {
   const open = g.plannedActions.filter(

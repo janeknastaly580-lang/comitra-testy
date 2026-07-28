@@ -4,55 +4,48 @@
  * There is no money, stake or reward anywhere in this app. The only consequence
  * of a missed goal is an optional message to pre-approved recipients. This
  * module builds that message from the chosen tone and keeps it legally safe.
+ *
+ * PRIVACY RULE: a recipient is told only that a numbered goal was not completed.
+ * The goal's title and description NEVER appear in any message — there is no
+ * opt-in that changes this. The same rule applies to the judge (see api.ts).
  */
+import { goalRef } from './goal';
 import type { Goal, MessageTone } from './types';
 
 /** Fields needed to render a preview before a goal is fully built. */
 export interface FailureMessageInput {
   ownerName: string;
   tone: MessageTone;
-  includeTitle: boolean;
-  includeDescription: boolean;
-  title?: string;
-  description?: string;
+  /** The owner's per-goal number — the only detail a recipient ever gets. */
+  goalNumber: number;
 }
 
 /**
  * Compose the failure-notification message. Tone changes only the framing —
- * never the safety: no insults, no moral judgement, no "lazy / failed / shame".
+ * never the safety: no insults, no moral judgement, no "lazy / failed / shame",
+ * and never any goal content.
  */
 export function buildFailureMessage(input: FailureMessageInput): string {
   const name = input.ownerName.trim() || 'Someone';
-  const goalWord = 'goal';
+  const ref = goalRef({ goalNumber: input.goalNumber });
   const commitmentWord = 'commitment';
   const backOnTrack = 'get back on track';
 
-  let base: string;
   switch (input.tone) {
     case 'supportive':
-      base =
-        `${name} did not complete their ${goalWord} by the deadline. ` +
-        `You can send them a few words of encouragement to help them ${backOnTrack}.`;
-      break;
+      return (
+        `${name} did not complete their ${ref} by the deadline. ` +
+        `You can send them a few words of encouragement to help them ${backOnTrack}.`
+      );
     case 'firm':
-      base =
+      return (
         `${name} asked to have you told if they did not keep their ${commitmentWord}. ` +
-        `The goal was not completed by the deadline.`;
-      break;
+        `Their ${ref} was not completed by the deadline.`
+      );
     case 'neutral':
     default:
-      base = `${name} did not complete their ${goalWord} by the deadline.`;
-      break;
+      return `${name} did not complete their ${ref} by the deadline.`;
   }
-
-  const parts = [base];
-  if (input.includeTitle && input.title?.trim()) {
-    parts.push(`Goal: ${input.title.trim()}`);
-  }
-  if (input.includeDescription && input.description?.trim()) {
-    parts.push(`Details: ${input.description.trim()}`);
-  }
-  return parts.join('\n\n');
 }
 
 /** Build the failure message straight from a stored goal. */
@@ -60,10 +53,7 @@ export function failureMessageForGoal(goal: Goal): string {
   return buildFailureMessage({
     ownerName: goal.creatorName,
     tone: goal.messageTone,
-    includeTitle: goal.includeGoalTitleInFailureMessage,
-    includeDescription: goal.includeGoalDescriptionInFailureMessage,
-    title: goal.title,
-    description: goal.description,
+    goalNumber: goal.goalNumber,
   });
 }
 

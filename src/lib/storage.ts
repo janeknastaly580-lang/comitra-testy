@@ -88,4 +88,6 @@ export const KEYS = {
   judgeInvites: 'judgeInvites',
   // Team challenges (relay / tug of war) between two equally sized teams
   teamChallenges: 'teamChallenges',
+  // "Why did it fail / what next" answers owed after a missed goal
+  goalReflections: 'goalReflections',
 } as const;
