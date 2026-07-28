@@ -4,4 +4,21 @@
     <string name="title_activity_main">Comitra</string>
     <string name="package_name">com.fineline.app</string>
     <string name="custom_url_scheme">com.fineline.app</string>
+
+    <!-- App blocking. The service description is what Android shows on the
+         permission screen, so it states plainly what is and isn't collected. -->
+    <string name="accessibility_service_label">Comitra app blocking</string>
+    <string name="accessibility_service_description">Lets Comitra hold you to a goal by blocking the app you chose — and its website — until the goal is done. Comitra checks only which app is in the foreground, and the address bar while you are in a browser. Nothing is recorded or sent anywhere.</string>
+
+    <!-- Lock emoji as a numeric entity so this file stays plain ASCII. -->
+    <string name="block_lock_glyph">&#128274;</string>
+    <string name="block_locked">Locked</string>
+    <string name="block_that_app">That app</string>
+    <string name="block_title">%1$s is blocked</string>
+    <string name="block_body_app">You blocked it yourself to finish a goal. It unlocks as soon as the goal is done.</string>
+    <string name="block_body_website">You blocked %1$s to finish a goal, so its website is blocked too. It unlocks as soon as the goal is done.</string>
+    <string name="block_until">Unlocks by %1$s at the latest</string>
+    <string name="block_open_comitra">Open Comitra</string>
+    <string name="block_close">Close</string>
+    <string name="block_footer">There is no skip button on purpose. Finish the goal in Comitra, or turn the blocking permission off in Android Settings.</string>
 </resources>

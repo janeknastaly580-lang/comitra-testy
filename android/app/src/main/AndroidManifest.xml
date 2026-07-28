@@ -24,6 +24,42 @@
 
         </activity>
 
+        <!-- ── App blocking ──────────────────────────────────────────────
+             The service does the enforcing; the activity is what the user sees
+             instead of the blocked app. `BlockedActivity` sits in its own task
+             and is excluded from recents so it can never be swiped back into
+             the app it replaced. -->
+        <service
+            android:name=".appblock.ComitraAccessibilityService"
+            android:exported="false"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/comitra_accessibility_service" />
+        </service>
+
+        <activity
+            android:name=".appblock.BlockedActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.fineline.app.blocked"
+            android:theme="@style/AppTheme.NoActionBar" />
+
+        <receiver
+            android:name=".appblock.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -38,4 +74,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Re-check block expiry after a restart, so rebooting is not a way out. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 </manifest>

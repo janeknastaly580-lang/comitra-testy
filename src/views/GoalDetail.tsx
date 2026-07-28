@@ -10,6 +10,7 @@ import { failureMessageForGoal } from '../lib/messages';
 import { judgeLink, recipientLink } from '../lib/share';
 import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
 import type { Goal, GoalReflection, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
+import AppBlockPermission from '../components/AppBlockPermission';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
@@ -345,6 +346,13 @@ export default function GoalDetail() {
             </p>
           )}
         </Card>
+      )}
+
+      {/* A stored block that Android is not enforcing yet needs saying out loud. */}
+      {(api.isCommitmentBlockLive(goal) || !!goal.appBlock) && (
+        <AppBlockPermission
+          appLabel={goal.commitmentBlock?.appLabel ?? goal.appBlock?.appLabel}
+        />
       )}
 
       {/* Commitment block: live state, or the offer to switch it on. */}

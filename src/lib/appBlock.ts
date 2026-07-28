@@ -33,9 +33,22 @@
 import { Capacitor, registerPlugin } from '@capacitor/core';
 
 export interface AppBlockPlugin {
-  scheduleBlock(options: { goalId: string; packageName: string; appLabel: string; untilEpochMs: number }): Promise<void>;
+  scheduleBlock(options: { goalId: string; packageName: string; appLabel: string; untilEpochMs: number }): Promise<{ enforced?: boolean }>;
   cancelBlock(options: { goalId: string }): Promise<void>;
   isSupported(): Promise<{ supported: boolean }>;
+  /** Whether blocks are actually enforced (the accessibility service is on). */
+  getStatus(): Promise<{ supported: boolean; permissionGranted: boolean; activeBlocks: boolean }>;
+  /** Open the system Accessibility screen — the permission can't be granted from code. */
+  openSettings(): Promise<void>;
+}
+
+export interface AppBlockStatus {
+  /** A real block can be enforced on this platform at all (i.e. native). */
+  supported: boolean;
+  /** The user has switched the blocking service on in Android Settings. */
+  permissionGranted: boolean;
+  /** At least one block is currently stored and unexpired. */
+  activeBlocks: boolean;
 }
 
 const Native = registerPlugin<AppBlockPlugin>('ComitraAppBlock');
@@ -77,5 +90,37 @@ export async function cancelAppBlock(goalId: string): Promise<void> {
     await Native.cancelBlock({ goalId });
   } catch (err) {
     console.warn('[appBlock] cancelBlock failed', err);
+  }
+}
+
+/**
+ * Whether blocking is actually in force. A block is stored even when the
+ * permission is missing — the goal is real either way — so the UI has to ask
+ * this and tell the user, rather than let them believe an app is blocked when
+ * nothing is stopping them opening it.
+ */
+export async function getAppBlockStatus(): Promise<AppBlockStatus> {
+  if (!Capacitor.isNativePlatform()) {
+    return { supported: false, permissionGranted: false, activeBlocks: false };
+  }
+  try {
+    return await Native.getStatus();
+  } catch (err) {
+    console.warn('[appBlock] getStatus failed', err);
+    return { supported: true, permissionGranted: false, activeBlocks: false };
+  }
+}
+
+/**
+ * Send the user to Android's Accessibility settings to switch blocking on.
+ * Android deliberately refuses to grant this from code — which is also what
+ * makes a block hard to shrug off once it is running.
+ */
+export async function openAppBlockSettings(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await Native.openSettings();
+  } catch (err) {
+    console.warn('[appBlock] openSettings failed', err);
   }
 }

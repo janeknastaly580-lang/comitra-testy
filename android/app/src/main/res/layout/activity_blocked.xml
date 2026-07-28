@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The block screen. Deliberately plain and calm: it is not a punishment, it is a
+  reminder of something the user asked for. Note there is no dismiss control —
+  every button leads away from the blocked app.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/blockBackground"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:paddingLeft="28dp"
+        android:paddingTop="48dp"
+        android:paddingRight="28dp"
+        android:paddingBottom="48dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/block_lock_glyph"
+            android:textSize="46sp"
+            android:contentDescription="@string/block_locked" />
+
+        <TextView
+            android:id="@+id/block_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:gravity="center"
+            android:textColor="@color/blockInk"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/block_body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.25"
+            android:textColor="@color/blockMuted"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/block_until"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:gravity="center"
+            android:textColor="@color/blockAccent"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/block_open_comitra"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/block_open_comitra" />
+
+        <Button
+            android:id="@+id/block_close"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="@string/block_close" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="26dp"
+            android:gravity="center"
+            android:text="@string/block_footer"
+            android:textColor="@color/blockMuted"
+            android:textSize="12sp" />
+    </LinearLayout>
+</ScrollView>

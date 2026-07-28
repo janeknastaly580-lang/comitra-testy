@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Config for the app-blocking service.
+
+  `canRetrieveWindowContent` is what allows reading a browser's address bar, so
+  a blocked app's website is blocked too. No packageNames filter is set because
+  the service has to see whichever app comes to the foreground — but it only
+  ever compares the package name, and reads window content solely to pull the
+  current URL while a browser is in front.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowContentChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/accessibility_service_description"
+    android:notificationTimeout="200"
+    android:settingsActivity="com.fineline.app.MainActivity" />

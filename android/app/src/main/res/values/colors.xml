@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  `styles.xml` has always referenced colorPrimary/colorPrimaryDark/colorAccent,
+  but the file defining them was missing from this project, so a native build
+  could not resolve them. They are defined here, alongside the palette for the
+  app-block screen (mint accent on near-black, matching the web app's theme).
+-->
+<resources>
+    <color name="colorPrimary">#0F172A</color>
+    <color name="colorPrimaryDark">#0B1220</color>
+    <color name="colorAccent">#2FE0A8</color>
+
+    <!-- Block screen -->
+    <color name="blockBackground">#0B1220</color>
+    <color name="blockInk">#F8FAFC</color>
+    <color name="blockMuted">#94A3B8</color>
+    <color name="blockAccent">#2FE0A8</color>
+</resources>
