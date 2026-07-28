@@ -7,6 +7,7 @@ import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { PRE_ACTIVE, TERMINAL } from '../lib/status';
 import { toLocalInputValue } from '../lib/format';
 import GoalCard from '../components/GoalCard';
+import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
 import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
@@ -158,7 +159,7 @@ export default function Dashboard() {
               <Input value={soloTitle} onChange={(e) => setSoloTitle(e.target.value)} placeholder="What do you want to do?" className="mb-2" />
               <Textarea rows={2} value={soloDesc} onChange={(e) => setSoloDesc(e.target.value)} placeholder="Details (optional)" className="mb-2" />
               <Label>Goal end</Label>
-              <Input type="datetime-local" value={soloDeadline} onChange={(e) => setSoloDeadline(e.target.value)} className="mb-3" />
+              <DateTimeField value={soloDeadline} onChange={setSoloDeadline} className="mb-3" />
 
               <Label>If I miss it, block this app…</Label>
               <Select value={soloApp} onChange={(e) => setSoloApp(e.target.value)} className="mb-2">

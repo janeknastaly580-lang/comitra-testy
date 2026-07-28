@@ -9,7 +9,7 @@
  * async backend. To go live, re-implement this module against your server and
  * leave the React layer untouched.
  */
-import { scheduleAppBlock, cancelAppBlock } from './appBlock';
+import { cancelAppBlock, commitmentBlockId, penaltyBlockId, scheduleAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
 import { goalRef } from './goal';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
@@ -949,8 +949,9 @@ export async function cancelGoal(goalId: string): Promise<Goal> {
   if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
+  liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
   saveGoals(goals);
-  cancelAppBlock(goal.id); // solo goal cancelled in time → no penalty
+  cancelAppBlock(penaltyBlockId(goal.id)); // solo goal cancelled in time → no penalty
   logAudit({ actorId: goal.userId, actionType: 'goal_cancelled', entityType: 'goal', entityId: goal.id });
   return goal;
 }
@@ -995,8 +996,9 @@ export async function completeSoloGoal(goalId: string, userId: string): Promise<
   goal.status = 'completed';
   goal.completedAt = at;
   goal.judge = { ...goal.judge, decision: 'completed', decisionAt: at };
+  liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
   saveGoals(goals);
-  cancelAppBlock(goal.id); // completed in time → no penalty
+  cancelAppBlock(penaltyBlockId(goal.id)); // completed in time → no penalty
   logAudit({ actorId: userId, actionType: 'solo_goal_completed', entityType: 'goal', entityId: goal.id });
   return goal;
 }
@@ -1043,6 +1045,7 @@ function resolveExpired() {
         // for `durationMinutes` starting now). See src/lib/appBlock.ts.
         g.status = 'failed_notified';
         g.failedAt = new Date().toISOString();
+        liftCommitmentBlock(g); // the goal is over, so its commitment block ends
         applyAppBlockPenalty(g, now);
       } else {
         // Judged goal past its deadline → wait for the judge and notify them.
@@ -1058,6 +1061,7 @@ function resolveExpired() {
     const graceEnd = +new Date(g.deadlineAt) + 30 * 24 * 3600 * 1000;
     if ((g.status === 'proof_pending' || g.status === 'judge_review') && now > graceEnd) {
       g.status = 'expired_without_judge_decision';
+      liftCommitmentBlock(g);
       changed = true;
     }
   }
@@ -1608,8 +1612,9 @@ export async function judgeCancelGoal(goalId: string, token: string): Promise<Go
   if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.status = 'cancelled';
   goal.cancelledAt = new Date().toISOString();
+  liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
   saveGoals(goals);
-  cancelAppBlock(goal.id); // cancelled → no penalty
+  cancelAppBlock(penaltyBlockId(goal.id)); // cancelled → no penalty
   logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_cancelled_goal', entityType: 'goal', entityId: goal.id });
   return getGoals().find((g) => g.id === goal.id)!;
 }
@@ -1648,19 +1653,102 @@ function applyJudgeDecision(
   if (decision === 'completed') {
     goal.status = 'completed';
     goal.completedAt = at;
+    liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
     saveGoals(goals);
-    cancelAppBlock(goal.id); // completed → no penalty
+    cancelAppBlock(penaltyBlockId(goal.id)); // completed → no penalty
     logAudit({ ...actor, actionType: 'goal_completed', entityType: 'goal', entityId: goal.id });
     return;
   }
   goal.status = 'failed_pending_notification';
   goal.failedAt = at;
+  liftCommitmentBlock(goal); // the goal is over either way
   // Judged goal marked not completed → apply the same app-block penalty a missed
   // solo goal gets (blocks the chosen app for `durationMinutes` starting now).
   applyAppBlockPenalty(goal);
   saveGoals(goals);
   logAudit({ ...actor, actionType: 'goal_not_completed', entityType: 'goal', entityId: goal.id });
   dispatchFailureNotifications(goal.id);
+}
+
+/* ─────────────────────────────────── Commitment app block ── */
+
+/**
+ * A commitment block can only be set on a goal that finishes soon. Locking an app
+ * away for months is not a commitment device, it's a footgun.
+ */
+export const COMMITMENT_BLOCK_MAX_DAYS = 14;
+
+/** Statuses during which a goal is running and a block may be switched on. */
+const BLOCKABLE_STATUSES: GoalStatus[] = ['active'];
+
+/**
+ * Whether the "block an app until I finish this" option should be offered:
+ * the goal is running, its deadline is still ahead but no further away than
+ * {@link COMMITMENT_BLOCK_MAX_DAYS}, and no block is already live.
+ */
+export function canSetCommitmentBlock(goal: Goal, now = Date.now()): boolean {
+  if (!BLOCKABLE_STATUSES.includes(goal.status)) return false;
+  if (isCommitmentBlockLive(goal, now)) return false;
+  const due = +new Date(goal.deadlineAt);
+  return due > now && due - now <= COMMITMENT_BLOCK_MAX_DAYS * 86_400_000;
+}
+
+/** True while a commitment block is actually in force. */
+export function isCommitmentBlockLive(goal: Goal, now = Date.now()): boolean {
+  const b = goal.commitmentBlock;
+  return !!b && !b.liftedAt && now < +new Date(b.untilAt);
+}
+
+/**
+ * Block an app until this goal ends. The user has already confirmed they
+ * understand they cannot use it until the goal is completed or over — there is
+ * deliberately no "undo": that is the entire point of the feature. The only ways
+ * out are finishing the goal, it being cancelled, or the deadline arriving.
+ */
+export async function setCommitmentBlock(
+  goalId: string,
+  userId: string,
+  packageName: string,
+  appLabel: string,
+): Promise<Goal> {
+  await delay();
+  resolveExpired();
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can block an app.');
+  if (!packageName || !appLabel) throw new Error('Choose an app to block.');
+  if (isCommitmentBlockLive(goal)) throw new Error('An app is already blocked for this goal.');
+  if (!BLOCKABLE_STATUSES.includes(goal.status)) {
+    throw new Error('You can only block an app while the goal is running.');
+  }
+  const untilMs = +new Date(goal.deadlineAt);
+  if (untilMs <= Date.now()) throw new Error('This goal has already reached its deadline.');
+  if (untilMs - Date.now() > COMMITMENT_BLOCK_MAX_DAYS * 86_400_000) {
+    throw new Error(`You can only do this when the goal ends within ${COMMITMENT_BLOCK_MAX_DAYS} days.`);
+  }
+
+  goal.commitmentBlock = {
+    packageName,
+    appLabel,
+    startedAt: new Date().toISOString(),
+    untilAt: goal.deadlineAt,
+  };
+  saveGoals(goals);
+  // The native side enforces it and expires it at `untilEpochMs` on its own.
+  scheduleAppBlock(commitmentBlockId(goal.id), packageName, appLabel, untilMs);
+  logAudit({ actorId: userId, actionType: 'commitment_block_set', entityType: 'goal', entityId: goal.id, metadata: { packageName } });
+  return goal;
+}
+
+/**
+ * Release a commitment block because the goal is over (completed, missed or
+ * cancelled). Mutates the goal — the caller persists it.
+ */
+function liftCommitmentBlock(goal: Goal): void {
+  if (!goal.commitmentBlock || goal.commitmentBlock.liftedAt) return;
+  goal.commitmentBlock = { ...goal.commitmentBlock, liftedAt: new Date().toISOString() };
+  cancelAppBlock(commitmentBlockId(goal.id));
 }
 
 /**
@@ -1672,7 +1760,7 @@ function applyAppBlockPenalty(goal: Goal, now = Date.now()): void {
   if (!goal.appBlock) return;
   const untilMs = now + goal.appBlock.durationMinutes * 60_000;
   goal.appBlockUntil = new Date(untilMs).toISOString();
-  scheduleAppBlock(goal.id, goal.appBlock.packageName, goal.appBlock.appLabel, untilMs);
+  scheduleAppBlock(penaltyBlockId(goal.id), goal.appBlock.packageName, goal.appBlock.appLabel, untilMs);
 }
 
 /* ─────────────────────────────────────────────── Judge ratings ── */

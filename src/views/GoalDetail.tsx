@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import { BLOCK_DURATIONS } from '../lib/constants';
+import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { countdown, countdownClock, dateTime, shortDate, timeOfDay } from '../lib/format';
 import { deadlineElapsedRatio, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
 import { useNow } from '../lib/hooks';
@@ -14,7 +14,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
-import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
+import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
 
 const TONE_LABEL = { neutral: 'Neutral', supportive: 'Supportive', firm: 'Firm' } as const;
 const CONSENT_TONE = { pending: 'warn', accepted: 'accent', revoked: 'danger' } as const;
@@ -35,6 +35,13 @@ export default function GoalDetail() {
   const now = useNow(1000);
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
+
+  // "Block an app until I finish this" — offered while the goal is running and
+  // ends within COMMITMENT_BLOCK_MAX_DAYS.
+  const [blockApp, setBlockApp] = useState(APP_BLOCK_TARGETS[0].packageName);
+  const [blockAck, setBlockAck] = useState(false);
+  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
   const [rateVal, setRateVal] = useState('');
   const [rateBusy, setRateBusy] = useState(false);
 
@@ -184,6 +191,24 @@ export default function GoalDetail() {
       setNotice((err as Error).message);
     }
   }
+  /** Switch on the commitment block, once the user has confirmed twice. */
+  async function applyCommitmentBlock() {
+    const app = APP_BLOCK_TARGETS.find((a) => a.packageName === blockApp) ?? APP_BLOCK_TARGETS[0];
+    setBlockBusy(true);
+    try {
+      await api.setCommitmentBlock(goal!.id, user!.id, app.packageName, app.label);
+      setConfirmBlock(false);
+      setBlockAck(false);
+      await load();
+      setNotice(`${app.label} is blocked until this goal is done.`);
+    } catch (err) {
+      setNotice((err as Error).message);
+      setConfirmBlock(false);
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
   /** Publish (or unpublish) this one finished goal on the owner's profile. */
   async function toggleVisibility(next: boolean) {
     try {
@@ -320,6 +345,52 @@ export default function GoalDetail() {
             </p>
           )}
         </Card>
+      )}
+
+      {/* Commitment block: live state, or the offer to switch it on. */}
+      {api.isCommitmentBlockLive(goal) ? (
+        <Card className="mb-4 border-accent/40 bg-accent/5 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Blocked while you work</p>
+          <p className="mt-1 text-sm text-ink">
+            🔒 <span className="font-semibold">{goal.commitmentBlock!.appLabel}</span> is blocked on your
+            phone until this goal is done.
+          </p>
+          <p className="mt-1 text-[11px] text-muted">
+            It unlocks the moment the goal is completed or ends — at the latest{' '}
+            {dateTime(goal.commitmentBlock!.untilAt)}.
+          </p>
+        </Card>
+      ) : (
+        api.canSetCommitmentBlock(goal) && (
+          <Card className="mb-4 p-4">
+            <Label>Block an app until you finish</Label>
+            <p className="mb-3 text-[11px] text-muted">
+              Your goal ends within {api.COMMITMENT_BLOCK_MAX_DAYS} days, so you can lock an app away for
+              the rest of it. It stays blocked until you complete this goal or it ends — you can’t turn it
+              off in between.
+            </p>
+            <Select value={blockApp} onChange={(e) => setBlockApp(e.target.value)} className="mb-3">
+              {APP_BLOCK_TARGETS.map((a) => (
+                <option key={a.packageName} value={a.packageName}>{a.label}</option>
+              ))}
+            </Select>
+            <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
+              <input
+                type="checkbox"
+                checked={blockAck}
+                onChange={(e) => setBlockAck(e.target.checked)}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[color:rgb(var(--c-accent))]"
+              />
+              <span className="text-[12px] leading-relaxed text-ink">
+                I understand I won’t be able to use this app until this goal is completed or the challenge
+                is over.
+              </span>
+            </label>
+            <Button className="mt-3 w-full" disabled={!blockAck || blockBusy} onClick={() => setConfirmBlock(true)}>
+              Set
+            </Button>
+          </Card>
+        )
       )}
 
       {/* Add proof button (global) */}
@@ -587,6 +658,27 @@ export default function GoalDetail() {
           </button>
         )
       )}
+
+      <ConfirmDialog
+        open={confirmBlock}
+        title="Block this app now?"
+        confirmLabel="Yes, block it"
+        cancelLabel="Not yet"
+        busy={blockBusy}
+        message={
+          <>
+            <span className="text-ink">
+              {APP_BLOCK_TARGETS.find((a) => a.packageName === blockApp)?.label ?? 'The app'}
+            </span>{' '}
+            will be blocked on your phone straight away. You won’t be able to open it until this goal is
+            marked completed or the challenge ends{' '}
+            <span className="text-ink">({dateTime(goal.deadlineAt)})</span>. There is no way to lift it
+            early — that’s the point.
+          </>
+        }
+        onConfirm={applyCommitmentBlock}
+        onCancel={() => setConfirmBlock(false)}
+      />
 
       <ConfirmDialog
         open={confirmCancel}

@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useRef, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
@@ -117,28 +117,19 @@ export default function Profile() {
 
   return (
     <div className="px-4 py-5">
-      <PageHeader
-        title="Profile"
-        action={
-          !editing && (
-            <Button
-              variant="outline"
-              className="px-3 py-2"
-              onClick={() => {
-                setTab('settings');
-                startEdit();
-              }}
-            >
-              Edit
-            </Button>
-          )
-        }
-      />
+      <PageHeader title="Profile" />
 
       {/* Identity */}
       <Card className="mb-4 p-4">
         <div className="flex items-center gap-3">
-          <Avatar avatar={user.avatar} name={user.name} size={56} />
+          <EditAvatarButton
+            onClick={() => {
+              setTab('settings');
+              startEdit();
+            }}
+          >
+            <Avatar avatar={user.avatar} name={user.name} size={56} />
+          </EditAvatarButton>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <p className="truncate font-semibold text-ink">{user.name}</p>
@@ -317,7 +308,6 @@ export default function Profile() {
       <div className="space-y-2">
         <NavRow label="Invite friends" onClick={() => navigate('/invite-friends')} />
         <NavRow label="Subscription" onClick={() => navigate('/subscription')} />
-        <NavRow label="Team challenges" onClick={() => navigate('/challenges')} />
         <NavRow label="Analytics & export" onClick={() => navigate('/analytics')} />
         <NavRow label="Themes" onClick={() => navigate('/themes')} />
         <NavRow label="Privacy Policy" onClick={() => navigate('/privacy')} />
@@ -402,6 +392,36 @@ export default function Profile() {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The avatar doubles as the "edit profile" control: a small pencil badge sits on
+ * its corner, and the word "Edit" only unfolds next to it on hover (pointer
+ * devices). Touch users get the same tap target without the label taking up
+ * room — the `aria-label` keeps it announced either way.
+ */
+function EditAvatarButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Edit profile"
+      title="Edit profile"
+      className="group relative shrink-0 rounded-full outline-none ring-accent transition focus-visible:ring-2"
+    >
+      {children}
+      <span className="absolute -bottom-0.5 -right-0.5 flex items-center gap-1 rounded-full border border-line bg-surface px-1.5 py-1 text-muted shadow-sm transition group-hover:border-accent group-hover:text-accent">
+        <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M12 20h9" strokeLinecap="round" />
+          <path d="M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4 12.5-12.5z" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        {/* Collapsed to zero width until hovered, so nothing shifts on touch. */}
+        <span className="max-w-0 overflow-hidden text-[10px] font-semibold uppercase tracking-wide opacity-0 transition-all duration-200 group-hover:max-w-[3rem] group-hover:opacity-100">
+          Edit
+        </span>
+      </span>
+    </button>
   );
 }
 

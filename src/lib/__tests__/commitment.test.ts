@@ -352,6 +352,107 @@ describe('profile visibility (public / friends / private)', () => {
   });
 });
 
+describe('commitment app block (blocks an app while the goal runs)', () => {
+  /** An active solo goal whose deadline is `days` away. */
+  async function activeSoloGoal(days: number) {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const deadlineAt = new Date(Date.now() + days * 86_400_000).toISOString();
+    const goal = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined, deadlineAt }));
+    return { owner, goal };
+  }
+
+  it('is offered when the goal ends within the window, not before', async () => {
+    const soon = await activeSoloGoal(10);
+    expect(api.canSetCommitmentBlock(soon.goal)).toBe(true);
+
+    const faraway = await activeSoloGoal(30);
+    expect(api.canSetCommitmentBlock(faraway.goal)).toBe(false);
+    await expect(
+      api.setCommitmentBlock(faraway.goal.id, faraway.owner.id, 'com.instagram.android', 'Instagram'),
+    ).rejects.toThrow(new RegExp(`${api.COMMITMENT_BLOCK_MAX_DAYS} days`));
+  });
+
+  it('blocks the app until the goal ends, and cannot be lifted early', async () => {
+    const { owner, goal } = await activeSoloGoal(7);
+    const blocked = await api.setCommitmentBlock(goal.id, owner.id, 'com.instagram.android', 'Instagram');
+    expect(blocked.commitmentBlock?.appLabel).toBe('Instagram');
+    // The hard stop is the goal's own deadline — a block can never outlive it.
+    expect(blocked.commitmentBlock?.untilAt).toBe(goal.deadlineAt);
+    expect(api.isCommitmentBlockLive(blocked)).toBe(true);
+    // No second block while one is live, and no "turn it off" API at all.
+    expect(api.canSetCommitmentBlock(blocked)).toBe(false);
+    await expect(
+      api.setCommitmentBlock(goal.id, owner.id, 'com.discord', 'Discord'),
+    ).rejects.toThrow(/already blocked/i);
+  });
+
+  // NOTE: these deliberately re-read the goal through `api.getGoal` instead of
+  // trusting the returned object. Lifting used to mutate the goal AFTER
+  // `saveGoals`, so the returned copy looked right while storage never changed —
+  // asserting on the return value alone hid the bug.
+  it('lifts as soon as the goal is completed', async () => {
+    const { owner, goal } = await activeSoloGoal(7);
+    await api.setCommitmentBlock(goal.id, owner.id, 'com.instagram.android', 'Instagram');
+    await api.completeSoloGoal(goal.id, owner.id);
+    const stored = (await api.getGoal(goal.id))!;
+    expect(stored.status).toBe('completed');
+    expect(stored.commitmentBlock?.liftedAt).toBeTruthy();
+    expect(api.isCommitmentBlockLive(stored)).toBe(false);
+  });
+
+  it('lifts when the goal is missed, and when it is cancelled', async () => {
+    const missed = await activeSoloGoal(7);
+    await api.setCommitmentBlock(missed.goal.id, missed.owner.id, 'com.discord', 'Discord');
+    // Force the deadline into the past so resolveExpired marks it missed.
+    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
+    for (const g of stored) if (g.id === missed.goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
+    localStorage.setItem('fineline:goals', JSON.stringify(stored));
+    const after = (await api.getGoal(missed.goal.id))!;
+    expect(after.status).toBe('failed_notified');
+    expect(after.commitmentBlock?.liftedAt).toBeTruthy();
+
+    const cancelled = await activeSoloGoal(7);
+    await api.setCommitmentBlock(cancelled.goal.id, cancelled.owner.id, 'com.discord', 'Discord');
+    await api.cancelGoal(cancelled.goal.id);
+    const gone = (await api.getGoal(cancelled.goal.id))!;
+    expect(gone.status).toBe('cancelled');
+    expect(gone.commitmentBlock?.liftedAt).toBeTruthy();
+  });
+
+  it('lifts when a judge decides, either way', async () => {
+    for (const decision of ['completed', 'not_completed'] as const) {
+      setDevice('creator-device');
+      const owner = await freshOwner();
+      const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
+      setDevice('judge-device');
+      await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+      setDevice('creator-device');
+      await api.setCommitmentBlock(goal.id, owner.id, 'com.discord', 'Discord');
+      await api.requestEarlyDecision(goal.id, owner.id);
+      setDevice('judge-device'); // the creator can never rule on their own goal
+      await api.judgeDecision(goal.id, goal.judge.acceptToken, decision, undefined, JUDGE_CODE);
+      const stored = (await api.getGoal(goal.id))!;
+      expect(stored.commitmentBlock?.liftedAt).toBeTruthy();
+      expect(api.isCommitmentBlockLive(stored)).toBe(false);
+    }
+  });
+
+  it('only the owner can set it, and only while the goal runs', async () => {
+    const { owner, goal } = await activeSoloGoal(7);
+    const stranger = await freshOwner();
+    await expect(
+      api.setCommitmentBlock(goal.id, stranger.id, 'com.discord', 'Discord'),
+    ).rejects.toThrow(/owner/i);
+
+    await api.completeSoloGoal(goal.id, owner.id);
+    expect(api.canSetCommitmentBlock((await api.getGoal(goal.id))!)).toBe(false);
+    await expect(
+      api.setCommitmentBlock(goal.id, owner.id, 'com.discord', 'Discord'),
+    ).rejects.toThrow(/while the goal is running/i);
+  });
+});
+
 describe('a missed goal must be reflected on before a new one', () => {
   /** Create a solo goal and force it past its deadline so it is "missed". */
   async function missedSoloGoal() {

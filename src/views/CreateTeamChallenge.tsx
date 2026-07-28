@@ -19,6 +19,7 @@ import {
   CHALLENGE_MIN_TEAM,
 } from '../lib/teamChallenge';
 import type { TeamChallengeMode } from '../lib/types';
+import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import { Button, Card, Input, Label, Select } from '../components/ui';
 
@@ -380,7 +381,7 @@ export default function CreateTeamChallenge() {
 
         <div>
           <Label>Challenge ends</Label>
-          <Input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          <DateTimeField value={deadline} onChange={setDeadline} />
           <p className="mt-1 text-[11px] text-muted">
             If nobody has reached the target by then, whoever is ahead wins.
           </p>

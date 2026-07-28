@@ -239,6 +239,28 @@ export interface AppBlockPenalty {
 }
 
 /**
+ * A block the user switches on WHILE a goal is running: the chosen app stays
+ * blocked until the goal is completed or otherwise ends. Separate from
+ * `AppBlockPenalty`, which only fires AFTER a goal is missed — a goal can carry
+ * both, and they are scheduled under different ids (see `src/lib/appBlock.ts`).
+ */
+export interface CommitmentBlock {
+  /** Android package name of the app being blocked. */
+  packageName: string;
+  appLabel: string;
+  /** When the user switched it on. */
+  startedAt: string;
+  /**
+   * Hard stop: the goal's deadline. The native side expires the block by itself
+   * at this time, so a block can never outlive the goal even if the app never
+   * gets to cancel it.
+   */
+  untilAt: string;
+  /** Set when the goal ended and the block was released. */
+  liftedAt?: string;
+}
+
+/**
  * The two answers a user must write after a goal is not completed. Until this
  * exists for every missed goal, the user cannot create a new goal — the point is
  * to make them think about the miss before committing again. Both answers are
@@ -314,6 +336,8 @@ export interface Goal {
   appBlock?: AppBlockPenalty;
   /** ISO time the app block is active until (set when the penalty triggers). */
   appBlockUntil?: string;
+  /** Opt-in while the goal runs: an app stays blocked until the goal ends. */
+  commitmentBlock?: CommitmentBlock;
   /** The creator asked the judge to decide before the deadline. */
   earlyDecisionRequested?: boolean;
   /** The creator asked the judge to cancel the goal (required before the judge can). */

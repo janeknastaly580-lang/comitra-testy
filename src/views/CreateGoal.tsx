@@ -17,6 +17,7 @@ import { buildFailureMessage, checkGoalContent, SENSITIVE_CONTENT_MESSAGE } from
 import { toLocalInputValue } from '../lib/format';
 import type { Channel, InvitedJudge, MessageTone } from '../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import PhoneField from '../components/PhoneField';
 import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
@@ -261,7 +262,7 @@ export default function CreateGoal() {
               </button>
             ))}
           </div>
-          <Input type="datetime-local" required value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          <DateTimeField value={deadline} onChange={setDeadline} />
         </div>
 
         {/* Judge */}
