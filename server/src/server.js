@@ -80,6 +80,18 @@ app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), async
   }
 });
 
+/* ---------------------------------------------------- Twilio SMS webhook --
+ * Twilio calls this to report the delivery status of a text it sent (e.g. the
+ * judge phone-verification code). Server-to-server like the PayPal webhook
+ * above, so it's registered outside the CSRF/auth layer and parses its own
+ * body: Twilio posts `application/x-www-form-urlencoded`, not JSON.
+ */
+app.post('/callback', express.urlencoded({ extended: false }), (req, res) => {
+  const { MessageSid, MessageStatus } = req.body;
+  console.log('[twilio-callback]', { MessageSid, MessageStatus, body: req.body });
+  res.sendStatus(200);
+});
+
 /* ------------------------------------------------------ JSON + CSRF layer */
 // Body size cap mitigates large-payload DoS.
 app.use(express.json({ limit: '16kb' }));
