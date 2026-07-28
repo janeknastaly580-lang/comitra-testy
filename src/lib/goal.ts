@@ -33,12 +33,21 @@ export function goalStart(g: Goal): string {
   return g.startsAt ?? g.createdAt;
 }
 
-/** Percent of the goal period (start → deadline) that has already elapsed. */
-export function deadlineElapsedPct(g: Goal): number {
+/**
+ * Percent of the goal period (start → deadline) that has already elapsed, NOT
+ * rounded. Used for the width of the progress bar so it creeps forward smoothly
+ * every second instead of jumping a whole percent at a time.
+ */
+export function deadlineElapsedRatio(g: Goal, now = Date.now()): number {
   const start = +new Date(goalStart(g));
   const end = +new Date(g.deadlineAt);
-  if (!(end > start)) return Date.now() >= end ? 100 : 0;
-  return Math.min(100, Math.max(0, Math.round(((Date.now() - start) / (end - start)) * 100)));
+  if (!(end > start)) return now >= end ? 100 : 0;
+  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+}
+
+/** Percent of the goal period that has elapsed, rounded for display. */
+export function deadlineElapsedPct(g: Goal, now = Date.now()): number {
+  return Math.round(deadlineElapsedRatio(g, now));
 }
 
 /** A "solo" goal has no judge — the user tracks and completes it themselves. */

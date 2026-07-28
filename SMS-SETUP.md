@@ -11,6 +11,23 @@ The moment you finish the steps below, the SMS step **turns itself on automatica
 
 ---
 
+## Where it stands right now
+
+Checked on 2026-07-28 against your project `utoqyuysxkkekefshfvp`: **Phone auth is
+OFF**, so no text can be sent yet and judges register without the code step. Every
+other part is done and waiting.
+
+You can re-check this yourself at any time:
+
+```bash
+npm run sms:status
+```
+
+The app shows the same thing in **Profile → Invite friends**, as a
+*"Phone check · on / off"* line above your invite link.
+
+---
+
 ## How it works (so you know what you're paying for)
 
 - When a judge accepts an invite (`/invite/...` page), after they enter their name,
@@ -70,11 +87,19 @@ Your Comitra verification code is {{ .Code }}
 
 ### 4. Test it
 
-1. Open a judge invite link on a **different device/account** than the inviter (same
+1. Run `npm run sms:status` — it must now say **"Phone (SMS) auth is ON"**. If it
+   still says OFF, step 2 didn't save; re-check it before going further.
+2. Open a judge invite link on a **different device/account** than the inviter (same
    rule as before).
-2. Fill in name + your **real** phone number + a judge password, tick consent, tap
+3. Fill in name + your **real** phone number + a judge password, tick consent, tap
    **"Send verification code."**
-3. You should get a text within a few seconds. Type the code → the judge is registered.
+4. You should get a text within a few seconds. Type the code → the judge is registered.
+   The confirmation screen then shows **"✓ Phone number verified."**
+
+If the status says ON but no text arrives, the problem is on the Twilio side, not in
+the app — open **Twilio → Monitor → Logs → Messaging** and look at the last attempt.
+The usual causes are a trial account texting an unverified number, no credit left, or
+a country/number type your Twilio number isn't allowed to text.
 
 If something's wrong you'll see a clear message on the page:
 - *"Text-message verification isn't finished being set up yet"* → Phone auth or the

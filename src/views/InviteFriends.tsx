@@ -41,6 +41,8 @@ export default function InviteFriends() {
   const [token, setToken] = useState('');
   const [friends, setFriends] = useState<InvitedJudge[] | null>(null);
   const [health, setHealth] = useState<SyncHealth | null>(null);
+  // Whether a friend will be asked to confirm their number with a texted code.
+  const [smsOn, setSmsOn] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -49,6 +51,7 @@ export default function InviteFriends() {
       setToken(invite.inviteToken);
       setFriends(await api.listInvitedJudges(user.id));
       setHealth(await api.getJudgeSyncHealth());
+      setSmsOn(await api.phoneVerificationAvailable());
     })();
   }, [user]);
 
@@ -70,6 +73,19 @@ export default function InviteFriends() {
             {HEALTH[health].label}
           </p>
           <p className="mt-1 text-[12px] text-muted">{HEALTH[health].note}</p>
+        </div>
+      )}
+
+      {smsOn !== null && (
+        <div className="mb-4 rounded-xl border border-line bg-elevated px-3.5 py-2.5">
+          <p className={`font-mono text-[10px] uppercase tracking-widest ${smsOn ? 'text-accent' : 'text-warn'}`}>
+            {smsOn ? 'Phone check · on' : 'Phone check · off'}
+          </p>
+          <p className="mt-1 text-[12px] text-muted">
+            {smsOn
+              ? 'Your friend gets a 6-digit code by text and has to enter it, so the number is proven to be theirs.'
+              : 'Text-message verification is not switched on yet, so a friend can register any number without proving it. See SMS-SETUP.md.'}
+          </p>
         </div>
       )}
 

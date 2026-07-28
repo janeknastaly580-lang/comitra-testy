@@ -276,7 +276,6 @@ export default function CreateGoal() {
           <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
             The notification sent to your judge does not contain your goal’s content. They are asked
             only: “Did {user.name.split(' ')[0]} complete {goalNumber ? `goal #${goalNumber}` : 'this goal'}?”
-            Tell them what the goal is yourself.
           </p>
 
           {invitedJudges.length === 0 ? (

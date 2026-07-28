@@ -1,17 +1,20 @@
 import { useNavigate } from 'react-router-dom';
 import type { Goal } from '../lib/types';
-import { countdown } from '../lib/format';
+import { countdown, timeOfDay, shortDate } from '../lib/format';
+import { useNow } from '../lib/hooks';
 import { statusMeta } from '../lib/status';
-import { deadlineElapsedPct } from '../lib/goal';
+import { deadlineElapsedRatio } from '../lib/goal';
 import { Avatar } from './Avatar';
 import { Badge, Card } from './ui';
 
 export default function GoalCard({ goal }: { goal: Goal }) {
   const navigate = useNavigate();
-  const cd = countdown(goal.deadlineAt);
-  const meta = statusMeta(goal.status);
   const isActive = goal.status === 'active';
-  const pct = deadlineElapsedPct(goal);
+  // Live only while the goal is running — a finished card has nothing to tick.
+  const now = useNow(isActive ? 1000 : 60_000);
+  const cd = countdown(goal.deadlineAt, now);
+  const meta = statusMeta(goal.status);
+  const pct = deadlineElapsedRatio(goal, now);
   const photo = goal.evidence.find((e) => e.type === 'photo')?.content;
 
   return (
@@ -40,9 +43,14 @@ export default function GoalCard({ goal }: { goal: Goal }) {
           </p>
         </div>
         {isActive && (
-          <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
-            <div className={`h-full rounded-full ${cd.overdue ? 'bg-danger' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
-          </div>
+          <>
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+              <div className={`h-full rounded-full ${cd.overdue ? 'bg-danger' : 'bg-accent'}`} style={{ width: `${pct}%` }} />
+            </div>
+            <p className="mt-1 font-mono text-[10px] text-muted">
+              Due {shortDate(goal.deadlineAt)} · {timeOfDay(goal.deadlineAt)}
+            </p>
+          </>
         )}
         {goal.evidence.length > 0 && (
           <p className="mt-1 font-mono text-[10px] text-muted">{goal.evidence.length} proof(s) added</p>

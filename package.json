@@ -9,6 +9,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "sms:status": "node scripts/check-sms.mjs",
     "android:sync": "npm run build && cap sync android",
     "android:open": "npm run build && cap sync android && cap open android",
     "android:apk": "npm run build && cap sync android && cd android && gradlew.bat assembleDebug"

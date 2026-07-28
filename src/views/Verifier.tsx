@@ -4,6 +4,7 @@ import * as api from '../lib/api';
 import type { JudgeAccess } from '../lib/api';
 import { countdown, dateTime } from '../lib/format';
 import { goalRef, goalRefTitle } from '../lib/goal';
+import { useNow } from '../lib/hooks';
 import type { JudgeDecision } from '../lib/types';
 import { JUDGE_CODE_MIN } from '../lib/api';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
@@ -41,6 +42,8 @@ export default function Verifier() {
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState('');
   const [reported, setReported] = useState(false);
+  // Keeps the deadline countdown moving while the judge has the page open.
+  const now = useNow(1000);
 
   async function refresh() {
     if (!goalId || !token) {
@@ -158,8 +161,8 @@ export default function Verifier() {
     }
   }
 
-  const cd = countdown(goal.deadlineAt);
-  const pastDeadline = Date.now() > +new Date(goal.deadlineAt);
+  const cd = countdown(goal.deadlineAt, now);
+  const pastDeadline = now > +new Date(goal.deadlineAt);
 
   return (
     <Shell>

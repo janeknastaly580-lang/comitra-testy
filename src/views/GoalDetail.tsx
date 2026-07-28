@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { BLOCK_DURATIONS } from '../lib/constants';
-import { countdown, dateTime, shortDate } from '../lib/format';
-import { deadlineElapsedPct, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
+import { countdown, countdownClock, dateTime, shortDate, timeOfDay } from '../lib/format';
+import { deadlineElapsedRatio, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
+import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
 import { judgeLink, recipientLink } from '../lib/share';
 import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
@@ -30,6 +31,8 @@ export default function GoalDetail() {
   const [notes, setNotes] = useState<NotificationLog[]>([]);
   const [outbox, setOutbox] = useState<OutboxMessage[]>([]);
   const [reflection, setReflection] = useState<GoalReflection | null>(null);
+  // Ticks every second so the deadline bar and countdown move on their own.
+  const now = useNow(1000);
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [rateVal, setRateVal] = useState('');
@@ -68,9 +71,11 @@ export default function GoalDetail() {
     );
   }
 
-  const cd = countdown(goal.deadlineAt);
+  const cd = countdown(goal.deadlineAt, now);
   const meta = statusMeta(goal.status);
-  const elapsedPct = deadlineElapsedPct(goal);
+  // Unrounded for the bar width (so it creeps), rounded for the number.
+  const elapsedRatio = deadlineElapsedRatio(goal, now);
+  const isRunning = goal.status === 'active' || goal.status === 'proof_pending';
   const consentFor = (cid: string) => consents.find((c) => c.id === cid);
   const isPreActive = PRE_ACTIVE.includes(goal.status);
   const isTerminal = TERMINAL.includes(goal.status);
@@ -232,21 +237,27 @@ export default function GoalDetail() {
         </div>
       )}
 
-      {/* Deadline progress — how much of the goal period has elapsed */}
+      {/* Deadline progress — how much of the goal period has elapsed. Updates
+          every second while the goal is running, so the bar visibly moves. */}
       <Card className="mb-4 p-4">
         <div className="mb-1 flex items-center justify-between">
           <span className="font-mono text-sm text-ink">Deadline elapsed</span>
-          <span className="font-mono text-xs text-muted">{elapsedPct}%</span>
+          <span className="font-mono text-xs text-muted">{elapsedRatio.toFixed(2)}%</span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-line">
           <div
-            className={`h-full rounded-full transition-all ${cd.overdue ? 'bg-danger' : 'bg-accent'}`}
-            style={{ width: `${elapsedPct}%` }}
+            className={`h-full rounded-full ${cd.overdue ? 'bg-danger' : 'bg-accent'}`}
+            style={{ width: `${elapsedRatio}%` }}
           />
         </div>
+        {isRunning && (
+          <p className={`mt-1.5 text-center font-mono text-xs tabular-nums ${cd.overdue ? 'text-danger' : 'text-muted'}`}>
+            {countdownClock(goal.deadlineAt, now).label}
+          </p>
+        )}
         <div className="mt-3 grid grid-cols-2 gap-2 border-t border-line pt-3">
-          <Mini label="Start" value={shortDate(goalStart(goal))} />
-          <Mini label="Deadline" value={shortDate(goal.deadlineAt)} />
+          <Mini label="Start" value={shortDate(goalStart(goal))} sub={timeOfDay(goalStart(goal))} />
+          <Mini label="Deadline" value={shortDate(goal.deadlineAt)} sub={timeOfDay(goal.deadlineAt)} />
         </div>
       </Card>
 
@@ -576,10 +587,11 @@ function outboxLabel(kind: OutboxMessage['kind']): string {
   return OUTBOX_LABEL[kind] ?? kind;
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Mini({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="text-center">
       <p className="font-mono text-sm font-bold text-ink">{value}</p>
+      {sub && <p className="font-mono text-[11px] text-muted">{sub}</p>}
       <p className="font-mono text-[9px] uppercase tracking-widest text-muted">{label}</p>
     </div>
   );
