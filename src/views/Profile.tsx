@@ -220,8 +220,8 @@ export default function Profile() {
         <div className="mb-3 flex items-center gap-2">
           <span className="font-mono text-xs uppercase tracking-widest text-muted">Privacy</span>
         </div>
-        <label className="flex items-center justify-between">
-          <div className="pr-3">
+        <label className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
             <p className="text-sm text-ink">Private profile</p>
             <p className="text-[11px] text-muted">
               When on, other people can't see who follows you or who you follow.
@@ -333,20 +333,34 @@ function Toggle({
   onChange: (v: boolean) => void;
   disabled?: boolean;
 }) {
+  // Track is 44×24 with a 1px border, so the padding box is 42×22 and a 16px knob
+  // sits 3px from either end. The offsets are inline because they must stay exact:
+  // an off-by-a-pixel class here is what pushed the knob outside the pill.
+  const KNOB = 16;
+  const INSET = 3;
+  const TRAVEL = 42 - KNOB - INSET * 2;
+
   return (
+    // `shrink-0` keeps the track at its full width in a flex row — without it a
+    // long label squeezed the track while the knob kept its fixed offset, so the
+    // knob slid out past the pill. `overflow-hidden` is the belt-and-braces guard.
     <button
       type="button"
       disabled={disabled}
       onClick={() => onChange(!on)}
-      className={`relative h-6 w-11 rounded-full border transition disabled:opacity-50 ${
+      className={`relative h-6 w-11 shrink-0 overflow-hidden rounded-full border transition disabled:opacity-50 ${
         on ? 'border-accent bg-accent/20' : 'border-line bg-elevated'
       }`}
       aria-pressed={on}
     >
       <span
-        className={`absolute top-0.5 h-4 w-4 rounded-full transition-all ${
-          on ? 'left-[1.45rem] bg-accent' : 'left-0.5 bg-muted'
-        }`}
+        className={`absolute rounded-full transition-all duration-200 ${on ? 'bg-accent' : 'bg-muted'}`}
+        style={{
+          width: KNOB,
+          height: KNOB,
+          top: INSET,
+          left: on ? INSET + TRAVEL : INSET,
+        }}
       />
     </button>
   );

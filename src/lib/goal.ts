@@ -73,6 +73,23 @@ export function goalRefTitle(g: Pick<Goal, 'goalNumber'>): string {
   return `Goal #${goalNumberOf(g)}`;
 }
 
+/**
+ * The owner published THIS finished goal, so its title may appear on their
+ * profile. It never unlocks anything else — messages and the judge view stay
+ * content-free, and running goals are not shown to other people at all.
+ */
+export function isPublicGoal(g: Pick<Goal, 'isPublic'>): boolean {
+  return g.isPublic === true;
+}
+
+/**
+ * What to call a goal on someone else's screen: the real title when the owner
+ * published it, otherwise "Goal #N".
+ */
+export function goalPublicLabel(g: Pick<Goal, 'goalNumber' | 'isPublic' | 'title'>): string {
+  return isPublicGoal(g) && g.title.trim() ? g.title.trim() : goalRefTitle(g);
+}
+
 /** The next open (planned) step, earliest scheduled first. */
 export function nextPlannedAction(g: Goal): PlannedAction | null {
   const open = g.plannedActions.filter(

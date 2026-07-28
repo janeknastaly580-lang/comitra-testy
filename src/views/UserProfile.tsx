@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import type { Relationship, SocialProfile } from '../lib/api';
-import { goalRefTitle } from '../lib/goal';
+import { goalRefTitle, isPublicGoal } from '../lib/goal';
 import { statusMeta } from '../lib/status';
 import type { Goal } from '../lib/types';
 import { Avatar } from '../components/Avatar';
@@ -179,7 +179,7 @@ export default function UserProfile() {
           ) : (
             <div className="space-y-1.5">
               {goals.map((g) => (
-                <CompletedGoalRow key={g.id} goal={g} hideContent={!isOwner} />
+                <CompletedGoalRow key={g.id} goal={g} hideContent={!isOwner && !isPublicGoal(g)} />
               ))}
             </div>
           )}
@@ -207,8 +207,9 @@ export default function UserProfile() {
 }
 
 /**
- * One row of someone's goal history. Goal content belongs to its owner alone, so
- * anyone else sees the goal's number and its result — never the title.
+ * One row of someone's FINISHED goals. Goal content belongs to its owner, so
+ * another person sees the number and the result — unless the owner published
+ * that particular goal. Running goals never reach this list at all.
  */
 function CompletedGoalRow({ goal, hideContent }: { goal: Goal; hideContent: boolean }) {
   const meta = statusMeta(goal.status);

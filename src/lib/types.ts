@@ -267,9 +267,16 @@ export interface Goal {
    * is themselves.
    */
   goalNumber: number;
-  /** Private to the owner. Never sent to a judge or a recipient. */
+  /**
+   * Opt-in, PER GOAL (never a global setting), and only choosable once the goal
+   * has FINISHED: when true, this one goal's title is shown on the owner's public
+   * profile instead of "Goal #N". It never affects messages or the judge view —
+   * those stay content-free no matter what. Default/undefined = private.
+   */
+  isPublic?: boolean;
+  /** Private to the owner; only ever shown to others via `isPublic` on a finished goal. */
   title: string;
-  /** Private to the owner. Never sent to a judge or a recipient. */
+  /** Private to the owner. Never shown to anyone else, public or not. */
   description: string;
 
   /** Total steps/actions that must be done to complete the goal. */

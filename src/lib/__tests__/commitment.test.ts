@@ -198,6 +198,73 @@ describe('goal content is never shared — only the goal number', () => {
   });
 });
 
+describe('publishing one finished goal', () => {
+  it('a new goal starts private', async () => {
+    const { goal } = await activatedGoal();
+    expect(goal.isPublic).toBe(false);
+  });
+
+  it('refuses to publish a goal that is still running', async () => {
+    const { goal, owner } = await activatedGoal();
+    await expect(api.setGoalVisibility(goal.id, owner.id, true)).rejects.toThrow(/finished/i);
+    expect((await api.getGoal(goal.id))!.isPublic).toBe(false);
+  });
+
+  it('publishes a finished goal, and only that one', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const first = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    await api.completeSoloGoal(first.id, owner.id);
+    const second = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    await api.completeSoloGoal(second.id, owner.id);
+
+    await api.setGoalVisibility(first.id, owner.id, true);
+    expect((await api.getGoal(first.id))!.isPublic).toBe(true);
+    // The owner's other goal is untouched — this is per goal, not a global switch.
+    expect((await api.getGoal(second.id))!.isPublic).toBe(false);
+
+    // …and it can be taken back.
+    await api.setGoalVisibility(first.id, owner.id, false);
+    expect((await api.getGoal(first.id))!.isPublic).toBe(false);
+  });
+
+  it('only the owner can publish their goal', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    await api.completeSoloGoal(goal.id, owner.id);
+    const stranger = await freshOwner();
+    await expect(api.setGoalVisibility(goal.id, stranger.id, true)).rejects.toThrow(/owner/i);
+  });
+
+  it('a profile lists finished goals only — never a running one', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const done = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    await api.completeSoloGoal(done.id, owner.id);
+    const running = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    expect(running.status).toBe('active');
+
+    const shown = await api.listCompletedGoals(owner.id);
+    expect(shown.map((g) => g.id)).toContain(done.id);
+    expect(shown.map((g) => g.id)).not.toContain(running.id);
+  });
+
+  it('publishing never puts the goal content into a message', async () => {
+    const { goal, alice } = await activatedGoal();
+    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    const published = await api.setGoalVisibility(goal.id, goal.userId, true);
+    expect(published.isPublic).toBe(true);
+
+    const body = (await api.listGoalNotifications(goal.id)).find((n) => n.recipientConsentId === alice.id)!.body;
+    expect(body).not.toContain(goal.title);
+    expect(body).toContain(`goal #${goal.goalNumber}`);
+    for (const m of await api.listOutbox(goal.id)) {
+      expect(m.body).not.toContain(goal.title);
+    }
+  });
+});
+
 describe('a missed goal must be reflected on before a new one', () => {
   /** Create a solo goal and force it past its deadline so it is "missed". */
   async function missedSoloGoal() {

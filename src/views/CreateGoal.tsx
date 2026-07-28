@@ -230,6 +230,7 @@ export default function CreateGoal() {
           <p className="mt-2 text-[11px] text-muted">
             Only you can read this. Everyone else sees{' '}
             <span className="font-semibold text-ink">{goalNumber ? `goal #${goalNumber}` : 'the goal number'}</span>.
+            Once the goal is finished you can choose to show it on your profile.
           </p>
         </div>
 

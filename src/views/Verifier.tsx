@@ -167,7 +167,8 @@ export default function Verifier() {
   return (
     <Shell>
       {/* PRIVACY: the judge is shown the goal's NUMBER only — never its title or
-          details. The person who set the goal tells their judge what it is. */}
+          details. The person who set the goal tells their judge what it is.
+          Making a goal public later never changes this — see `setGoalVisibility`. */}
       <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted">
         {goal.creatorName} asked you to judge
       </p>

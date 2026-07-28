@@ -184,6 +184,21 @@ export default function GoalDetail() {
       setNotice((err as Error).message);
     }
   }
+  /** Publish (or unpublish) this one finished goal on the owner's profile. */
+  async function toggleVisibility(next: boolean) {
+    try {
+      await api.setGoalVisibility(goal!.id, user!.id, next);
+      await load();
+      setNotice(
+        next
+          ? 'This goal is now visible on your profile.'
+          : 'This goal is private again — others see only its number.',
+      );
+    } catch (err) {
+      setNotice((err as Error).message);
+    }
+  }
+
   async function remove() {
     try {
       await api.deleteGoal(goal!.id);
@@ -218,6 +233,29 @@ export default function GoalDetail() {
           </p>
         )}
       </Card>
+
+      {/* Publish this ONE finished goal. Only offered once it is over — a running
+          goal is never shown to anyone but its owner. */}
+      {isTerminal && (
+        <Card className="mb-4 p-4">
+          <Label>Show this goal on your profile</Label>
+          <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
+            <span className="min-w-0 text-sm text-ink">
+              {goal.isPublic ? 'Public — people can read this goal' : 'Private — people see “' + goalRefTitle(goal) + '”'}
+            </span>
+            <input
+              type="checkbox"
+              checked={!!goal.isPublic}
+              onChange={(e) => toggleVisibility(e.target.checked)}
+              className="h-4 w-4 shrink-0 accent-[color:rgb(var(--c-accent))]"
+            />
+          </label>
+          <p className="mt-1 text-[11px] text-muted">
+            This is for this goal only — your other goals keep their own setting. It changes your
+            profile alone: messages to your judge and recipients never contain your goal’s content.
+          </p>
+        </Card>
+      )}
 
       {/* Answers owed after a missed goal — private to the user. */}
       {(goal.status === 'failed_notified' || goal.status === 'failed_pending_notification') && (

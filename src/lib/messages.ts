@@ -7,7 +7,8 @@
  *
  * PRIVACY RULE: a recipient is told only that a numbered goal was not completed.
  * The goal's title and description NEVER appear in any message — there is no
- * opt-in that changes this. The same rule applies to the judge (see api.ts).
+ * opt-in that changes this, not even marking the goal public afterwards (that
+ * only affects the owner's profile). The same rule applies to the judge.
  */
 import { goalRef } from './goal';
 import type { Goal, MessageTone } from './types';

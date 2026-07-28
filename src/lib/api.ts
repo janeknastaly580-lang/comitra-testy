@@ -138,6 +138,7 @@ export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
  *
  * PRIVACY RULE: the judge is told only WHO and WHICH numbered goal — never the
  * title or the details. The user tells their judge what the goal is themselves.
+ * Marking a goal public afterwards does NOT change any message.
  */
 function judgeReviewMessage(goal: Goal, reason: 'deadline' | 'early' | 'ready'): string {
   const who = goal.creatorName || 'Someone';
@@ -750,6 +751,9 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     creatorDeviceId: getDeviceId(),
     title: input.title.trim(),
     description: input.description.trim(),
+    // Always starts private; only a FINISHED goal can be published, from its
+    // detail screen (see `setGoalVisibility`).
+    isPublic: false,
     requiredActionsCount: Math.max(1, input.requiredActionsCount || 1),
     plannedActions: buildPlannedActions(input),
     startsAt: input.startsAt,
@@ -859,6 +863,40 @@ export async function addEvidence(
   logAudit({ actorId: goal.userId, actionType: 'evidence_added', entityType: 'goal', entityId: goal.id, metadata: { type: item.type } });
   return goal;
 }
+
+/**
+ * Show ONE finished goal's title on the owner's public profile (or hide it
+ * again). Deliberately narrow:
+ *  • per goal — it never touches the owner's other goals;
+ *  • only once the goal is OVER, so a running goal can never be broadcast;
+ *  • profile only — messages and the judge view stay content-free either way.
+ */
+export async function setGoalVisibility(goalId: string, userId: string, isPublic: boolean): Promise<Goal> {
+  await delay(60);
+  resolveExpired();
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can change who sees this goal.');
+  if (!TERMINAL_STATUSES.includes(goal.status)) {
+    throw new Error('You can only make a goal public once it is finished.');
+  }
+  goal.isPublic = isPublic;
+  saveGoals(goals);
+  logAudit({ actorId: userId, actionType: isPublic ? 'goal_made_public' : 'goal_made_private', entityType: 'goal', entityId: goal.id });
+  return goal;
+}
+
+/**
+ * Statuses where a goal is over and its result is final. Only these can be
+ * deleted from history, and only these can be made public.
+ */
+export const TERMINAL_STATUSES: GoalStatus[] = [
+  'completed',
+  'failed_notified',
+  'cancelled',
+  'expired_without_judge_decision',
+];
 
 /** Update a planned action's status (mark skipped / rest / planned). */
 export async function updatePlannedAction(
@@ -972,12 +1010,11 @@ export async function requestEarlyDecision(goalId: string, userId: string): Prom
   return goal;
 }
 
-const DELETABLE: GoalStatus[] = ['completed', 'failed_notified', 'cancelled', 'expired_without_judge_decision'];
 export async function deleteGoal(id: string): Promise<void> {
   await delay(80);
   const goal = getGoals().find((g) => g.id === id);
   if (!goal) return;
-  if (!DELETABLE.includes(goal.status)) {
+  if (!TERMINAL_STATUSES.includes(goal.status)) {
     throw new Error('Only finished goals can be removed from history.');
   }
   saveGoals(getGoals().filter((g) => g.id !== id));
@@ -2350,12 +2387,15 @@ export async function listJournal(userId: string): Promise<JournalEntry[]> {
 }
 
 /** A user's finished (terminal) goals, newest first, for their public profile. */
+/**
+ * A user's FINISHED goals — what a profile shows. Running goals are deliberately
+ * excluded: while a goal is live it is nobody's business but the owner's.
+ */
 export async function listCompletedGoals(userId: string): Promise<Goal[]> {
   await delay(80);
   resolveExpired();
-  const terminal: GoalStatus[] = ['completed', 'failed_notified', 'cancelled', 'expired_without_judge_decision'];
   return getGoals()
-    .filter((g) => g.userId === userId && terminal.includes(g.status))
+    .filter((g) => g.userId === userId && TERMINAL_STATUSES.includes(g.status))
     .sort((a, b) => +new Date(b.failedAt ?? b.completedAt ?? b.createdAt) - +new Date(a.failedAt ?? a.completedAt ?? a.createdAt));
 }
 
