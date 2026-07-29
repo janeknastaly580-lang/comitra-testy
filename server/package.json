@@ -1,7 +1,7 @@
 {
   "name": "fineline-payments-server",
   "version": "1.0.0",
-  "description": "Secure PayPal payment backend for FineLine (Create Order + Capture Order + Webhook).",
+  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Twilio SMS (Verify OTP + Messaging Service).",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -9,7 +9,7 @@
     "dev": "node --watch src/server.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "better-sqlite3": "^11.3.0",
@@ -21,6 +21,7 @@
     "express-rate-limit": "^7.4.0",
     "express-validator": "^7.2.0",
     "helmet": "^8.0.0",
+    "twilio": "^6.0.2",
     "uuid": "^10.0.0"
   }
 }

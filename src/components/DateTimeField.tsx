@@ -12,7 +12,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
  *
  * `value` / `onChange` keep the same `YYYY-MM-DDTHH:mm` local format the native
  * input used, so callers didn't have to change. While the value is incomplete or
- * impossible (31 February), `onChange` receives `''` — existing "pick a future
+ * impossible (31 February), `onChange` receives `''`, existing "pick a future
  * date" validation then rejects it exactly as before.
  */
 
@@ -143,7 +143,7 @@ export default function DateTimeField({
         el.showPicker();
         return;
       } catch {
-        /* not allowed here — fall through to a plain click */
+        /* not allowed here: fall through to a plain click */
       }
     }
     el.click();

@@ -10,7 +10,7 @@ export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
 /* ───────────────────────────────────────────────────────── Recipients ── */
 
-/** A goal may notify at most this many recipients — never a mass broadcast. */
+/** A goal may notify at most this many recipients, never a mass broadcast. */
 export const MAX_RECIPIENTS_PER_GOAL = 3;
 /** Anti-spam: max new recipient invites a user may send per day. */
 export const MAX_INVITES_PER_DAY = 10;
@@ -39,7 +39,7 @@ export const PERIOD_CHOICES: { label: string; days: number }[] = [
   { label: '30 days', days: 30 },
 ];
 
-/** A few starter templates — small, realistic goals to pick from. */
+/** A few starter templates: small, realistic goals to pick from. */
 export const GOAL_TEMPLATES: GoalTemplate[] = [
   { id: 'g-study5', title: 'Study 5 times this week', periodDays: 7, requiredActionsCount: 5 },
   { id: 'g-project', title: 'Finish the project by Friday', periodDays: 5, requiredActionsCount: 3 },
@@ -147,7 +147,7 @@ export function fillGoalNumber(template: string, n: string | number): string {
 
 /** An app the user can choose to have blocked if a solo goal is not completed. */
 export interface AppBlockTarget {
-  /** Android package name — used by the native blocker. */
+  /** Android package name: used by the native blocker. */
   packageName: string;
   label: string;
 }

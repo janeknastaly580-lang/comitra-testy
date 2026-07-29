@@ -17,7 +17,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
  *
  * The JS layer decides WHEN an app should be blocked; this plugin only records
  * it and hands enforcement to {@link ComitraAccessibilityService}. Writing to
- * {@link BlockStore} is all `scheduleBlock` does — that is what makes a block
+ * {@link BlockStore} is all `scheduleBlock` does, that is what makes a block
  * survive the WebView being killed.
  *
  * Blocks are stored even when the accessibility permission has not been granted
@@ -86,7 +86,7 @@ public class ComitraAppBlockPlugin extends Plugin {
 
     /**
      * Send the user to the system Accessibility screen to switch the service on.
-     * Android does not allow granting this from code — by design, and it is also
+     * Android does not allow granting this from code, by design, and it is also
      * what makes a block hard to shrug off later.
      */
     @PluginMethod

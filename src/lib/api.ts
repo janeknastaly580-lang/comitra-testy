@@ -1,5 +1,5 @@
 /**
- * Mock API layer backed by LocalStorage — the MVP "database".
+ * Mock API layer backed by LocalStorage, the MVP "database".
  *
  * This is the SOCIAL-COMMITMENT / SUBSCRIPTION model. There is no money,
  * deposit, stake, pot, token, wallet or reward anywhere. The only consequence
@@ -12,6 +12,7 @@
 import { cancelAppBlock, commitmentBlockId, penaltyBlockId, scheduleAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
 import { goalRef } from './goal';
+import { judgeLink, recipientLink } from './share';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
 import {
@@ -25,16 +26,20 @@ import {
 } from './teamChallenge';
 import {
   remoteListInvitedJudges,
-  remotePhoneAuthEnabled,
-  remoteSendPhoneOtp,
   remoteSyncHealth,
   remoteUpsertInvitedJudge,
-  remoteVerifyPhoneOtp,
   supabaseEnabled,
   SyncError,
   type RemoteInvitedJudge,
   type SyncHealth,
 } from './supabase';
+import {
+  sendPhoneOtp,
+  sendTransactionalSms,
+  smsVerificationAvailable,
+  verifyPhoneOtp,
+  type SmsTemplate,
+} from './sms';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -111,11 +116,45 @@ function saveOutbox(list: OutboxMessage[]) {
 }
 
 /**
- * Queue a message the system intends to deliver. On the MVP it is recorded here
- * (and surfaced in-app / via a share link); a real backend would deliver it by
- * push/SMS/email. Recipients must have consented before any `recipient_message`.
+ * What the backend should text, when the message goes to a phone. The BODY is
+ * not sent: the backend owns the wording (server/src/twilio/templates.js), so a
+ * tampered client can't push arbitrary text out through Comitra's sender.
  */
-function queueOutbox(msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'> & { status?: OutboxMessage['status'] }): OutboxMessage {
+interface SmsDelivery {
+  template: SmsTemplate;
+  params?: Record<string, string | number | undefined>;
+}
+
+/**
+ * Actually text a queued message, when it is addressed to a phone number and a
+ * Twilio-backed API is configured.
+ *
+ * Deliberately fire-and-forget: the outbox entry is the record of intent, and a
+ * texting failure must never break the flow that produced it (activating a
+ * goal, asking a judge to decide). The outbox id doubles as the idempotency
+ * key, so a repeat call for the same entry never puts a second text on the
+ * phone.
+ */
+function deliverOutboxBySms(entry: OutboxMessage, sms?: SmsDelivery): void {
+  if (!sms || entry.channel !== 'phone' || !entry.contact) return;
+  void sendTransactionalSms({
+    to: entry.contact,
+    template: sms.template,
+    params: sms.params,
+    idempotencyKey: entry.id,
+  });
+}
+
+/**
+ * Queue a message the system intends to deliver. It is recorded here (and
+ * surfaced in-app / via a share link); when it is addressed to a phone number
+ * and the SMS backend is configured, it is also texted through Twilio.
+ * Recipients must have consented before any `recipient_message`.
+ */
+function queueOutbox(
+  msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'> & { status?: OutboxMessage['status'] },
+  sms?: SmsDelivery,
+): OutboxMessage {
   const list = getOutbox();
   const entry: OutboxMessage = {
     id: uid('out'),
@@ -125,10 +164,11 @@ function queueOutbox(msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'> & {
   };
   list.unshift(entry);
   saveOutbox(list);
+  deliverOutboxBySms(entry, sms);
   return entry;
 }
 
-/** Messages queued for a goal (newest first) — used by the goal detail view. */
+/** Messages queued for a goal (newest first), used by the goal detail view. */
 export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
   await delay(50);
   return getOutbox().filter((m) => m.goalId === goalId);
@@ -137,7 +177,7 @@ export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
 /**
  * Compose the "please review this goal" message sent to the judge.
  *
- * PRIVACY RULE: the judge is told only WHO and WHICH numbered goal — never the
+ * PRIVACY RULE: the judge is told only WHO and WHICH numbered goal, never the
  * title or the details. The user tells their judge what the goal is themselves.
  * Marking a goal public afterwards does NOT change any message.
  */
@@ -152,7 +192,7 @@ function judgeReviewMessage(goal: Goal, reason: 'deadline' | 'early' | 'ready'):
         : `${who} marked their ${ref} ready and added proof.`;
   return (
     `${head} Did ${who} complete ${ref}? Open your judge link to mark it completed or not ` +
-    `completed. You'll need your secret code. Comitra does not show you what the goal is — ` +
+    `completed. You'll need your secret code. Comitra does not show you what the goal is. ` +
     `${who} tells you that themselves.`
   );
 }
@@ -160,14 +200,18 @@ function judgeReviewMessage(goal: Goal, reason: 'deadline' | 'early' | 'ready'):
 /** Record a judge-review notification once per goal (no duplicates). */
 function notifyJudgeReview(goal: Goal, reason: 'deadline' | 'early' | 'ready'): void {
   if (goal.noJudge) return;
-  queueOutbox({
-    goalId: goal.id,
-    kind: 'judge_review_request',
-    to: 'judge',
-    channel: goal.judge.channel,
-    contact: goal.judge.judgeContact,
-    body: judgeReviewMessage(goal, reason),
-  });
+  queueOutbox(
+    {
+      goalId: goal.id,
+      kind: 'judge_review_request',
+      to: 'judge',
+      channel: goal.judge.channel,
+      contact: goal.judge.judgeContact,
+      body: judgeReviewMessage(goal, reason),
+    },
+    // Same privacy rule on the text as in-app: who + which numbered goal only.
+    { template: 'judge_review_request', params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, link: judgeLink(goal) } },
+  );
 }
 
 /* ──────────────────────────────────────────────────── audit / logging ── */
@@ -204,7 +248,7 @@ function newTrialSubscription(startISO = new Date().toISOString()): Subscription
 }
 
 /**
- * True when the user may create/activate new goals — an active subscription OR a
+ * True when the user may create/activate new goals, an active subscription OR a
  * trial that has not yet elapsed.
  */
 export function hasEntitlement(user: User): boolean {
@@ -272,7 +316,7 @@ function persistUser(user: User): User {
   return user;
 }
 
-/** Placeholder subscribe — swap for Stripe/RevenueCat/App Store/Play later. */
+/** Placeholder subscribe: swap for Stripe/RevenueCat/App Store/Play later. */
 export async function subscribe(userId: string): Promise<User> {
   await delay();
   const user = getUsers().find((u) => u.id === userId);
@@ -469,9 +513,9 @@ export interface CreateGoalInput {
   userId: string;
   creatorName: string;
   creatorAvatar?: string;
-  /** Private to the owner — never sent to the judge or to recipients. */
+  /** Private to the owner: never sent to the judge or to recipients. */
   title: string;
-  /** Private to the owner — never sent to the judge or to recipients. */
+  /** Private to the owner: never sent to the judge or to recipients. */
   description: string;
   requiredActionsCount: number;
   startsAt?: string; // ISO
@@ -495,7 +539,7 @@ function nextGoalNumber(ownerUserId: string, goals = getGoals()): number {
   return max + 1;
 }
 
-/** The number the user's next goal will get — shown while they set it up. */
+/** The number the user's next goal will get, shown while they set it up. */
 export async function getNextGoalNumber(userId: string): Promise<number> {
   await delay(40);
   ensureGoalNumbers();
@@ -591,13 +635,16 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
   logAudit({ actorId: ownerUserId, actionType: 'recipient_invited', entityType: 'recipient_consent', entityId: consent.id, metadata: { channel: consent.channel } });
   // Notification #1: ask the recipient to consent BEFORE any message is ever sent.
   const owner = getUsers().find((u) => u.id === ownerUserId);
-  queueOutbox({
-    kind: 'recipient_consent_request',
-    to: 'recipient',
-    channel: consent.channel,
-    contact: consent.recipientContact,
-    body: recipientInviteMessage(owner?.name ?? 'A Comitra user'),
-  });
+  queueOutbox(
+    {
+      kind: 'recipient_consent_request',
+      to: 'recipient',
+      channel: consent.channel,
+      contact: consent.recipientContact,
+      body: recipientInviteMessage(owner?.name ?? 'A Comitra user'),
+    },
+    { template: 'recipient_invite', params: { ownerName: owner?.name, link: recipientLink(consent.inviteToken) } },
+  );
   return consent;
 }
 
@@ -641,7 +688,7 @@ function unreflectedGoals(userId: string): Goal[] {
 
 /**
  * Answer the two questions owed after a missed goal. Both answers are private to
- * the user — no judge and no recipient ever sees them.
+ * the user: no judge and no recipient ever sees them.
  */
 export async function submitGoalReflection(
   goalId: string,
@@ -696,7 +743,7 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     );
   }
   const recips = input.recipients.filter((r) => r.name.trim() || r.contact || r.recipientUserId);
-  // Recipients are optional now — but if there are any, the notify consent is required.
+  // Recipients are optional now: but if there are any, the notify consent is required.
   if (recips.length > 0 && !input.ackNotifyConsent) {
     throw new Error('You must acknowledge that recipients may be messaged on failure.');
   }
@@ -740,7 +787,7 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
       };
 
   // Standing acceptance: if THIS owner has already had this judge accept a role
-  // (and set a code), the judge does not need to re-consent — pre-accept them.
+  // (and set a code), the judge does not need to re-consent, pre-accept them.
   if (input.judge) {
     const standing = findJudgeCredential(input.userId, judgeKeyFor(judge));
     if (standing) {
@@ -786,19 +833,22 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   saveGoals(goals);
 
   // Notification #2: ask the chosen judge to accept the role (unless pre-accepted).
-  // Carries the goal NUMBER only — never the title or the details.
+  // Carries the goal NUMBER only: never the title or the details.
   if (input.judge && judge.status !== 'accepted') {
-    queueOutbox({
-      goalId: goal.id,
-      kind: 'judge_invite',
-      to: 'judge',
-      channel: judge.channel,
-      contact: judge.judgeContact,
-      body:
-        `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
-        `link to accept the role, set your secret code, and later say whether they completed it. ` +
-        `Comitra does not show you what the goal is — ${goal.creatorName} tells you that themselves.`,
-    });
+    queueOutbox(
+      {
+        goalId: goal.id,
+        kind: 'judge_invite',
+        to: 'judge',
+        channel: judge.channel,
+        contact: judge.judgeContact,
+        body:
+          `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
+          `link to accept the role, set your secret code, and later say whether they completed it. ` +
+          `Comitra does not show you what the goal is. ${goal.creatorName} tells you that themselves.`,
+      },
+      { template: 'judge_invite', params: { ownerName: goal.creatorName, link: judgeLink(goal) } },
+    );
   }
 
   if (recips.length > 0) {
@@ -836,8 +886,8 @@ function reevaluateGoals(predicate: (g: Goal) => boolean) {
 }
 
 /**
- * Add proof of completion. Links the proof to a planned step — the one given, or
- * otherwise the next open step — and advances that step's status. Updates
+ * Add proof of completion. Links the proof to a planned step, the one given, or
+ * otherwise the next open step: and advances that step's status. Updates
  * progress via the count of evidence items.
  */
 export async function addEvidence(
@@ -877,9 +927,9 @@ export async function addEvidence(
 /**
  * Show ONE finished goal's title on the owner's public profile (or hide it
  * again). Deliberately narrow:
- *  • per goal — it never touches the owner's other goals;
+ *  • per goal: it never touches the owner's other goals;
  *  • only once the goal is OVER, so a running goal can never be broadcast;
- *  • profile only — messages and the judge view stay content-free either way.
+ *  • profile only: messages and the judge view stay content-free either way.
  */
 export async function setGoalVisibility(goalId: string, userId: string, isPublic: boolean): Promise<Goal> {
   await delay(60);
@@ -941,7 +991,7 @@ export async function cancelGoal(goalId: string): Promise<Goal> {
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
   // ONLY a solo (judge-less) goal can be cancelled by the creator. A goal that
-  // has a judge — even before it starts — is cancelled by that judge, once the
+  // has a judge: even before it starts, is cancelled by that judge, once the
   // creator asks them. See requestCancel / judgeCancelGoal.
   if (!goal.noJudge) {
     throw new Error('A goal with a judge can only be cancelled by the judge, once you ask them to.');
@@ -967,18 +1017,21 @@ export async function requestCancel(goalId: string, userId: string): Promise<Goa
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
   if (goal.userId !== userId) throw new Error('Only the goal owner can ask to cancel.');
-  if (goal.noJudge) throw new Error('This goal has no judge — you can cancel it yourself.');
+  if (goal.noJudge) throw new Error('This goal has no judge, so you can cancel it yourself.');
   if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.cancelRequested = true;
   saveGoals(goals);
-  queueOutbox({
-    goalId: goal.id,
-    kind: 'judge_review_request',
-    to: 'judge',
-    channel: goal.judge.channel,
-    contact: goal.judge.judgeContact,
-    body: `${goal.creatorName} asks you to cancel their goal. Open your judge link and cancel it — no code needed.`,
-  });
+  queueOutbox(
+    {
+      goalId: goal.id,
+      kind: 'judge_review_request',
+      to: 'judge',
+      channel: goal.judge.channel,
+      contact: goal.judge.judgeContact,
+      body: `${goal.creatorName} asks you to cancel their goal. Open your judge link and cancel it. No code needed.`,
+    },
+    { template: 'judge_review_request', params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, link: judgeLink(goal) } },
+  );
   logAudit({ actorId: userId, actionType: 'cancel_requested', entityType: 'goal', entityId: goal.id });
   return goal;
 }
@@ -990,7 +1043,7 @@ export async function completeSoloGoal(goalId: string, userId: string): Promise<
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
   if (goal.userId !== userId) throw new Error('Only the goal owner can complete this goal.');
-  if (!goal.noJudge) throw new Error('This goal has a judge — only the judge can decide it.');
+  if (!goal.noJudge) throw new Error('This goal has a judge, so only the judge can decide it.');
   if (goal.status !== 'active') throw new Error('Only an active goal can be marked completed.');
   const at = new Date().toISOString();
   goal.status = 'completed';
@@ -1117,7 +1170,7 @@ function upsertJudgeCredential(ownerUserId: string, judgeKey: string, code: stri
 /**
  * Same as `upsertJudgeCredential` but takes an already-hashed code. Used when a
  * standing acceptance arrives from the shared store (another device), where only
- * the hash — never the raw password — is available.
+ * the hash: never the raw password: is available.
  */
 function upsertJudgeCredentialHash(ownerUserId: string, judgeKey: string, codeHash: string, judgeAccountUserId?: string): void {
   if (!judgeKey || !codeHash) return;
@@ -1149,7 +1202,7 @@ function getInvitedJudges(): InvitedJudge[] {
 /**
  * The identity an invite link carries in itself. Because everything the judge
  * needs is embedded here (not looked up in the inviter's LocalStorage), the link
- * opens on ANY device — this is what makes cross-device invites work without a
+ * opens on ANY device: this is what makes cross-device invites work without a
  * shared backend. `d` (the inviter's device id) also powers the "accept from a
  * different device" anti-cheat check.
  */
@@ -1261,7 +1314,7 @@ export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
 
   const payload = decodeInvitePayload(token);
   if (payload) {
-    // Self-contained link — valid on any device.
+    // Self-contained link: valid on any device.
     const owner = getUsers().find((u) => u.id === payload.o);
     return resolve(payload.o, owner?.name ?? payload.n ?? 'A Comitra user', payload.d);
   }
@@ -1271,7 +1324,7 @@ export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
     const owner = getUsers().find((u) => u.id === invite.ownerUserId);
     return resolve(invite.ownerUserId, owner?.name ?? 'A Comitra user', invite.inviterDeviceId);
   }
-  // Token missing / corrupted / from an old app version — explain, don't say "invalid".
+  // Token missing / corrupted / from an old app version, explain, don't say "invalid".
   return { ok: false, reason: 'unreadable', ownerName: '', ownerUserId: '', sameDevice: false, sameAccount: false };
 }
 
@@ -1288,38 +1341,37 @@ function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: 
 
 /**
  * Whether the judge-invite flow should require an SMS code before someone can
- * become a judge. True only when Supabase phone auth is actually switched on, so:
- *  • the app keeps working before the owner finishes SMS setup (falls back to no
- *    SMS step), and
- *  • tests stay hermetic (`supabaseEnabled()` is false under MODE==='test').
- * `VITE_SMS_VERIFY` can force it `on` or `off`; the default `auto` probes Supabase.
+ * become a judge. True only when the backend actually holds Twilio credentials,
+ * so:
+ *  • the app keeps working before Twilio is set up (falls back to no SMS step),
+ *  • tests stay hermetic (`smsVerificationAvailable()` is false under MODE==='test').
+ *
+ * `VITE_SMS_VERIFY=off` switches the step off. There is deliberately no way to
+ * force it *on*: showing a "we texted you a code" screen that no backend can
+ * follow through on would strand every judge at a code that never arrives.
  */
 export async function phoneVerificationAvailable(): Promise<boolean> {
-  if (!supabaseEnabled()) return false;
-  const mode = import.meta.env.VITE_SMS_VERIFY?.trim().toLowerCase();
-  if (mode === 'off') return false;
-  if (mode === 'on') return true;
-  return remotePhoneAuthEnabled();
+  if (import.meta.env.VITE_SMS_VERIFY?.trim().toLowerCase() === 'off') return false;
+  return smsVerificationAvailable();
 }
 
 /**
- * Text a random 6-digit verification code to a judge's phone (E.164). Used by the
+ * Text a 6-digit verification code to a judge's phone (E.164). Used by the
  * invite page to prove the number really belongs to the person accepting.
+ * The code is generated and checked by Twilio Verify, behind our own backend.
  */
 export async function startPhoneVerification(phone: string): Promise<void> {
-  await delay(60);
   const normalized = normalizePhone(phone);
   if (normalized.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
-  await remoteSendPhoneOtp(normalized);
+  await sendPhoneOtp(normalized);
 }
 
 /** Check the 6-digit code the judge received by SMS. Throws if it's wrong/expired. */
 export async function verifyPhoneCode(phone: string, code: string): Promise<void> {
-  await delay(60);
   const normalized = normalizePhone(phone);
   const digits = (code ?? '').replace(/\D/g, '');
   if (digits.length < 4) throw new Error('Enter the code from the text message.');
-  await remoteVerifyPhoneOtp(normalized, digits);
+  await verifyPhoneOtp(normalized, digits);
 }
 
 /**
@@ -1336,7 +1388,7 @@ export async function submitJudgeInvite(
 ): Promise<InvitedJudge> {
   await delay();
   const invite = resolveInvite(token);
-  if (!invite) throw new Error("We couldn't read this invite link — ask your friend to send you a fresh one.");
+  if (!invite) throw new Error("We couldn't read this invite link. Ask your friend to send you a fresh one.");
   // Anti-cheat: the inviter must not register as their own judge from their device.
   if (invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId) {
     throw new Error('Open this invite on a different device than the one that created it.');
@@ -1344,7 +1396,7 @@ export async function submitJudgeInvite(
   // Anti-cheat: the inviter must not register as their own judge from their account.
   const sessionId = read<string | null>(KEYS.session, null);
   if (sessionId && sessionId === invite.ownerUserId) {
-    throw new Error('You are signed in as the person who created this invite — a judge has to be someone else.');
+    throw new Error('You are signed in as the person who created this invite. A judge has to be someone else.');
   }
   const phone = normalizePhone(input.phone);
   if (phone.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
@@ -1396,7 +1448,7 @@ export async function submitJudgeInvite(
   // the sync to succeed (and tell the judge to retry on failure); if it isn't
   // configured we keep the old same-browser-only behaviour.
   //
-  // SECURITY: `codeHash` is deliberately NOT sent — the judge's password stays on
+  // SECURITY: `codeHash` is deliberately NOT sent, the judge's password stays on
   // this device only. The owner never verifies it (they can't judge their own
   // goal), so they only need to know the judge exists (see mergeRemoteInvitedJudges).
   if (supabaseEnabled()) {
@@ -1412,7 +1464,7 @@ export async function submitJudgeInvite(
       });
     } catch (err) {
       // `SyncError` messages are already written for the person on the invite
-      // page (and deliberately carry no server internals — those go to the
+      // page (and deliberately carry no server internals, those go to the
       // console). Anything else gets a plain retry prompt.
       if (err instanceof SyncError) throw err;
       throw new Error(
@@ -1455,7 +1507,7 @@ function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudg
     }
     // Materialise a standing acceptance so a picked judge's goal skips
     // waiting-for-judge. We only have a sentinel (never the real password hash),
-    // which is all the owner needs — they can't verify a code themselves anyway.
+    // which is all the owner needs: they can't verify a code themselves anyway.
     // Don't clobber a real local hash if one somehow already exists.
     const existingCred = findJudgeCredential(ownerUserId, judgeKeyFor({ judgeContact: r.phone }));
     if (!existingCred) {
@@ -1600,7 +1652,7 @@ export async function judgeDecision(
 }
 
 /**
- * The judge cancels a goal — used only when the creator asks them to (the
+ * The judge cancels a goal: used only when the creator asks them to (the
  * creator can no longer cancel an active goal themselves). No code needed:
  * cancelling never sends a message, so it's safe without the secret code.
  */
@@ -1701,7 +1753,7 @@ export function isCommitmentBlockLive(goal: Goal, now = Date.now()): boolean {
 
 /**
  * Block an app until this goal ends. The user has already confirmed they
- * understand they cannot use it until the goal is completed or over — there is
+ * understand they cannot use it until the goal is completed or over, there is
  * deliberately no "undo": that is the entire point of the feature. The only ways
  * out are finishing the goal, it being cancelled, or the deadline arriving.
  */
@@ -1743,7 +1795,7 @@ export async function setCommitmentBlock(
 
 /**
  * Release a commitment block because the goal is over (completed, missed or
- * cancelled). Mutates the goal — the caller persists it.
+ * cancelled). Mutates the goal: the caller persists it.
  */
 function liftCommitmentBlock(goal: Goal): void {
   if (!goal.commitmentBlock || goal.commitmentBlock.liftedAt) return;
@@ -1765,14 +1817,14 @@ function applyAppBlockPenalty(goal: Goal, now = Date.now()): void {
 
 /* ─────────────────────────────────────────────── Judge ratings ── */
 
-/** Round to at most two decimal places and clamp into 0–5. */
+/** Round to at most two decimal places and clamp into 0-5. */
 function normalizeRating(value: number): number {
   const clamped = Math.min(5, Math.max(0, value));
   return Math.round(clamped * 100) / 100;
 }
 
 /**
- * The goal owner rates the judge (0–5, up to two decimals). Only judges who have
+ * The goal owner rates the judge (0-5, up to two decimals). Only judges who have
  * an account accumulate a rating. One rating per goal (re-rating replaces it).
  */
 export async function rateJudge(goalId: string, raterUserId: string, value: number): Promise<Goal> {
@@ -1803,7 +1855,7 @@ export async function rateJudge(goalId: string, raterUserId: string, value: numb
   return goal;
 }
 
-/** Average judge rating (0–5, two decimals) and number of ratings for an account. */
+/** Average judge rating (0-5, two decimals) and number of ratings for an account. */
 export async function getJudgeRatingSummary(userId: string): Promise<{ avg: number; count: number }> {
   await delay(60);
   const ratings = read<JudgeRating[]>(KEYS.judgeRatings, []).filter((r) => r.judgeUserId === userId);
@@ -1973,7 +2025,7 @@ export async function listTrainerClients(trainerUserId: string): Promise<Trainer
   return getTrainerClients().filter((t) => t.trainerUserId === trainerUserId && t.status === 'accepted' && !!t.clientUserId);
 }
 
-/** Trainers a client has accepted — offered as judges when creating a goal. */
+/** Trainers a client has accepted: offered as judges when creating a goal. */
 export async function listMyTrainers(clientUserId: string): Promise<{ id: string; name: string }[]> {
   await delay(60);
   const accepted = getTrainerClients().filter((t) => t.clientUserId === clientUserId && t.status === 'accepted');
@@ -2022,8 +2074,9 @@ export function dispatchFailureNotifications(goalId: string): void {
       reason = 'owner_missing';
     }
 
+    const logId = uid('ntf');
     notifications.push({
-      id: uid('ntf'),
+      id: logId,
       goalId: goal.id,
       ownerUserId: goal.userId,
       recipientConsentId: r.consentId,
@@ -2037,6 +2090,16 @@ export function dispatchFailureNotifications(goalId: string): void {
 
     if (status === 'sent' && consent) {
       consent.lastNotifiedAt = now;
+      // Text a consented recipient for real. Best-effort and idempotent on the
+      // log id, so re-running dispatch can never double-message anyone.
+      if (consent.channel === 'phone' && consent.recipientContact) {
+        void sendTransactionalSms({
+          to: consent.recipientContact,
+          template: 'goal_not_completed',
+          params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber },
+          idempotencyKey: logId,
+        });
+      }
       return { ...r, notifiedAt: now, suppressed: false };
     }
     return { ...r, suppressed: true, suppressReason: reason };
@@ -2141,7 +2204,7 @@ export interface SocialProfile {
   following: number;
   /** Who this account lets see its goals. */
   visibility: ProfileVisibility;
-  /** True when `visibility === 'private'` — also hides the follower lists. */
+  /** True when `visibility === 'private'`, also hides the follower lists. */
   isPrivate: boolean;
 }
 
@@ -2395,7 +2458,7 @@ export interface FriendStat {
   /** Completed goals in the last 90 days (≈ 3 months). */
   completed90: number;
   completedTotal: number;
-  /** completed / (completed + not-completed), as a percent — null if none resolved. */
+  /** completed / (completed + not-completed), as a percent, null if none resolved. */
   successRate: number | null;
 }
 
@@ -2538,7 +2601,7 @@ const emptyTab = (): GoalTabStats => ({ goals: [], completed: 0, missed: 0, succ
  *
  * The visibility rule lives HERE rather than in the view, so no screen can leak
  * a private profile by forgetting to check: `private` → owner only, `friends` →
- * mutual follows only, `public` → anyone. Goal CONTENT is still per goal — the
+ * mutual follows only, `public` → anyone. Goal CONTENT is still per goal, the
  * caller renders an unpublished goal as "Goal #N" (see `goalPublicLabel`).
  */
 export async function getProfileGoals(viewerId: string, targetId: string): Promise<ProfileGoalsView> {
@@ -2555,7 +2618,7 @@ export async function getProfileGoals(viewerId: string, targetId: string): Promi
     if (visibility === 'private') {
       return { allowed: false, blockedBy: 'private', solo: emptyTab(), judged: emptyTab() };
     }
-    // 'friends' — mutual follow required, in both directions.
+    // 'friends': mutual follow required, in both directions.
     const friends =
       !!viewer && viewer.following.includes(targetId) && target.following.includes(viewerId);
     if (!friends) {
@@ -2588,7 +2651,7 @@ export async function setProfileVisibility(userId: string, visibility: ProfileVi
 }
 
 /**
- * A user's FINISHED goals — what a profile shows. Running goals are deliberately
+ * A user's FINISHED goals: what a profile shows. Running goals are deliberately
  * excluded: while a goal is live it is nobody's business but the owner's.
  */
 export async function listCompletedGoals(userId: string): Promise<Goal[]> {
@@ -2705,7 +2768,7 @@ function saveChallenges(list: TeamChallenge[]) {
  * Seeded demo friends have no account to sign in with, so a challenge involving
  * them would sit in `pending_invites` forever and never move. They therefore act
  * on a timer: answer their invite, then compete. Real people always act for
- * themselves — nothing below ever touches a member without `demo: true`.
+ * themselves: nothing below ever touches a member without `demo: true`.
  */
 const DEMO_RESPOND_MS = 5_000;
 const DEMO_MOVE_MS = 20_000;
@@ -2715,7 +2778,7 @@ function isDemoUser(userId: string): boolean {
   return userId.startsWith('fake_');
 }
 
-/** Stable 0–9 roll from a string, so a demo verdict never flips between reads. */
+/** Stable 0-9 roll from a string, so a demo verdict never flips between reads. */
 function demoRoll(seed: string): number {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
@@ -2822,7 +2885,7 @@ export interface CreateTeamChallengeInput {
   teamBName: string;
   pointsToWin: number;
   deadlineAt: string;
-  /** Team A's other players — the creator always fills the first slot. */
+  /** Team A's other players: the creator always fills the first slot. */
   teamAPlayerIds: string[];
   teamBPlayerIds: string[];
   judgeAUserId: string;
@@ -2867,7 +2930,7 @@ export async function createTeamChallenge(input: CreateTeamChallengeInput): Prom
 
   const everyone = [input.creatorUserId, ...teamA, ...teamB, input.judgeAUserId, input.judgeBUserId];
   if (new Set(everyone).size !== everyone.length) {
-    throw new Error('Each person can only take one seat — a player can’t also be a judge.');
+    throw new Error('Each person can only take one seat. A player can’t also be a judge.');
   }
 
   // Only friends (mutual follows) can be invited; the judges included.
@@ -2954,7 +3017,7 @@ export async function getTeamChallenge(id: string): Promise<TeamChallenge | null
 
 /**
  * Accept or turn down a challenge invite. One decline ends the challenge for
- * everyone — sides have to stay equal, so a missing player can't be replaced
+ * everyone: sides have to stay equal, so a missing player can't be replaced
  * mid-invite.
  */
 export async function respondToChallengeInvite(
@@ -3021,7 +3084,7 @@ export async function submitChallengeTask(
 
 /**
  * The judge of one team rules on a claim from their own side. Judges cannot
- * touch the other team's claims — that's the whole point of having two.
+ * touch the other team's claims: that's the whole point of having two.
  */
 export async function decideChallengeTask(
   challengeId: string,

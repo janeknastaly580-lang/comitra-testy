@@ -7,7 +7,7 @@
 import type { Goal } from './types';
 
 /**
- * The address the app is served from — NOT whatever page the user happens to be
+ * The address the app is served from. NOT whatever page the user happens to be
  * on. Because routing is hash-based the path can be anything (`/register`, a
  * bookmarked deep path, a host redirect), and baking that into a shared link
  * produces a URL the recipient's browser 404s on before the app ever loads.
@@ -21,7 +21,7 @@ function base(): string {
   // `import.meta.env.BASE_URL` is './' here (vite.config `base: './'`, so assets load
   // by relative path inside the Capacitor WebView). That's correct for assets but
   // INVALID inside an absolute share URL: `${origin}./` becomes
-  // `https://host./#/…` — a trailing-dot host the recipient's browser can't reach
+  // `https://host./#/…`: a trailing-dot host the recipient's browser can't reach
   // ("this site can't be reached"). Share links live at the web root, so use
   // `${origin}/`, honouring only a genuine absolute sub-path base if one is ever set.
   const b = import.meta.env.BASE_URL || '/';

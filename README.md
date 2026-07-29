@@ -1,7 +1,7 @@
 # FineLine
 
 A mobile-first MVP for setting financial goals with a **refundable deposit** and
-**friend-judged verification**. Stake money on a goal — get it back if your judge
+**friend-judged verification**. Stake money on a goal, get it back if your judge
 marks you *done*, or watch it split to the platform, your verifiers, and charity if
 you fail.
 
@@ -12,7 +12,7 @@ wrapped with **Capacitor** or ported to **React Native** for the Google Play Sto
 
 - **React 18 + TypeScript**
 - **Vite** dev server / bundler
-- **Tailwind CSS** (CSS-variable theming, dark by default — no purple, ever)
+- **Tailwind CSS** (CSS-variable theming, dark by default, no purple, ever)
 - **React Router** (`HashRouter`, so deep links work from `file://` in a WebView)
 - **LocalStorage** as a mock database via a swappable async API layer
 
@@ -24,7 +24,7 @@ npm run dev
 ```
 
 Open the URL Vite prints (default http://localhost:5173). The app renders inside a
-centered smartphone frame. Register a local account to start — all data is stored in
+centered smartphone frame. Register a local account to start, all data is stored in
 your browser's LocalStorage.
 
 ```bash
@@ -38,7 +38,7 @@ npm run preview   # serve the production build
   one or more verifiers (judges), and a charity.
 - **Verifier link**: each goal generates a shareable judge link
   (`#/verify?challengeId=...&token=...`). The referee opens it to mark the goal
-  *done* or *failed* — this resolves the goal. The creator can **never** resolve it.
+  *done* or *failed*: this resolves the goal. The creator can **never** resolve it.
 - **Network payout on failure** (`src/lib/payout.ts`):
   - 15% → app owner (PayPal simulation)
   - 40% → split evenly among **qualifying friends** (mutual follows who marked one
@@ -53,7 +53,7 @@ npm run preview   # serve the production build
 
 ## Social module
 
-- **Profiles** (`/profile` → Edit): display name, bio, and avatar — upload your own
+- **Profiles** (`/profile` → Edit): display name, bio, and avatar, upload your own
   image (stored as Base64 in LocalStorage) or pick one of 6 built-in futuristic
   avatars (`src/components/Avatar.tsx`). The avatar + name appear on goals, in search,
   and on the friends list.
@@ -70,16 +70,16 @@ npm run preview   # serve the production build
 
 ## Anti-cheat referee system (P2P verification)
 
-The deposit can only be released by the **assigned referee** — never by the goal
+The deposit can only be released by the **assigned referee**, never by the goal
 creator. Two independent gates enforce this:
 
-1. **Step A — Device isolation.** On first launch the app generates a random
+1. **Step A. Device isolation.** On first launch the app generates a random
    `deviceId` and stores it in LocalStorage (`src/lib/storage.ts` → `getDeviceId`).
    The creator's `deviceId` is saved on the goal as `creatorDeviceId`. When the
    verify link is opened, the panel compares the *current* device's id with
    `creatorDeviceId`. If they match (creator clicked their own link) → hard
    **"Access Denied"**, all buttons hidden.
-2. **Step B — Referee phone auth.** On a *different* device the panel still won't
+2. **Step B. Referee phone auth.** On a *different* device the panel still won't
    show the verdict buttons. The referee must type the **exact phone number** the
    creator assigned at goal creation. Only an exact match (after normalization)
    unlocks `Mark as Completed` / `Mark as Failed`.
@@ -101,7 +101,7 @@ every state change, so tampering with the UI alone cannot bypass it.
 2. On the goal page, copy the **Referee link** (looks like
    `http://localhost:5173/#/verify?challengeId=<id>&token=<uuid>`).
 3. **Prove the creator can't cheat:** paste that link in the **same** browser/tab.
-   You'll get the red **"Access Denied — You cannot referee your own challenge!"**
+   You'll get the red **"Access Denied. You cannot referee your own challenge!"**
    (Step A blocks you because the device id matches).
 4. **Act as the referee:** open the **same link in an Incognito window** (or a
    different browser / another device). Incognito has *no* stored `creatorDeviceId`,
@@ -121,11 +121,11 @@ test gated features:
 | Free | Premium |
 | --- | --- |
 | Max 2 active goals | Unlimited goals |
-| — | Team vs Team leagues (point ranking) |
-| — | Custom penalties (auto-email templates) |
-| — | 2 emergency passes / month + Freeze mode |
-| — | Pro analytics, correlation stats, PDF/text export |
-| — | Exclusive themes + Android widget previews |
+|, | Team vs Team leagues (point ranking) |
+|, | Custom penalties (auto-email templates) |
+|, | 2 emergency passes / month + Freeze mode |
+|, | Pro analytics, correlation stats, PDF/text export |
+|, | Exclusive themes + Android widget previews |
 | Ad placeholder banner | No ads |
 
 ## Going native (Android)
@@ -148,6 +148,18 @@ npx cap sync
 npx cap open android
 ```
 
+## SMS (phone verification + notifications)
+
+Text messages go through **Twilio**, entirely from the backend in `server/`:
+Twilio **Verify** for the 6-digit codes, a Twilio **Messaging Service** for
+ordinary texts, and a signature-checked delivery webhook. No Twilio credential
+is shipped in the web bundle or the Android APK.
+
+Leave the `TWILIO_*` values in `.env` empty and SMS is simply off — judges
+register without a code step, nothing breaks. Fill them in and it turns on with
+no code change. Setup steps: **[TWILIO_SETUP.md](TWILIO_SETUP.md)**; check the
+state with `npm run sms:status`.
+
 ## Project structure
 
 ```
@@ -155,7 +167,13 @@ src/
   components/   PhoneFrame, AppLayout, BottomNav, GoalCard, ui primitives…
   context/      AppContext (auth, user, theme, premium)
   lib/          types, constants, storage, mock api, payout, formatters
+                sms (client for our own /api/sms/*)
   views/        Login, Register, Dashboard, CreateGoal, GoalDetail,
                 Wallet, Wearables, Profile, Premium, Teams, Analytics,
                 Themes, Verifier
+server/
+  src/twilio/   config (env validation), phone (E.164), client (official SDK),
+                verify (OTP), messaging (Messaging Service), templates,
+                throttle (per-number limits + send-once), webhook (signatures)
+  src/routes/   sms (public API), twilioWebhook (status callback)
 ```

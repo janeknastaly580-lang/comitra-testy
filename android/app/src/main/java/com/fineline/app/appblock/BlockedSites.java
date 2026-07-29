@@ -108,7 +108,7 @@ final class BlockedSites {
                 new String[]{"spotify.com", "spotify.link"},
                 new String[]{"support.spotify.com", "accounts.spotify.com", "artists.spotify.com",
                         "newsroom.spotify.com"},
-                // Billing lives under /account — never lock someone out of it.
+                // Billing lives under /account: never lock someone out of it.
                 merge(COMMON_ALLOWED_PATHS, "/account", "/premium")));
     }
 

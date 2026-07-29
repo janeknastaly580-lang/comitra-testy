@@ -8,10 +8,8 @@
     <!-- App blocking. The service description is what Android shows on the
          permission screen, so it states plainly what is and isn't collected. -->
     <string name="accessibility_service_label">Comitra app blocking</string>
-    <string name="accessibility_service_description">Lets Comitra hold you to a goal by blocking the app you chose — and its website — until the goal is done. Comitra checks only which app is in the foreground, and the address bar while you are in a browser. Nothing is recorded or sent anywhere.</string>
+    <string name="accessibility_service_description">Lets Comitra hold you to a goal by blocking the app you chose (and its website) until the goal is done. Comitra checks only which app is in the foreground, and the address bar while you are in a browser. Nothing is recorded or sent anywhere.</string>
 
-    <!-- Lock emoji as a numeric entity so this file stays plain ASCII. -->
-    <string name="block_lock_glyph">&#128274;</string>
     <string name="block_locked">Locked</string>
     <string name="block_that_app">That app</string>
     <string name="block_title">%1$s is blocked</string>

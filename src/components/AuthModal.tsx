@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { Button, Input, Label, PasswordInput } from './ui';
 import BrandMark from './BrandMark';
 import SocialAuthButtons from './SocialAuthButtons';
+import { X } from 'lucide-react';
 
 /**
  * In-app auth panel shown over the running app (the app stays visible behind it).
@@ -63,7 +64,7 @@ export default function AuthModal({
 
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center p-4">
-      {/* Backdrop — app remains visible behind the blur. Inert when forced;
+      {/* Backdrop: app remains visible behind the blur. Inert when forced;
           otherwise a click dismisses. Kept as a plain div so a forced gate
           exposes no "close" affordance to assistive tech. */}
       <div
@@ -80,7 +81,7 @@ export default function AuthModal({
             aria-label="Close"
             className="absolute right-3 top-3 p-1 text-muted transition hover:text-ink"
           >
-            ✕
+            <X className="h-4 w-4" aria-hidden />
           </button>
         )}
 
@@ -92,7 +93,7 @@ export default function AuthModal({
           {title ?? (mode === 'login' ? 'Log in to keep your goals' : 'Create your account')}
         </h2>
         <p className="mb-4 mt-0.5 text-xs text-muted">
-          {subtitle ?? 'Your goals are ready — sign in or sign up to save them for good.'}
+          {subtitle ?? 'Your goals are ready. Sign in or sign up to save them for good.'}
         </p>
 
         <form onSubmit={onSubmit} className="space-y-3">

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
  * Returns the current epoch ms, so a component can use it as a dependency.
  *
  * The interval is cleared on unmount and while the tab is hidden the browser
- * throttles it on its own — no extra work needed.
+ * throttles it on its own: no extra work needed.
  */
 export function useNow(intervalMs = 1000): number {
   const [now, setNow] = useState(() => Date.now());

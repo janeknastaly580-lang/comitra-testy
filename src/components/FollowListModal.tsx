@@ -4,6 +4,7 @@ import type { Relationship, SocialProfile } from '../lib/api';
 import { useApp } from '../context/AppContext';
 import { Avatar } from './Avatar';
 import { Badge, Button } from './ui';
+import { X } from 'lucide-react';
 
 const STATUS_BADGE: Record<Relationship, { label: string; tone: 'accent' | 'active' | 'neutral' } | null> = {
   friends: { label: 'Friends', tone: 'accent' },
@@ -39,7 +40,7 @@ export default function FollowListModal({
   onChanged?: () => void;
 }) {
   const { user } = useApp();
-  // Guests aren't accounts — they can browse these lists but can't follow from them.
+  // Guests aren't accounts: they can browse these lists but can't follow from them.
   const canFollow = !!user && !user.isGuest;
   const [profiles, setProfiles] = useState<SocialProfile[]>([]);
   const [hidden, setHidden] = useState(false);
@@ -81,7 +82,7 @@ export default function FollowListModal({
         <div className="flex items-center justify-between border-b border-line px-4 py-3">
           <p className="font-mono text-xs uppercase tracking-widest text-muted">{title}</p>
           <button onClick={onClose} aria-label="Close" className="p-1 text-muted hover:text-ink">
-            ✕
+            <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
 

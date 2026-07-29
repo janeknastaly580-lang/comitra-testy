@@ -39,7 +39,7 @@ export default function Register() {
 
   return (
     <div className="relative flex h-full flex-col justify-center px-6 pt-10">
-      {/* Guests reach this screen voluntarily — let them go back to the app. */}
+      {/* Guests reach this screen voluntarily, let them go back to the app. */}
       {user?.isGuest && (
         <button
           type="button"

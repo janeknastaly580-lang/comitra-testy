@@ -3,7 +3,7 @@ import type { TeamSide } from '../../lib/types';
 
 /**
  * Team colours. Both boards need two tellable-apart sides, so team A takes the
- * app's accent and team B the secondary "active" colour — both are defined by
+ * app's accent and team B the secondary "active" colour, both are defined by
  * every theme, so the boards stay on-palette without introducing any new colour.
  * Tailwind only sees literal class names, hence the spelled-out map.
  */
@@ -28,7 +28,7 @@ export const SIDE_STYLE: Record<
 };
 
 /**
- * Returns a counter that ticks whenever `key` changes — but never on the first
+ * Returns a counter that ticks whenever `key` changes, but never on the first
  * render. Used as a React `key` on an animated node so a CSS animation replays
  * on each new judge decision instead of only running once on mount.
  */

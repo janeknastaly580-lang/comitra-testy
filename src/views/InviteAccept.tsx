@@ -7,12 +7,13 @@ import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import BrandMark from '../components/BrandMark';
 import PhoneField from '../components/PhoneField';
 import { Badge, Button, Card, Input, Label } from '../components/ui';
+import { Check } from 'lucide-react';
 
 /**
  * Page chrome. IMPORTANT: this lives at module scope, NOT inside InviteAccept.
  * When it was defined inside the component it became a brand-new function on every
  * render, so each keystroke made React remount the whole subtree and the inputs
- * lost focus — on mobile the keyboard closed after every character, on desktop the
+ * lost focus: on mobile the keyboard closed after every character, on desktop the
  * caret dropped out of the field. A stable component identity keeps focus.
  */
 function Shell({ children }: { children: ReactNode }) {
@@ -45,7 +46,7 @@ export default function InviteAccept() {
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // A server-setup failure is not the judge's to retry — it needs the inviter to
+  // A server-setup failure is not the judge's to retry, it needs the inviter to
   // finish Comitra's one-time setup, so the button is labelled differently.
   const [errorIsSetup, setErrorIsSetup] = useState(false);
 
@@ -65,7 +66,7 @@ export default function InviteAccept() {
     (async () => {
       const res = await api.getJudgeInvite(token);
       setOwnerName(res.ownerName);
-      // The person being judged must not register as their own judge —
+      // The person being judged must not register as their own judge,
       // block (with a reason) when it's the same device or the same account.
       if (!res.ok) {
         if (res.reason === 'same-device') return setState('same-device');
@@ -101,7 +102,7 @@ export default function InviteAccept() {
             <li>it's an <span className="font-semibold text-ink">old link</span> from a previous version of the app.</li>
           </ul>
           <p className="mt-3 text-[13px] text-ink">
-            Ask your friend to open <span className="font-semibold">Profile → Invite friends</span> again and
+            Ask your friend to open <span className="font-semibold">Profile &gt; Invite friends</span> again and
             send you the <span className="font-semibold">newest</span> link (best via “Copy link”, so nothing
             gets cut off).
           </p>
@@ -115,14 +116,14 @@ export default function InviteAccept() {
     return (
       <Shell>
         <Card className="p-6">
-          <Badge tone="danger">Same device — can't continue here</Badge>
+          <Badge tone="danger">Same device, can't continue here</Badge>
           <p className="mt-3 text-sm text-ink">
             This invite was created on <span className="font-semibold">this device</span>, so the form is
             hidden here. To keep things fair, {ownerName || 'the person'} can't be their own judge.
           </p>
           <p className="mt-2 text-[13px] text-muted">
-            Open this same link on a <span className="font-semibold text-ink">different device</span> — the
-            judge's own phone or computer — and the form will appear.
+            Open this same link on a <span className="font-semibold text-ink">different device</span>, the
+            judge's own phone or computer, and the form will appear.
           </p>
           <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
         </Card>
@@ -134,10 +135,10 @@ export default function InviteAccept() {
     return (
       <Shell>
         <Card className="p-6">
-          <Badge tone="danger">Same account — can't continue here</Badge>
+          <Badge tone="danger">Same account, can't continue here</Badge>
           <p className="mt-3 text-sm text-ink">
             You're signed in as <span className="font-semibold">{ownerName || 'the person who created this invite'}</span>,
-            the person this invite belongs to — so the form is hidden. A judge has to be someone else.
+            the person this invite belongs to, so the form is hidden. A judge has to be someone else.
           </p>
           <p className="mt-2 text-[13px] text-muted">
             Ask the person you want as your judge to open this link on{' '}
@@ -156,10 +157,10 @@ export default function InviteAccept() {
         <Card className="p-6 text-center">
           <Badge tone="accent">You're set</Badge>
           {phoneVerified && (
-            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent">✓ Phone number verified</p>
+            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent"><Check className="mr-1 inline h-3 w-3" aria-hidden /> Phone number verified</p>
           )}
           <p className="mt-3 text-sm text-ink">
-            {ownerName} can now pick you as a judge for their goals. Keep your judge password safe — you'll
+            {ownerName} can now pick you as a judge for their goals. Keep your judge password safe, because you'll
             need it every time you mark a goal completed or not completed.
           </p>
         </Card>
@@ -305,7 +306,7 @@ export default function InviteAccept() {
     <Shell>
       <h1 className="mb-1 text-xl font-bold text-ink">{ownerName} invited you</h1>
       <p className="mb-4 text-sm text-muted">
-        {ownerName} wants to be able to choose you as the judge of their goals — the person who confirms
+        {ownerName} wants to be able to choose you as the judge of their goals, the person who confirms
         whether they did what they set out to do.
       </p>
 
@@ -337,11 +338,11 @@ export default function InviteAccept() {
           autoComplete="new-password"
         />
         <p className="mt-1.5 text-[11px] font-semibold text-accent">
-          Remember this password and keep it secret — write it down somewhere safe. It can't be recovered.
+          Remember this password and keep it secret, and write it down somewhere safe. It can't be recovered.
         </p>
         <p className="mt-1 text-[11px] text-muted">
           You'll enter it every single time you decide whether {ownerName} completed a goal. This password is
-          only for {ownerName}'s goals — you can use a different one with other people. (You can always cancel
+          only for {ownerName}'s goals, so you can use a different one with other people. (You can always cancel
           a goal at their request without it.)
         </p>
 
@@ -354,7 +355,7 @@ export default function InviteAccept() {
           />
           <span className="text-[12px] leading-relaxed text-ink">
             I agree to receive messages from Comitra. These are only about {ownerName}'s goals (for example,
-            asking me to decide one) — never marketing.
+            asking me to decide one), never marketing.
           </span>
         </label>
 
@@ -366,7 +367,7 @@ export default function InviteAccept() {
             <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{error}</p>
             {errorIsSetup && (
               <p className="mt-1.5 text-[11px] text-muted">
-                Your details were kept on this device, so nothing is lost — reopen this link and tap the
+                Your details were kept on this device, so nothing is lost. Reopen this link and tap the
                 button again once they've sorted it out.
               </p>
             )}

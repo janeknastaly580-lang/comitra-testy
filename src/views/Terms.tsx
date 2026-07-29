@@ -6,7 +6,7 @@ const EFFECTIVE_DATE = 'July 19, 2026';
 const SUPPORT_EMAIL = 'janeknastaly580@gmail.com';
 
 /**
- * Comitra — Terms of Use for the SUBSCRIPTION / social-commitment model.
+ * Comitra. Terms of Use for the SUBSCRIPTION / social-commitment model.
  * Not a final legal opinion, but it clearly states the rules: no money is staked,
  * the app is for personal goals, and messages are consent-based.
  */
@@ -46,18 +46,18 @@ export default function Terms() {
           <P>
             Comitra is offered as a subscription. New accounts get a free trial; after it, a
             subscription of <B>$4.99 per month</B> is required to create new goals. The fee
-            is payment for using the app's features only — it is never a stake, wager or deposit on
+            is payment for using the app's features only. It is never a stake, wager or deposit on
             any specific goal, and it is never paid out to anyone.
           </P>
           <P>
             Without an active subscription you can still log in, view your existing goals, finish an
-            already-active goal, and manage your data and consents — you just can't create new goals.
+            already-active goal, and manage your data and consents. You just can't create new goals.
           </P>
         </Section>
 
         <Section n="4" title="Keep goals action-based and appropriate">
           <P>
-            Comitra is for personal goals — habits, study, work, projects, consistency and similar
+            Comitra is for personal goals: habits, study, work, projects, consistency and similar
             action-based commitments. Comitra should not be used to disclose especially private
             information to other people. We may block or refuse to activate a goal that appears to
             reveal sensitive matters (for example health/medical information, diagnoses, medication,
@@ -108,7 +108,7 @@ export default function Terms() {
           </P>
           <P>
             Your goal's content is never shared. Messages to your judge and to your recipients contain
-            only your name and the goal's number (for example "goal #3") — never its title or details,
+            only your name and the goal's number (for example "goal #3"), never its title or details,
             and there is no setting that changes this. If you want your judge to know what the goal is,
             you tell them yourself.
           </P>

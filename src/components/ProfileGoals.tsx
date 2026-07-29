@@ -5,6 +5,7 @@ import { shortDate } from '../lib/format';
 import { statusMeta } from '../lib/status';
 import type { Goal } from '../lib/types';
 import { Badge, Card } from './ui';
+import { Lock } from 'lucide-react';
 
 type Tab = 'solo' | 'judged';
 
@@ -19,7 +20,7 @@ const TABS: { id: Tab; label: string }[] = [
  *
  * Whether the viewer may see any of this is decided by `api.getProfileGoals`;
  * this component only renders what it was handed. Goal content follows the
- * per-goal rule — someone else sees "Goal #N" unless the owner published it.
+ * per-goal rule: someone else sees "Goal #N" unless the owner published it.
  */
 export default function ProfileGoals({
   view,
@@ -37,13 +38,13 @@ export default function ProfileGoals({
   if (!view.allowed) {
     return (
       <Card className="p-6 text-center">
-        <p className="text-2xl" aria-hidden>🔒</p>
+        <Lock className="mx-auto h-7 w-7 text-muted" aria-hidden />
         <p className="mt-2 text-sm font-semibold text-ink">
           {view.blockedBy === 'friends-only' ? 'Friends only' : 'This profile is private'}
         </p>
         <p className="mt-1 text-[12px] text-muted">
           {view.blockedBy === 'friends-only'
-            ? `${ownerName} shows their goals to friends only — people they follow who follow them back.`
+            ? `${ownerName} shows their goals to friends only, meaning people they follow who follow them back.`
             : `${ownerName} keeps their goals to themselves.`}
         </p>
       </Card>
@@ -104,7 +105,7 @@ function SuccessRate({ stats }: { stats: GoalTabStats }) {
           </p>
         </div>
         <p className="font-mono text-2xl font-bold text-ink">
-          {stats.successRate === null ? '—' : `${stats.successRate}%`}
+          {stats.successRate === null ? 'n/a' : `${stats.successRate}%`}
         </p>
       </div>
       {decided > 0 && (
@@ -125,7 +126,7 @@ function GoalRow({ goal, isOwner }: { goal: Goal; isOwner: boolean }) {
     <div className="flex items-center gap-2 rounded-xl border border-line bg-elevated px-3 py-2.5">
       <div className="min-w-0 flex-1">
         <p className={`flex items-center gap-1.5 truncate text-xs font-medium ${hidden ? 'text-muted' : 'text-ink'}`}>
-          {hidden && <span aria-hidden>🔒</span>}
+          {hidden && <Lock className="h-3 w-3 shrink-0" aria-hidden />}
           {label}
         </p>
         <p className="font-mono text-[10px] text-muted">

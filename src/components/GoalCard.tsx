@@ -10,7 +10,7 @@ import { Badge, Card } from './ui';
 export default function GoalCard({ goal }: { goal: Goal }) {
   const navigate = useNavigate();
   const isActive = goal.status === 'active';
-  // Live only while the goal is running — a finished card has nothing to tick.
+  // Live only while the goal is running, a finished card has nothing to tick.
   const now = useNow(isActive ? 1000 : 60_000);
   const cd = countdown(goal.deadlineAt, now);
   const meta = statusMeta(goal.status);

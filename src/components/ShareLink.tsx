@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check } from 'lucide-react';
 
 /**
  * A clean, shareable link card with Copy + branded WhatsApp / Messenger buttons.
@@ -76,7 +77,7 @@ export default function ShareLink({
           onClick={copy}
           className="inline-flex items-center gap-1.5 rounded-lg border border-line px-2.5 py-1.5 text-xs font-medium text-muted transition hover:border-accent hover:text-accent"
         >
-          {copied ? 'Copied ✓' : 'Copy link'}
+          {copied ? <><Check className="h-4 w-4" aria-hidden /> Copied</> : 'Copy link'}
         </button>
       </div>
 
@@ -106,7 +107,7 @@ export default function ShareLink({
 
       {msgHint && (
         <p className="mt-2 text-center text-[11px] text-muted">
-          Link copied — paste it into your Messenger chat.
+          Link copied. Paste it into your Messenger chat.
         </p>
       )}
     </div>

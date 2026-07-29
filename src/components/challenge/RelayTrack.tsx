@@ -7,7 +7,7 @@ import { SIDE_STYLE, useChangeTick } from './common';
  * Relay race: two parallel lanes, one baton per team.
  *
  * Every goal the team's judge approves carries the baton further down the lane.
- * A rejected goal is a stumble — the runner trips in place and the other team
+ * A rejected goal is a stumble: the runner trips in place and the other team
  * keeps going. First baton over the finish line wins.
  */
 export default function RelayTrack({ challenge }: { challenge: TeamChallenge }) {

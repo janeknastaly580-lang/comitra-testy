@@ -84,7 +84,7 @@ export default function InviteFriends() {
           <p className="mt-1 text-[12px] text-muted">
             {smsOn
               ? 'Your friend gets a 6-digit code by text and has to enter it, so the number is proven to be theirs.'
-              : 'Text-message verification is not switched on yet, so a friend can register any number without proving it. See SMS-SETUP.md.'}
+              : 'Text-message verification is not switched on yet, so a friend can register any number without proving it. See TWILIO_SETUP.md.'}
           </p>
         </div>
       )}
@@ -92,7 +92,7 @@ export default function InviteFriends() {
       {token && (
         <ShareLink
           title="Your invite link"
-          hint="Anyone with this link can register as one of your judges — but only from a different device than this one."
+          hint="Anyone with this link can register as one of your judges, but only from a different device than this one."
           link={judgeInviteLink(token)}
         />
       )}

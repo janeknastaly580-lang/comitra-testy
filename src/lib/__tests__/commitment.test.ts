@@ -88,7 +88,7 @@ describe('judge acceptance is required to activate', () => {
     const goal = await api.createGoal(goalInput(owner.id));
     const consents = await api.listOwnerConsents(owner.id);
     await api.acceptRecipientConsent(consents.find((c) => c.name === 'Alice')!.inviteToken);
-    // Recipient accepted, but judge has NOT — must not be active.
+    // Recipient accepted, but judge has NOT, must not be active.
     expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_judge_acceptance');
   });
 
@@ -148,7 +148,7 @@ describe('message tone', () => {
   });
 });
 
-describe('goal content is never shared — only the goal number', () => {
+describe('goal content is never shared, only the goal number', () => {
   it('the failure message carries the goal number, never the title or details', async () => {
     const { goal, alice } = await activatedGoal();
     await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
@@ -220,7 +220,7 @@ describe('publishing one finished goal', () => {
 
     await api.setGoalVisibility(first.id, owner.id, true);
     expect((await api.getGoal(first.id))!.isPublic).toBe(true);
-    // The owner's other goal is untouched — this is per goal, not a global switch.
+    // The owner's other goal is untouched, this is per goal, not a global switch.
     expect((await api.getGoal(second.id))!.isPublic).toBe(false);
 
     // …and it can be taken back.
@@ -237,7 +237,7 @@ describe('publishing one finished goal', () => {
     await expect(api.setGoalVisibility(goal.id, stranger.id, true)).rejects.toThrow(/owner/i);
   });
 
-  it('a profile lists finished goals only — never a running one', async () => {
+  it('a profile lists finished goals only, never a running one', async () => {
     setDevice('creator-device');
     const owner = await freshOwner();
     const done = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
@@ -337,7 +337,7 @@ describe('profile visibility (public / friends / private)', () => {
     expect((await api.getProfileGoals(stranger.id, owner.id)).allowed).toBe(true);
   });
 
-  it('visibility never reveals goal content — that stays per goal', async () => {
+  it('visibility never reveals goal content, that stays per goal', async () => {
     const { owner, solo } = await ownerWithHistory();
     await api.setProfileVisibility(owner.id, 'public');
     const stranger = await freshOwner();
@@ -377,7 +377,7 @@ describe('commitment app block (blocks an app while the goal runs)', () => {
     const { owner, goal } = await activeSoloGoal(7);
     const blocked = await api.setCommitmentBlock(goal.id, owner.id, 'com.instagram.android', 'Instagram');
     expect(blocked.commitmentBlock?.appLabel).toBe('Instagram');
-    // The hard stop is the goal's own deadline — a block can never outlive it.
+    // The hard stop is the goal's own deadline, a block can never outlive it.
     expect(blocked.commitmentBlock?.untilAt).toBe(goal.deadlineAt);
     expect(api.isCommitmentBlockLive(blocked)).toBe(true);
     // No second block while one is live, and no "turn it off" API at all.
@@ -389,7 +389,7 @@ describe('commitment app block (blocks an app while the goal runs)', () => {
 
   // NOTE: these deliberately re-read the goal through `api.getGoal` instead of
   // trusting the returned object. Lifting used to mutate the goal AFTER
-  // `saveGoals`, so the returned copy looked right while storage never changed —
+  // `saveGoals`, so the returned copy looked right while storage never changed,
   // asserting on the return value alone hid the bug.
   it('lifts as soon as the goal is completed', async () => {
     const { owner, goal } = await activeSoloGoal(7);

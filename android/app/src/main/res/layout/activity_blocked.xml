@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The block screen. Deliberately plain and calm: it is not a punishment, it is a
-  reminder of something the user asked for. Note there is no dismiss control —
-  every button leads away from the blocked app.
+  reminder of something the user asked for. Note there is no dismiss
+  control: every button leads away from the blocked app.
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -20,11 +20,10 @@
         android:paddingRight="28dp"
         android:paddingBottom="48dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/block_lock_glyph"
-            android:textSize="46sp"
+        <ImageView
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/ic_lock"
             android:contentDescription="@string/block_locked" />
 
         <TextView

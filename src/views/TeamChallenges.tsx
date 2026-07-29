@@ -71,7 +71,7 @@ export default function TeamChallenges() {
           <p className="mt-1 text-base font-semibold text-ink">Take on your friends</p>
           <p className="mt-1 text-[12px] text-muted">
             Pick a goal, split into two equal teams of 1 to 8, and give each team a judge. Every goal your
-            judge approves moves your team down the track — or drags the rope your way.
+            judge approves moves your team down the track, or drags the rope your way.
           </p>
           <Button className="mt-3 w-full" onClick={() => navigate('/challenges/new')}>
             Start a challenge
@@ -161,7 +161,7 @@ function ChallengeRow({ challenge, onOpen }: { challenge: TeamChallenge; onOpen:
   const a = sideScore(challenge, 'A');
   const b = sideScore(challenge, 'B');
   const leader = leaderOf(challenge);
-  // Relay is won on approvals; tug of war on the net pull — showing approvals
+  // Relay is won on approvals; tug of war on the net pull, showing approvals
   // there would make the winner look like they scored less.
   const tug = challenge.mode === 'tug_of_war';
   const show = (s: typeof a) => (tug ? (s.net > 0 ? `+${s.net}` : `${s.net}`) : `${s.approved}`);

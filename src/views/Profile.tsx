@@ -10,6 +10,7 @@ import FollowListModal from '../components/FollowListModal';
 import PageHeader from '../components/PageHeader';
 import ProfileGoals from '../components/ProfileGoals';
 import { Badge, Button, Card, Input, Label, PremiumTag, Textarea } from '../components/ui';
+import { ChevronRight } from 'lucide-react';
 
 /** The two halves of your own profile: what people see, and everything you set. */
 type Tab = 'profile' | 'settings';
@@ -143,7 +144,7 @@ export default function Profile() {
           </div>
         </div>
 
-        {/* Followers / Following — tap to open the list */}
+        {/* Followers / Following, tap to open the list */}
         <div className="mt-4 grid grid-cols-2 gap-2 border-t border-line pt-3">
           <button
             onClick={() => setFollowList('followers')}
@@ -162,7 +163,7 @@ export default function Profile() {
         </div>
       </Card>
 
-      {/* Tabs — the identity card above stays visible for both of them. */}
+      {/* Tabs: the identity card above stays visible for both of them. */}
       <div className="mb-4 grid grid-cols-2 gap-1.5 rounded-xl border border-line bg-elevated p-1">
         {([{ id: 'profile', label: 'Profile' }, { id: 'settings', label: 'Settings' }] as const).map((t) => (
           <button
@@ -270,7 +271,7 @@ export default function Profile() {
         </Button>
       </Card>
 
-      {/* Privacy — who may open your Profile tab. */}
+      {/* Privacy: who may open your Profile tab. */}
       <Card className="mb-4 p-4">
         <div className="mb-1 flex items-center gap-2">
           <span className="font-mono text-xs uppercase tracking-widest text-muted">Who can see your goals</span>
@@ -367,7 +368,7 @@ export default function Profile() {
         message={
           <>
             This permanently disables{' '}
-            <span className="text-ink">{user.email}</span> — you won't be able to log back in, and
+            <span className="text-ink">{user.email}</span>, you won't be able to log back in, and
             everything on it (goals and history) becomes inaccessible. You can sign up again
             later with the same email and name, but it will start completely empty.
           </>
@@ -399,7 +400,7 @@ export default function Profile() {
  * The avatar doubles as the "edit profile" control: a small pencil badge sits on
  * its corner, and the word "Edit" only unfolds next to it on hover (pointer
  * devices). Touch users get the same tap target without the label taking up
- * room — the `aria-label` keeps it announced either way.
+ * room: the `aria-label` keeps it announced either way.
  */
 function EditAvatarButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
@@ -439,7 +440,7 @@ function NavRow({
       <span className="text-sm text-ink">{label}</span>
       <span className="flex items-center gap-2">
         {premium && <PremiumTag />}
-        <span className="text-muted">→</span>
+        <ChevronRight className="h-4 w-4 text-muted" aria-hidden />
       </span>
     </Card>
   );

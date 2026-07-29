@@ -10,7 +10,7 @@ import { JUDGE_CODE_MIN } from '../lib/api';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
 import BrandMark from '../components/BrandMark';
 
-// Module-scope so it keeps a stable identity across renders — see InviteAccept:
+// Module-scope so it keeps a stable identity across renders, see InviteAccept:
 // an in-component Shell remounts every keystroke and inputs (the judge password /
 // comment fields) lose focus.
 function Shell({ children }: { children: ReactNode }) {
@@ -166,9 +166,9 @@ export default function Verifier() {
 
   return (
     <Shell>
-      {/* PRIVACY: the judge is shown the goal's NUMBER only — never its title or
+      {/* PRIVACY: the judge is shown the goal's NUMBER only, never its title or
           details. The person who set the goal tells their judge what it is.
-          Making a goal public later never changes this — see `setGoalVisibility`. */}
+          Making a goal public later never changes this, see `setGoalVisibility`. */}
       <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted">
         {goal.creatorName} asked you to judge
       </p>
@@ -176,7 +176,7 @@ export default function Verifier() {
         Did {goal.creatorName} complete {goalRef(goal)}?
       </h1>
       <p className="mb-4 text-[12px] text-muted">
-        Comitra doesn’t show you what the goal is — {goal.creatorName} tells you that themselves. You
+        Comitra doesn’t show you what the goal is. {goal.creatorName} tells you that themselves. You
         only decide whether they did it.
       </p>
 
@@ -208,7 +208,7 @@ export default function Verifier() {
               <Badge tone={goal.judge.decision === 'completed' ? 'accent' : 'danger'}>
                 {goal.judge.decision === 'completed' ? 'Marked completed' : 'Marked not completed'}
               </Badge>
-              <p className="mt-3 text-sm text-muted">Thanks — your decision has been recorded.</p>
+              <p className="mt-3 text-sm text-muted">Thanks, your decision has been recorded.</p>
             </>
           )}
         </Card>
@@ -272,7 +272,7 @@ export default function Verifier() {
         </>
       )}
 
-      {/* Accepted — decision panel */}
+      {/* Accepted: decision panel */}
       {access.state === 'awaiting-decision' && (
         <>
           <div className="mb-3">
@@ -281,7 +281,7 @@ export default function Verifier() {
 
           <Card className="mb-4 p-4">
             <p className="text-sm text-ink">
-              {`${goal.creatorName} committed to complete ${goalRef(goal)} within this period. Decide whether they did it — you know what the goal is because they told you.`}
+              {`${goal.creatorName} committed to complete ${goalRef(goal)} within this period. Decide whether they did it, because you know what the goal is because they told you.`}
             </p>
           </Card>
 
@@ -366,7 +366,7 @@ export default function Verifier() {
             {goal.cancelRequested ? (
               <>
                 <p className="mb-2 text-[11px] text-muted">
-                  {goal.creatorName} asked you to cancel this goal. No code is needed — cancelling never sends a message.
+                  {goal.creatorName} asked you to cancel this goal. No code is needed, because cancelling never sends a message.
                 </p>
                 <Button variant="outline" className="w-full" disabled={busy} onClick={cancelByJudge}>
                   Cancel this goal
@@ -384,7 +384,7 @@ export default function Verifier() {
       {/* Report abuse */}
       <div className="mt-6 border-t border-line pt-4">
         {reported ? (
-          <p className="text-center text-[12px] text-muted">Thanks — your report was recorded.</p>
+          <p className="text-center text-[12px] text-muted">Thanks, your report was recorded.</p>
         ) : reportOpen ? (
           <Card className="p-4">
             <Label>Report abuse</Label>

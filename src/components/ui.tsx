@@ -6,6 +6,7 @@ import type {
   SelectHTMLAttributes,
   TextareaHTMLAttributes,
 } from 'react';
+import { Gem } from 'lucide-react';
 
 type Variant = 'primary' | 'ghost' | 'danger' | 'outline';
 
@@ -147,7 +148,7 @@ export function Badge({
 export function PremiumTag() {
   return (
     <span className="inline-flex items-center gap-1 rounded-sm border border-active/50 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-widest text-active">
-      ◆ Pro
+      <Gem className="h-2.5 w-2.5" aria-hidden /> Pro
     </span>
   );
 }

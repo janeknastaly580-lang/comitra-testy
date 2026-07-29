@@ -6,7 +6,7 @@ import type { RecipientConsent } from '../lib/types';
 import { Badge, Button, Card, Label, Textarea } from '../components/ui';
 import BrandMark from '../components/BrandMark';
 
-// Module-scope so it keeps a stable identity across renders — see InviteAccept:
+// Module-scope so it keeps a stable identity across renders, see InviteAccept:
 // an in-component Shell remounts every keystroke and inputs lose focus.
 function Shell({ children }: { children: ReactNode }) {
   return (
@@ -122,7 +122,7 @@ export default function Recipient() {
               You can stop at any time.
             </p>
             <p className="mt-2 text-[11px] text-muted">
-              You'll only ever be messaged if one of their goals is marked not completed —
+              You'll only ever be messaged if one of their goals is marked not completed,
               never marketing.
             </p>
             <Button variant="outline" className="mt-4 w-full" disabled={busy} onClick={revoke}>
@@ -162,7 +162,7 @@ export default function Recipient() {
       {/* Report abuse */}
       <div className="mt-6 border-t border-line pt-4">
         {reported ? (
-          <p className="text-center text-[12px] text-muted">Thanks — your report was recorded.</p>
+          <p className="text-center text-[12px] text-muted">Thanks, your report was recorded.</p>
         ) : reportOpen ? (
           <Card className="p-4">
             <Label>Report abuse</Label>

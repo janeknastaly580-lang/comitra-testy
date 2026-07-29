@@ -1,5 +1,5 @@
 /**
- * Lightweight "smart" search — Google-ish ranking with typo tolerance.
+ * Lightweight "smart" search. Google-ish ranking with typo tolerance.
  * Matches whole-query and per-token against the name (and, lightly, the bio),
  * scores each candidate, and returns the matches sorted by relevance.
  */
@@ -13,7 +13,7 @@ const norm = (s: string) => s.toLowerCase().trim();
 
 /**
  * Damerau (optimal string alignment) edit distance: insertions, deletions,
- * substitutions AND adjacent transpositions each cost 1 — so "kia"→"kai" is 1.
+ * substitutions AND adjacent transpositions each cost 1, so "kia"→"kai" is 1.
  */
 function editDistance(a: string, b: string): number {
   if (a === b) return 0;

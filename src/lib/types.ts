@@ -12,7 +12,7 @@ export type ThemeId =
 
 /**
  * Goal lifecycle for the social-commitment model. There is NO money, deposit,
- * pot, token or reward at any stage — the only consequence of a missed goal is
+ * pot, token or reward at any stage, the only consequence of a missed goal is
  * that pre-approved recipients may receive a message.
  */
 export type GoalStatus =
@@ -34,7 +34,7 @@ export type MessageTone = 'neutral' | 'supportive' | 'firm';
 
 /**
  * Subscription tier. The product is a paid subscription: a free trial, then
- * $4.99/mo. There are no deposits, stakes or rewards — the fee only unlocks the
+ * $4.99/mo. There are no deposits, stakes or rewards, the fee only unlocks the
  * ability to create and run goals.
  *
  * `plan` / `isPremium` on the user are DEPRECATED and derived from the
@@ -52,7 +52,7 @@ export type PlannedActionStatus =
   | 'pending_judge';
 
 /**
- * A planned action — one step toward completing the goal. Embedded on the goal.
+ * A planned action: one step toward completing the goal. Embedded on the goal.
  */
 export interface PlannedAction {
   id: string;
@@ -61,7 +61,7 @@ export interface PlannedAction {
   /** Free-form time hint, e.g. "18:00". */
   plannedTime?: string;
   actionType: 'step';
-  /** e.g. "Step 1 — prepare materials". */
+  /** e.g. "Step 1: prepare materials". */
   actionName: string;
   status: PlannedActionStatus;
   /** Evidence attached to this action, if any. */
@@ -128,7 +128,7 @@ export interface GoalJudge {
   decisionComment?: string;
   /** Evidence that was visible to the judge at decision time (audit trail). */
   decisionEvidence?: GoalEvidence[];
-  /** The 0–5 rating the goal owner gave this judge after the decision. */
+  /** The 0-5 rating the goal owner gave this judge after the decision. */
   judgeRating?: number;
 }
 
@@ -175,19 +175,19 @@ export interface InvitedJudge {
 export interface JudgeInvite {
   ownerUserId: string;
   token: string;
-  /** Device the invite was generated on — the judge must accept from a different one. */
+  /** Device the invite was generated on, the judge must accept from a different one. */
   inviterDeviceId?: string;
   createdAt: string;
 }
 
-/** One 0–5 rating of an account-holding judge, left by a goal owner. */
+/** One 0-5 rating of an account-holding judge, left by a goal owner. */
 export interface JudgeRating {
   id: string;
   /** The account being rated (only account-holding judges are rated). */
   judgeUserId: string;
   raterUserId: string;
   goalId: string;
-  /** 0–5, at most two decimals. */
+  /** 0-5, at most two decimals. */
   value: number;
   createdAt: string;
 }
@@ -241,7 +241,7 @@ export interface AppBlockPenalty {
 /**
  * A block the user switches on WHILE a goal is running: the chosen app stays
  * blocked until the goal is completed or otherwise ends. Separate from
- * `AppBlockPenalty`, which only fires AFTER a goal is missed — a goal can carry
+ * `AppBlockPenalty`, which only fires AFTER a goal is missed, a goal can carry
  * both, and they are scheduled under different ids (see `src/lib/appBlock.ts`).
  */
 export interface CommitmentBlock {
@@ -262,7 +262,7 @@ export interface CommitmentBlock {
 
 /**
  * The two answers a user must write after a goal is not completed. Until this
- * exists for every missed goal, the user cannot create a new goal — the point is
+ * exists for every missed goal, the user cannot create a new goal, the point is
  * to make them think about the miss before committing again. Both answers are
  * private to the user: they are never shown to a judge or a recipient.
  */
@@ -270,9 +270,9 @@ export interface GoalReflection {
   id: string;
   goalId: string;
   userId: string;
-  /** "Why didn't it work out?" — at least REFLECTION_MIN_CHARS characters. */
+  /** "Why didn't it work out?": at least REFLECTION_MIN_CHARS characters. */
   whyFailed: string;
-  /** "What can I do to succeed next time?" — same minimum. */
+  /** "What can I do to succeed next time?", same minimum. */
   nextTime: string;
   createdAt: string;
 }
@@ -284,7 +284,7 @@ export interface Goal {
   userId: string;
   /**
    * Per-owner sequential number, starting at 1. This is the ONLY thing a judge
-   * or a recipient ever learns about a goal — the title and description never
+   * or a recipient ever learns about a goal, the title and description never
    * leave the owner's own screens, so the owner tells their judge what the goal
    * is themselves.
    */
@@ -292,7 +292,7 @@ export interface Goal {
   /**
    * Opt-in, PER GOAL (never a global setting), and only choosable once the goal
    * has FINISHED: when true, this one goal's title is shown on the owner's public
-   * profile instead of "Goal #N". It never affects messages or the judge view —
+   * profile instead of "Goal #N". It never affects messages or the judge view,
    * those stay content-free no matter what. Default/undefined = private.
    */
   isPublic?: boolean;
@@ -314,9 +314,9 @@ export interface Goal {
 
   /** Tone of the failure message the user previews and approves up front. */
   messageTone: MessageTone;
-  /** @deprecated goal content is never shared — the message carries only the number. */
+  /** @deprecated goal content is never shared, the message carries only the number. */
   includeGoalTitleInFailureMessage?: boolean;
-  /** @deprecated goal content is never shared — the message carries only the number. */
+  /** @deprecated goal content is never shared, the message carries only the number. */
   includeGoalDescriptionInFailureMessage?: boolean;
 
   evidence: GoalEvidence[];
@@ -330,7 +330,7 @@ export interface Goal {
   /** @deprecated the judge never sees the goal's title or details. */
   ackJudgeSeesContent?: boolean;
 
-  /** When true the goal has no judge — the creator tracks + completes it alone. */
+  /** When true the goal has no judge: the creator tracks + completes it alone. */
   noJudge?: boolean;
   /** Penalty: block a chosen app for a while if the goal is not completed. */
   appBlock?: AppBlockPenalty;
@@ -371,7 +371,7 @@ export interface Goal {
 
 export type SubscriptionStatus = 'trialing' | 'active' | 'expired' | 'cancelled' | 'none';
 
-/** Payment integration placeholder — swap `provider` for a real backend later. */
+/** Payment integration placeholder: swap `provider` for a real backend later. */
 export type PaymentProvider =
   | 'placeholder'
   | 'stripe'
@@ -398,9 +398,9 @@ export type AccountType = 'standard' | 'trainer';
 
 /**
  * Who may see the Profile tab (a user's finished goals + success rates).
- *  • `public`  — anyone
- *  • `friends` — only people you follow who also follow you back
- *  • `private` — only you
+ *  • `public`: anyone
+ *  • `friends`: only people you follow who also follow you back
+ *  • `private`: only you
  * The owner always sees their own. Goal CONTENT is a separate, per-goal opt-in
  * (`Goal.isPublic`): a visible goal the owner never published still shows as
  * "Goal #N".
@@ -411,9 +411,9 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password: string; // plain text — MVP / mock only
+  password: string; // plain text. MVP / mock only
 
-  /** Account type — standard user or personal trainer. */
+  /** Account type: standard user or personal trainer. */
   accountType: AccountType;
 
   /** Subscription entitlement (trial → paid). Source of truth for gating. */
@@ -502,7 +502,7 @@ export interface OutboxMessage {
 export interface NotificationPreference {
   consentId: string;
   goalResults: boolean;
-  marketing: boolean; // always false — never used for marketing
+  marketing: boolean; // always false, never used for marketing
 }
 
 export type LegalAcceptanceType =
@@ -566,12 +566,12 @@ export interface AbuseReport {
 /* ──────────────────────────────────────────── Team challenges (2v2…8v8) ── */
 
 /**
- * The two competition formats. Kept deliberately small — these are the only two
+ * The two competition formats. Kept deliberately small, these are the only two
  * the product ships.
  *
- *  • `relay`      — two parallel tracks; every approved goal moves that team's
+ *  • `relay`: two parallel tracks; every approved goal moves that team's
  *                   runner forward. A rejected goal is a stumble (no progress).
- *  • `tug_of_war` — one rope, one marker. An approved goal pulls the marker
+ *  • `tug_of_war`: one rope, one marker. An approved goal pulls the marker
  *                   toward the scoring team, a rejected one pulls it away.
  */
 export type TeamChallengeMode = 'relay' | 'tug_of_war';
@@ -605,7 +605,7 @@ export interface ChallengeMember {
   isCreator?: boolean;
   /**
    * A seeded demo profile. They have no real account to log in with, so they
-   * respond and compete on a timer — otherwise a challenge involving them could
+   * respond and compete on a timer: otherwise a challenge involving them could
    * never leave `pending_invites`. Real people always act for themselves.
    */
   demo?: boolean;
@@ -616,7 +616,7 @@ export interface ChallengeTask {
   id: string;
   memberId: string;
   side: TeamSide;
-  /** What was claimed — normally the challenge goal, restated per attempt. */
+  /** What was claimed: normally the challenge goal, restated per attempt. */
   title: string;
   note?: string;
   status: ChallengeTaskStatus;
@@ -634,7 +634,7 @@ export interface TeamChallenge {
   name: string;
   /** The goal every player on both sides commits to. */
   task: string;
-  /** Players per side — identical for both teams by construction (1…8). */
+  /** Players per side: identical for both teams by construction (1…8). */
   teamSize: number;
   teamAName: string;
   teamBName: string;

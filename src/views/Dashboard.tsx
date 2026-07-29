@@ -11,6 +11,7 @@ import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
 import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
+import { Flame } from 'lucide-react';
 
 const deadlineInDays = (days: number) => {
   const d = new Date();
@@ -97,7 +98,10 @@ export default function Dashboard() {
 
       {streak.goals > 0 && (
         <div className="mb-4 flex gap-2">
-          <Badge tone="accent">🔥 {streak.goals} goal streak</Badge>
+          <Badge tone="accent">
+            <Flame className="mr-1 inline h-3 w-3" aria-hidden />
+            {streak.goals} goal streak
+          </Badge>
         </div>
       )}
 
@@ -126,7 +130,7 @@ export default function Dashboard() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">With a judge</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
           <p className="mt-1 text-[12px] text-muted">
-            A judge you choose confirms whether you did it. They only ever see your goal’s number — you tell
+            A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
             them what it is yourself. You can also add people who’ll be told if you don’t do it.
           </p>
           <Button className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
@@ -196,7 +200,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Active goals — compact */}
+      {/* Active goals: compact */}
       {!loaded ? (
         <p className="py-6 text-center text-sm text-muted">Loading…</p>
       ) : running.length > 0 ? (
@@ -209,7 +213,7 @@ export default function Dashboard() {
           </div>
         </>
       ) : (
-        <p className="py-2 text-center text-[12px] text-muted">No active goals yet — start one above.</p>
+        <p className="py-2 text-center text-[12px] text-muted">No active goals yet. Start one above.</p>
       )}
 
       {pending.length > 0 && (

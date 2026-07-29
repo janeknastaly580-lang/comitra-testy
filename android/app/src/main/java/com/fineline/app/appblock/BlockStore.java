@@ -17,7 +17,7 @@ import java.util.List;
  *
  * The web app owns the lifecycle (it decides when a block starts and ends), but
  * it is NOT the source of truth while a block runs: everything the accessibility
- * service needs lives here, on disk. That is deliberate — if the store depended
+ * service needs lives here, on disk. That is deliberate, if the store depended
  * on the WebView being alive, killing the app would lift every block.
  *
  * `untilEpochMs` is a hard expiry the service honours by itself, so a block can
@@ -142,7 +142,7 @@ public final class BlockStore {
 
     /**
      * The live block for a package, or null. When several goals block the same
-     * app, the one that lasts longest wins — finishing one goal must not unlock
+     * app, the one that lasts longest wins, finishing one goal must not unlock
      * an app another goal is still holding shut.
      */
     public static Block liveBlockFor(Context context, String packageName) {

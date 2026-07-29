@@ -178,7 +178,7 @@ export default function TeamChallengeDetail() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Your move</p>
           {myOpenTask ? (
             <p className="mt-1.5 text-sm text-ink">
-              Sent to {judgeOf(c, me.side)?.name ?? 'your judge'} — waiting for their decision.
+              Sent to {judgeOf(c, me.side)?.name ?? 'your judge'}, waiting for their decision.
             </p>
           ) : (
             <>
@@ -250,7 +250,7 @@ export default function TeamChallengeDetail() {
         <Card className="mt-4 border-accent/40 bg-accent/5 p-4 text-center">
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Result</p>
           <p className="mt-1 text-lg font-bold text-ink">
-            {c.winner === 'draw' ? 'Dead heat — nobody took it.' : `${sideName(c, c.winner as TeamSide)} won`}
+            {c.winner === 'draw' ? 'Dead heat, nobody took it.' : `${sideName(c, c.winner as TeamSide)} won`}
           </p>
           {c.createdByUserId === user.id && (
             <Button
@@ -330,7 +330,7 @@ export default function TeamChallengeDetail() {
 
       {c.members.some((m) => m.demo) && (
         <p className="mt-4 text-center text-[11px] text-muted">
-          Some people here are demo profiles — they answer and compete on their own so you can see how a
+          Some people here are demo profiles. They answer and compete on their own so you can see how a
           challenge plays out.
         </p>
       )}

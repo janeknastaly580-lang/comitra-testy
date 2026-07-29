@@ -1,6 +1,6 @@
 /**
  * Pure helpers for goal progress, the next planned action, and the goal report.
- * No storage, no async — safe to use directly in components.
+ * No storage, no async: safe to use directly in components.
  */
 import type { Goal, PlannedAction } from './types';
 
@@ -9,7 +9,7 @@ export function goalRequired(g: Goal): number {
   return Math.max(1, g.requiredActionsCount ?? g.plannedActions.length ?? 1);
 }
 
-/** How many are done — counted from proofs added (each proof = one action done). */
+/** How many are done: counted from proofs added (each proof = one action done). */
 export function goalDone(g: Goal): number {
   return Math.min(goalRequired(g), g.evidence.length);
 }
@@ -50,14 +50,14 @@ export function deadlineElapsedPct(g: Goal, now = Date.now()): number {
   return Math.round(deadlineElapsedRatio(g, now));
 }
 
-/** A "solo" goal has no judge — the user tracks and completes it themselves. */
+/** A "solo" goal has no judge: the user tracks and completes it themselves. */
 export function isSoloGoal(g: Goal): boolean {
   return !!g.noJudge;
 }
 
 /**
  * The goal's per-owner number. Everyone other than the owner (judge, recipients)
- * only ever sees this number — never the title or the details.
+ * only ever sees this number: never the title or the details.
  */
 export function goalNumberOf(g: Pick<Goal, 'goalNumber'>): number {
   return g.goalNumber && g.goalNumber > 0 ? g.goalNumber : 1;
@@ -75,7 +75,7 @@ export function goalRefTitle(g: Pick<Goal, 'goalNumber'>): string {
 
 /**
  * The owner published THIS finished goal, so its title may appear on their
- * profile. It never unlocks anything else — messages and the judge view stay
+ * profile. It never unlocks anything else, messages and the judge view stay
  * content-free, and running goals are not shown to other people at all.
  */
 export function isPublicGoal(g: Pick<Goal, 'isPublic'>): boolean {
@@ -132,7 +132,7 @@ export function buildGoalReport(g: Goal): GoalReport {
   } else if (completedCount < plannedCount) {
     message = 'Add proof of completion so the judge can assess the result.';
   } else {
-    message = 'All proof added — waiting for the goal deadline and the judge.';
+    message = 'All proof added. Waiting for the goal deadline and the judge.';
   }
 
   return { plannedCount, completedCount, evidenceCount, completionPercentage, judgeStatus, message };

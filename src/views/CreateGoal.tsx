@@ -46,11 +46,11 @@ export default function CreateGoal() {
   const [description, setDescription] = useState('');
   const [deadline, setDeadline] = useState(() => deadlineInDays(7));
 
-  // The judge must be chosen from friends the user invited (Profile → Invite friends).
+  // The judge must be chosen from friends the user invited (Profile &gt; Invite friends).
   const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
   const [judgeId, setJudgeId] = useState('');
   const [recipients, setRecipients] = useState<RecipientRow[]>([]);
-  // The number the judge and any recipients will see — the goal's only identifier
+  // The number the judge and any recipients will see, the goal's only identifier
   // outside this screen.
   const [goalNumber, setGoalNumber] = useState<number | null>(null);
 
@@ -203,7 +203,7 @@ export default function CreateGoal() {
         <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Your goal stays private</p>
         <p className="mt-1 text-[12px] leading-relaxed text-ink">
           The notification sent to your judge does not contain your goal’s content. They are only asked
-          whether you completed {goalNumber ? `goal #${goalNumber}` : 'your goal'} — telling them what
+          whether you completed {goalNumber ? `goal #${goalNumber}` : 'your goal'}. Telling them what
           the goal is, is up to you.
         </p>
       </Card>
@@ -285,8 +285,8 @@ export default function CreateGoal() {
               <p className="text-[12px] text-ink">You haven't invited anyone yet.</p>
               <p className="mt-1 text-[11px] text-muted">
                 Invite a friend in{' '}
-                <Link to="/invite-friends" className="text-accent underline">Profile → Invite friends</Link>
-                {' '}— once they join, they'll appear here.
+                <Link to="/invite-friends" className="text-accent underline">Profile &gt; Invite friends</Link>
+                {' '}and once they join, they'll appear here.
               </p>
             </div>
           ) : (
@@ -341,7 +341,7 @@ export default function CreateGoal() {
           </div>
           <p className="mb-3 text-[11px] text-muted">Optional. If the judge marks the goal not completed, these people (once they accept) receive a message. Up to 3. Leave empty to keep the goal between you and your judge only.</p>
           <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
-            Recipients never see your goal’s content either — the message says only that{' '}
+            Recipients never see your goal’s content either. The message says only that{' '}
             {goalNumber ? `goal #${goalNumber}` : 'the goal'} was not completed.
           </p>
           <div className="space-y-3">
@@ -399,7 +399,7 @@ export default function CreateGoal() {
         <Card className="p-4">
           <Label>Message preview</Label>
           <p className="mb-2 text-[11px] text-muted">
-            Sent only if the judge marks the goal as not completed. This is the whole message — there is
+            Sent only if the judge marks the goal as not completed. This is the whole message, and there is
             no option to add your goal’s content to it.
           </p>
           <div className="whitespace-pre-line rounded-xl border border-line bg-elevated p-3 text-sm text-ink">{preview}</div>
@@ -430,7 +430,7 @@ export default function CreateGoal() {
               <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your{' '}
               <span className="text-ink">{filledRecipients.length}</span> recipient(s) must accept before it starts. If it is later
               marked not completed, accepted recipients get a <span className="text-ink">{tone}</span> message about{' '}
-              <span className="text-ink">goal #{goalNumber ?? 1}</span> — never its content.
+              <span className="text-ink">goal #{goalNumber ?? 1}</span>, never its content.
             </>
           ) : (
             <>

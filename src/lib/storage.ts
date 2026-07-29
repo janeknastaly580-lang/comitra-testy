@@ -21,7 +21,7 @@ export function write<T>(key: string, value: T): void {
     localStorage.setItem(PREFIX + key, JSON.stringify(value));
   } catch (err) {
     // A full quota (common on low-storage Android WebViews) must never crash the
-    // app — degrade gracefully instead of throwing out of a render/event handler.
+    // app: degrade gracefully instead of throwing out of a render/event handler.
     console.warn(`[storage] Could not persist "${key}":`, err);
   }
 }
@@ -50,7 +50,7 @@ export function uuid(): string {
  * Stable per-device/per-browser identifier. Generated once on first launch and
  * persisted in LocalStorage. Incognito windows and other browsers get a *different*
  * id (separate storage), which is exactly what the anti-cheat device-isolation
- * check relies on — the goal creator cannot referee their own challenge.
+ * check relies on: the goal creator cannot referee their own challenge.
  */
 export function getDeviceId(): string {
   let id = read<string | null>(KEYS.deviceId, null);

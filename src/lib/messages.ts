@@ -6,7 +6,7 @@
  * module builds that message from the chosen tone and keeps it legally safe.
  *
  * PRIVACY RULE: a recipient is told only that a numbered goal was not completed.
- * The goal's title and description NEVER appear in any message — there is no
+ * The goal's title and description NEVER appear in any message, there is no
  * opt-in that changes this, not even marking the goal public afterwards (that
  * only affects the owner's profile). The same rule applies to the judge.
  */
@@ -17,12 +17,12 @@ import type { Goal, MessageTone } from './types';
 export interface FailureMessageInput {
   ownerName: string;
   tone: MessageTone;
-  /** The owner's per-goal number — the only detail a recipient ever gets. */
+  /** The owner's per-goal number: the only detail a recipient ever gets. */
   goalNumber: number;
 }
 
 /**
- * Compose the failure-notification message. Tone changes only the framing —
+ * Compose the failure-notification message. Tone changes only the framing,
  * never the safety: no insults, no moral judgement, no "lazy / failed / shame",
  * and never any goal content.
  */
@@ -59,7 +59,7 @@ export function failureMessageForGoal(goal: Goal): string {
 }
 
 /**
- * Neutral invite text sent to a recipient. It does NOT reveal the goal content —
+ * Neutral invite text sent to a recipient. It does NOT reveal the goal content,
  * only that the owner wants to be able to notify them about a goal.
  */
 export function recipientInviteMessage(ownerName: string): string {
@@ -75,7 +75,7 @@ export function recipientInviteMessage(ownerName: string): string {
 
 /**
  * Topics this app must not be used to disclose to other people. Detection is
- * intentionally conservative (keyword-based) — it warns and blocks automatic
+ * intentionally conservative (keyword-based), it warns and blocks automatic
  * activation rather than silently allowing a sensitive goal through.
  */
 const SENSITIVE_PATTERNS: { topic: string; re: RegExp }[] = [
@@ -114,5 +114,5 @@ export function checkGoalContent(title: string, description: string): ContentChe
 /** The user-facing message shown when a goal looks sensitive. */
 export const SENSITIVE_CONTENT_MESSAGE =
   'This app is for reaching goals and building consistency. Don’t use it to ' +
-  'disclose especially private information. Set an action-based goal — e.g. a ' +
-  'number of completed steps — not one about health, a diagnosis or treatment.';
+  'disclose especially private information. Set an action-based goal, for example a ' +
+  'number of completed steps, not one about health, a diagnosis or treatment.';

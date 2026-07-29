@@ -1,4 +1,4 @@
-# FineLine — Secure PayPal Integration (Node.js + React)
+# FineLine. Secure PayPal Integration (Node.js + React)
 
 A production-grade PayPal integration using the **PayPal Orders v2 REST API** on the
 backend and the **PayPal JavaScript SDK** (`@paypal/react-paypal-js`) on the frontend.
@@ -50,7 +50,7 @@ notifies the server and the order is reconciled. Both paths flip the order to `p
 
 ---
 
-## 2. Security — how each threat is neutralized
+## 2. Security: how each threat is neutralized
 
 | Threat | Mitigation (where) |
 | --- | --- |
@@ -58,25 +58,25 @@ notifies the server and the order is reconciled. Both paths flip the order to `p
 | **Replay / spoofed status** | Webhooks are verified with PayPal's `verify-webhook-signature` API (`paypal.js`). Capture status is fetched server-side from PayPal (`capturePaypalOrder`), never trusted from the client. Unsigned/forged notifications return 400. |
 | **Double-spend / no state validation** | `orders.status` transitions `pending → paid` via `markPaidOnce`, a single SQL `UPDATE … WHERE status='pending'` that reports `changes`. The second attempt (retry, webhook race) returns `false` → fulfilment runs once. `paypal_capture_id` has a `UNIQUE` constraint as a second guard. |
 | **Hardcoded credentials** | All secrets come from `process.env` via `dotenv`. `config.js` throws if a key is missing or still a placeholder. `.env` is git-ignored. The frontend only ever sees the **public** Client ID. |
-| **SQL Injection** | Every query is a `better-sqlite3` **prepared statement with bound parameters** — no string concatenation of user input. |
+| **SQL Injection** | Every query is a `better-sqlite3` **prepared statement with bound parameters**, no string concatenation of user input. |
 | **XSS** | API is JSON-only; `helmet` sets `X-Content-Type-Options`, CSP-friendly headers. React escapes all rendered values by default. No `dangerouslySetInnerHTML`. |
 | **CSRF** | `csrf-csrf` double-submit cookie. State-changing routes (`/api/orders`, `/capture`) require a matching `x-csrf-token` header + signed cookie. Webhook is intentionally CSRF-exempt (server-to-server, secured by signature instead). |
 | **Abuse / brute force** | `express-rate-limit` (60 req/min/IP) + strict CORS allowlist (`CLIENT_ORIGIN` only) + 16 KB JSON body cap. |
-| **Interrupted transaction** | Everything is wrapped in `try/catch`. If create fails, the row stays `pending` and the buyer is never charged. If capture is interrupted, the order stays `pending` and the **webhook reconciles it later** — no lost money, no lost session. Errors return generic messages (no stack-trace leakage). |
+| **Interrupted transaction** | Everything is wrapped in `try/catch`. If create fails, the row stays `pending` and the buyer is never charged. If capture is interrupted, the order stays `pending` and the **webhook reconciles it later**, no lost money, no lost session. Errors return generic messages (no stack-trace leakage). |
 
 ---
 
 ## 3. Payment flow (step by step)
 
-1. **`GET /api/csrf-token`** — frontend fetches a CSRF token (sets a signed cookie).
-2. **`POST /api/orders { productId }`** — backend looks up the price in the DB,
+1. **`GET /api/csrf-token`**: frontend fetches a CSRF token (sets a signed cookie).
+2. **`POST /api/orders { productId }`**, backend looks up the price in the DB,
    inserts a `pending` order, calls PayPal *Create Order* with the trusted amount,
    stores `paypal_order_id`, returns `{ orderId, paypalOrderId }`.
 3. Buyer approves in the PayPal popup (handled by the SDK).
-4. **`POST /api/orders/:orderId/capture`** — backend calls PayPal *Capture Order*,
+4. **`POST /api/orders/:orderId/capture`**, backend calls PayPal *Capture Order*,
    verifies `status === 'COMPLETED'` and that amount/currency/`custom_id` match the DB,
    then flips `pending → paid` exactly once and fulfils (grant Premium / credit deposit).
-5. **`POST /api/paypal/webhook`** (async, from PayPal) — verifies the signature and
+5. **`POST /api/paypal/webhook`** (async, from PayPal), verifies the signature and
    reconciles the order in case step 4 never completed client-side.
 
 ---
@@ -136,7 +136,7 @@ your developer dashboard.
 - [ ] Set `CLIENT_ORIGIN` to your real frontend domain (no trailing slash).
 - [ ] Put the backend behind a reverse proxy (Nginx) and keep `app.set('trust proxy', 1)`.
 - [ ] Replace the `requireAuth` stub in `middleware/auth.js` with your real auth.
-- [ ] Replace SQLite with your production DB (Postgres/MySQL) — keep **parameterized
+- [ ] Replace SQLite with your production DB (Postgres/MySQL), keep **parameterized
       queries** and the `UNIQUE(paypal_capture_id)` + `WHERE status='pending'` idempotency.
 - [ ] Rotate `CSRF_SECRET` / `COOKIE_SECRET` to long random values; store them in your
       secret manager, never in git.
@@ -154,7 +154,7 @@ This file lives on the server, is git-ignored, and is **never** sent to the brow
 # server/.env
 PAYPAL_ENV=sandbox
 PAYPAL_CLIENT_ID=AY...your_client_id...
-PAYPAL_CLIENT_SECRET=EJ...your_SECRET_key...      # ⚠️ backend ONLY — never in frontend
+PAYPAL_CLIENT_SECRET=EJ...your_SECRET_key...      # ⚠️ backend ONLY, never in frontend
 PAYPAL_WEBHOOK_ID=8SR...your_webhook_id...
 ```
 
@@ -168,7 +168,7 @@ VITE_API_BASE=http://localhost:4000
 
 **Rules:**
 - The **Secret Key** goes in `server/.env` and **nowhere else**. Never in any `VITE_*`
-  variable, React file, or git commit — Vite inlines `VITE_*` vars into the public bundle.
+  variable, React file, or git commit. Vite inlines `VITE_*` vars into the public bundle.
 - Get both keys from <https://developer.paypal.com/dashboard/applications> → your App →
   *API credentials* (Sandbox tab for testing, Live tab for production).
 - If a secret ever lands in git history, **revoke and regenerate it** in the dashboard.

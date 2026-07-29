@@ -1,5 +1,5 @@
 /**
- * Pure rules for team challenges — no storage, no React, no clock of its own.
+ * Pure rules for team challenges: no storage, no React, no clock of its own.
  *
  * Everything the two boards draw (rope marker, runner distance) and everything
  * the api layer enforces (equal sides, "nobody starts until all accept", who
@@ -56,7 +56,7 @@ export function teamsBalanced(c: TeamChallenge): boolean {
   );
 }
 
-/** Everyone who hasn't answered their invite yet — players and judges alike. */
+/** Everyone who hasn't answered their invite yet, players and judges alike. */
 export function pendingMembers(c: TeamChallenge): ChallengeMember[] {
   return c.members.filter((m) => m.inviteStatus === 'pending');
 }
@@ -121,12 +121,12 @@ export function tugMarkerPct(c: TeamChallenge): number {
   return 50 - ratio * 50;
 }
 
-/** How far along the track a relay team is, 0–100. Rejections don't advance it. */
+/** How far along the track a relay team is, 0-100. Rejections don't advance it. */
 export function relayPct(c: TeamChallenge, side: TeamSide): number {
   return clamp((sideScore(c, side).approved / Math.max(1, c.pointsToWin)) * 100, 0, 100);
 }
 
-/** Whichever side is ahead under this challenge's own rules — null if level. */
+/** Whichever side is ahead under this challenge's own rules, null if level. */
 export function leaderOf(c: TeamChallenge): TeamSide | null {
   if (c.mode === 'tug_of_war') {
     const pull = tugPull(c);

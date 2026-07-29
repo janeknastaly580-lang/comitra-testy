@@ -2,7 +2,7 @@
  * Client-side image downscaling.
  *
  * Uploaded photos are stored as Base64 in LocalStorage and re-decoded on every
- * render. A full-resolution phone photo (10–50 MB decoded) is a classic cause of
+ * render. A full-resolution phone photo (10-50 MB decoded) is a classic cause of
  * out-of-memory crashes in Android WebViews. We shrink every upload to a small,
  * capped JPEG before it ever touches storage, so memory and quota stay bounded.
  */

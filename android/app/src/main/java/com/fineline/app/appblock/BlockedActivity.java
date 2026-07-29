@@ -18,7 +18,7 @@ import java.util.Date;
  * It offers no way back into what was blocked: no "ignore", no "5 more minutes",
  * no dismiss. Both buttons lead away (home, or into Comitra to work on the
  * goal), and the back button does the same. Someone who genuinely wants out has
- * to go to Android Settings and turn the accessibility service off — a
+ * to go to Android Settings and turn the accessibility service off, a
  * deliberate speed bump, and the only supported escape.
  */
 public class BlockedActivity extends Activity {
@@ -73,7 +73,7 @@ public class BlockedActivity extends Activity {
      *
      * Deprecated since API 33 in favour of OnBackPressedCallback, but this app
      * does not opt into predictive back (no `enableOnBackInvokedCallback` in the
-     * manifest), so this is still the callback Android invokes — and it is the
+     * manifest), so this is still the callback Android invokes, and it is the
      * only one that works down to the minSdk 24 this project supports.
      */
     @Override

@@ -9,6 +9,7 @@ import FollowListModal from '../components/FollowListModal';
 import PageHeader from '../components/PageHeader';
 import ProfileGoals from '../components/ProfileGoals';
 import { Badge, Button, Card } from '../components/ui';
+import { Star } from 'lucide-react';
 
 const STATUS_BADGE: Record<Relationship, { label: string; tone: 'accent' | 'active' | 'neutral' } | null> = {
   friends: { label: 'Friends', tone: 'accent' },
@@ -28,7 +29,7 @@ function followLabel(status: Relationship) {
 /**
  * Someone else's profile, reached by tapping a user in the Social tab. The
  * identity card (avatar, counts, follow button) is always visible; their goals
- * and success rates sit below it and are gated by their own visibility setting —
+ * and success rates sit below it and are gated by their own visibility setting,
  * `api.getProfileGoals` makes that call, not this screen. Guests can browse but
  * must sign up to follow. Visiting your own id renders an owner view.
  */
@@ -117,7 +118,7 @@ export default function UserProfile() {
 
               {judgeRating.count > 0 && (
                 <div className="mt-2 flex items-center gap-1.5 rounded-full bg-accent/10 px-3 py-1">
-                  <span className="text-accent">★</span>
+                  <Star className="h-3.5 w-3.5 fill-current text-accent" aria-hidden />
                   <span className="font-mono text-sm font-bold text-ink">{judgeRating.avg.toFixed(2)}</span>
                   <span className="text-[11px] text-muted">judge rating · {judgeRating.count}</span>
                 </div>
@@ -141,7 +142,7 @@ export default function UserProfile() {
               </div>
               {profile.isPrivate && !isOwner && (
                 <p className="mt-2 text-[11px] text-muted">
-                  This account is private — its follower lists are hidden.
+                  This account is private, so its follower lists are hidden.
                 </p>
               )}
 

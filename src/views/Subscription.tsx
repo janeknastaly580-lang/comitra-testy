@@ -7,11 +7,12 @@ import { usd } from '../lib/format';
 import AuthModal from '../components/AuthModal';
 import PageHeader from '../components/PageHeader';
 import { Badge, Button, Card } from '../components/ui';
+import { Check } from 'lucide-react';
 
 const FEATURES = [
   'Create and run goals',
   'Assign a judge to confirm your results',
-  'Choose 1–3 people to be notified if you miss a goal',
+  'Choose 1-3 people to be notified if you miss a goal',
   'Pick the message tone and preview it first',
   'Add proof (text, link or photo) for your judge',
 ];
@@ -77,14 +78,14 @@ export default function Subscription() {
         </p>
         {s.status !== 'active' && (
           <p className="mt-1 text-[11px] text-muted">
-            Works for any personal goal — habits, projects, studying and weekly challenges.
+            Works for any personal goal: habits, projects, studying and weekly challenges.
           </p>
         )}
 
         <ul className="mt-3 space-y-1.5">
           {FEATURES.map((f) => (
             <li key={f} className="flex items-start gap-2 text-[12px] text-muted">
-              <span className="mt-0.5 text-accent">✓</span>
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
               <span>{f}</span>
             </li>
           ))}
@@ -97,7 +98,7 @@ export default function Subscription() {
         </Button>
       ) : (
         <Button className="w-full" disabled={busy} onClick={activate}>
-          {busy ? 'Activating…' : `Activate subscription — ${usd(SUBSCRIPTION_PRICE_MONTHLY)}/mo`}
+          {busy ? 'Activating…' : `Activate subscription for ${usd(SUBSCRIPTION_PRICE_MONTHLY)}/mo`}
         </Button>
       )}
 

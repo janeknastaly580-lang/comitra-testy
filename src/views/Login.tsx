@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { Button, Input, Label, PasswordInput } from '../components/ui';
 import BrandMark from '../components/BrandMark';
 import SocialAuthButtons from '../components/SocialAuthButtons';
+import { Check } from 'lucide-react';
 
 export default function Login() {
   const { login, user } = useApp();
@@ -28,7 +29,7 @@ export default function Login() {
 
   return (
     <div className="relative flex h-full flex-col justify-center px-6 pt-10">
-      {/* Guests reach this screen voluntarily — let them go back to the app. */}
+      {/* Guests reach this screen voluntarily, let them go back to the app. */}
       {user?.isGuest && (
         <button
           type="button"
@@ -49,17 +50,17 @@ export default function Login() {
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Following through is the hard part.</h1>
         <p className="mt-1 text-sm text-muted">
-          Setting a goal is easy — following through is the hard part. Comitra helps you stay
+          Setting a goal is easy. Following through is the hard part. Comitra helps you stay
           accountable and build the habit.
         </p>
         <ul className="mt-4 space-y-1.5">
           {[
-            'Set a simple, realistic goal — like a few steps this week.',
+            'Set a simple, realistic goal, like a few steps this week.',
             'Pick someone to confirm whether you did it.',
-            'Invite people who’ll hear about it if you don’t — only if they agree first.',
+            'Invite people who’ll hear about it if you don’t, only if they agree first.',
           ].map((b) => (
             <li key={b} className="flex items-start gap-2 text-[13px] text-muted">
-              <span className="mt-0.5 text-accent">✓</span>
+              <Check className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden />
               <span>{b}</span>
             </li>
           ))}

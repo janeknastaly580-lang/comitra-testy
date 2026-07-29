@@ -1,5 +1,5 @@
 /**
- * Comitra brand mark — the tilted "C" (accent green) with a check striking
+ * Comitra brand mark: the tilted "C" (accent green) with a check striking
  * through it. The check uses `ink` so it reads near-black on the light default
  * theme (matching the logo) while staying visible on dark premium themes.
  */

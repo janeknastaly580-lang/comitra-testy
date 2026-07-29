@@ -5,7 +5,7 @@ import { Button, Card } from './ui';
 /**
  * Shown when a goal has a block but Android isn't enforcing it yet.
  *
- * Blocking needs an accessibility service the user must switch on by hand —
+ * Blocking needs an accessibility service the user must switch on by hand,
  * Android will not let an app grant it to itself. Until that happens the block
  * is stored but toothless, and saying nothing would let someone believe an app
  * is blocked while they can still open it.
@@ -44,7 +44,7 @@ export default function AppBlockPermission({ appLabel }: { appLabel?: string }) 
         Open Android settings
       </Button>
       <p className="mt-2 text-[11px] text-muted">
-        This is also how you would turn blocking off later — there is no switch inside Comitra.
+        This is also how you would turn blocking off later. There is no switch inside Comitra.
       </p>
     </Card>
   );

@@ -20,13 +20,13 @@ import java.util.Set;
  * How it blocks: whenever the foreground window changes, the package is checked
  * against {@link BlockStore}. On a hit the user is sent Home and a full-screen
  * {@link BlockedActivity} explains why. There is no "ignore", no snooze and no
- * dismiss — the only ways out are finishing the goal in Comitra, waiting for the
+ * dismiss: the only ways out are finishing the goal in Comitra, waiting for the
  * deadline, or going into Android Settings and turning this service off. That is
  * the intended escape hatch, so Settings itself is never blocked.
  *
  * Browsers get the same treatment via the URL in their address bar, so blocking
  * TikTok also blocks tiktok.com (see {@link BlockedSites} for what stays
- * reachable — help, legal and billing pages are never blocked).
+ * reachable: help, legal and billing pages are never blocked).
  */
 public class ComitraAccessibilityService extends AccessibilityService {
 
@@ -108,7 +108,7 @@ public class ComitraAccessibilityService extends AccessibilityService {
         String packageName = pkg.toString();
 
         // Never block ourselves: the goal has to stay reachable to be finished.
-        // Nothing else needs excluding — only apps the user explicitly chose are
+        // Nothing else needs excluding: only apps the user explicitly chose are
         // ever in the store, so Settings (the way to switch this service off)
         // and the launcher can never end up blocked.
         if (packageName.equals(getPackageName())) return;
@@ -192,7 +192,7 @@ public class ComitraAccessibilityService extends AccessibilityService {
                 if (found != null) return found;
             }
         } catch (Exception e) {
-            // A browser we cannot read must never crash the service — the app
+            // A browser we cannot read must never crash the service, the app
             // block itself still works, only its website twin is missed.
             return null;
         } finally {

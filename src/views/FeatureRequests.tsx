@@ -5,6 +5,7 @@ import { shortDate } from '../lib/format';
 import type { FeatureRequestView } from '../lib/types';
 import PageHeader from '../components/PageHeader';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function FeatureRequests() {
   const { user } = useApp();
@@ -113,7 +114,7 @@ export default function FeatureRequests() {
         <p className="py-6 text-center text-sm text-muted">Loading ideas…</p>
       ) : items.length === 0 ? (
         <Card className="p-6 text-center">
-          <p className="text-sm text-muted">No ideas yet — be the first to suggest one.</p>
+          <p className="text-sm text-muted">No ideas yet. Be the first to suggest one.</p>
         </Card>
       ) : (
         <div className="space-y-2">
@@ -182,7 +183,7 @@ function FeatureRow({
           <p className="mt-0.5 text-xs text-muted">{feature.description}</p>
         )}
         <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted">
-          {feature.authorName} · {shortDate(feature.createdAt)} · ▲ {feature.upCount} ▼{' '}
+          {feature.authorName} · {shortDate(feature.createdAt)} · <ChevronUp className="inline h-3 w-3" aria-hidden /> {feature.upCount} <ChevronDown className="inline h-3 w-3" aria-hidden />{' '}
           {feature.downCount}
         </p>
       </div>

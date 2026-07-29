@@ -27,7 +27,7 @@ function GoogleIcon() {
 }
 
 /**
- * "Continue with Google" — real Google Sign-In. Preloads the GIS script on mount
+ * "Continue with Google": real Google Sign-In. Preloads the GIS script on mount
  * so the click that opens Google's popup stays inside the user gesture (avoids
  * popup blockers). `onDone` fires on success so a host modal can close itself.
  */

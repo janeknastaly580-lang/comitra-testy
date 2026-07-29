@@ -3,7 +3,7 @@ import PageHeader from '../components/PageHeader';
 import { Card } from '../components/ui';
 
 /**
- * Comitra — Privacy Policy.
+ * Comitra. Privacy Policy.
  *
  * A GDPR-first document (per the "equal to GDPR" strategy) with dedicated
  * regional appendices for the EU/UK, the USA (CCPA/CPRA), Brazil (LGPD) and
@@ -24,7 +24,7 @@ const OPERATOR_ADDRESS = 'Złota 17, 80-297 Banino, Poland';
 export default function Privacy() {
   return (
     // This page renders directly inside PhoneFrame (outside AppLayout), so it must
-    // provide its own scroll container — otherwise the fixed-height frame clips it.
+    // provide its own scroll container: otherwise the fixed-height frame clips it.
     <div className="phone-scroll h-full overflow-y-auto px-4 py-5">
       <PageHeader title="Privacy Policy" back />
 
@@ -49,7 +49,7 @@ export default function Privacy() {
             The Service is a goal-accountability tool that lets you set
             goals, choose a judge to confirm whether you completed them,
             and choose people who may be notified if a goal is not completed. There
-            are no deposits, stakes or rewards — it is a paid subscription.
+            are no deposits, stakes or rewards. It is a paid subscription.
           </P>
           <P>
             <B>Data controller / administrator.</B> {OPERATOR_LEGAL_NAME} is the
@@ -77,7 +77,7 @@ export default function Privacy() {
               'Account data: email address and a display name.',
               'Authentication data: a password (when you register with email) that you set yourself.',
               'Profile data: optional bio and a profile photo (either a preset avatar or an image you upload).',
-              'Content you enter: goals (title, description, deadline), the message tone you choose, any proof of completion you add, and the answers you write after a goal you did not complete. A goal’s title and description, and those answers, are shown only to you — your judge and your recipients receive the goal’s number (e.g. “goal #3”) and nothing else.',
+              'Content you enter: goals (title, description, deadline), the message tone you choose, any proof of completion you add, and the answers you write after a goal you did not complete. A goal’s title and description, and those answers, are shown only to you. Your judge and your recipients receive the goal’s number (e.g. “goal #3”) and nothing else.',
               'Judge and recipient data: the name and contact details (e.g. phone number or email) of the judge you nominate and of the people you choose to be notified. You are responsible for having a lawful basis to share another person’s details with us, and each of them must accept before taking part.',
               'Support and community data: messages you send us, feature requests you post, votes you cast, and tester applications you submit.',
             ]}
@@ -109,7 +109,7 @@ export default function Privacy() {
           </P>
           <Callout>
             <B>No sensitive data, please.</B> Comitra is a general productivity
-            tool. You should not enter special-category data into it — including
+            tool. You should not enter special-category data into it, including
             health, medical, biometric, racial or ethnic, political, religious,
             sexual-orientation, or precise-location information.
           </Callout>
@@ -130,7 +130,7 @@ export default function Privacy() {
           <SubTitle>Legitimate interests (Art. 6(1)(f) GDPR)</SubTitle>
           <List
             items={[
-              'Keeping the Service and accounts secure — detecting unauthorised logins, preventing fraud and cheating (including the device-isolation referee check).',
+              'Keeping the Service and accounts secure: detecting unauthorised logins, preventing fraud and cheating (including the device-isolation referee check).',
               'Diagnosing errors, maintaining and improving the Service, and understanding aggregate usage.',
             ]}
           />
@@ -175,22 +175,22 @@ export default function Privacy() {
           </P>
           <List
             items={[
-              'Access — obtain a copy of your data (for example, by exporting your goal history from the app).',
-              'Rectification — correct inaccurate or incomplete information (you can edit your name, bio, avatar and other profile details in the app).',
-              'Erasure ("right to be forgotten") — delete your account and associated data.',
-              'Withdraw consent — change your mind at any time, for example by turning off push notifications.',
-              'Restriction and objection — ask us to limit or stop certain processing based on legitimate interests.',
-              'Data portability — receive your data in a portable, machine-readable form.',
-              'Non-discrimination — we will not penalise you for exercising your privacy rights.',
+              'Access: obtain a copy of your data (for example, by exporting your goal history from the app).',
+              'Rectification: correct inaccurate or incomplete information (you can edit your name, bio, avatar and other profile details in the app).',
+              'Erasure ("right to be forgotten"): delete your account and associated data.',
+              'Withdraw consent: change your mind at any time, for example by turning off push notifications.',
+              'Restriction and objection: ask us to limit or stop certain processing based on legitimate interests.',
+              'Data portability: receive your data in a portable, machine-readable form.',
+              'Non-discrimination: we will not penalise you for exercising your privacy rights.',
             ]}
           />
           <SubTitle>How to exercise them</SubTitle>
           <P>
             You can delete your account yourself at any time: open{' '}
-            <B>Profile → Delete account</B> in the app. This one-tap action
+            <B>Profile &gt; Delete account</B> in the app. This one-tap action
             disables the account and removes access to it. You can also correct
-            most information directly in <B>Profile → Edit</B>. For any other
-            request — access, portability, objection or restriction — email us at{' '}
+            most information directly in <B>Profile &gt; Edit</B>. For any other
+            request (access, portability, objection or restriction), email us at{' '}
             <Mail>{PRIVACY_EMAIL}</Mail> and we will respond within the time
             required by law (generally one month under the GDPR).
           </P>
@@ -210,9 +210,9 @@ export default function Privacy() {
             outside your country, including outside the European Economic Area
             (EEA), such as in the United States. Where we transfer personal data
             of individuals in the EEA/UK to a country without an adequacy decision,
-            we rely on appropriate safeguards — primarily the Standard Contractual
+            we rely on appropriate safeguards, primarily the Standard Contractual
             Clauses (SCCs) approved by the European Commission (and the UK
-            International Data Transfer Addendum where relevant) — to protect your
+            International Data Transfer Addendum where relevant), to protect your
             data. You can request a copy of the safeguards we use by emailing{' '}
             <Mail>{PRIVACY_EMAIL}</Mail>.
           </P>
@@ -306,7 +306,7 @@ export default function Privacy() {
             We do not sell your personal information for money. Some privacy laws
             (notably in California) define &ldquo;sale&rdquo; and &ldquo;sharing&rdquo;
             broadly to include certain disclosures to analytics
-            partners — for example, our use of Google Analytics may be treated as
+            partners. For example, our use of Google Analytics may be treated as
             &ldquo;sharing&rdquo; under California law. Where such activity applies,
             we treat it as covered by the opt-out rights described in the United
             States appendix below, and we honour opt-out preference signals such as
@@ -328,7 +328,7 @@ export default function Privacy() {
 
         <Section n="15" title="Links to third-party services">
           <P>
-            The Service may contain links to third-party sites and services — for
+            The Service may contain links to third-party sites and services. For
             example, messaging apps (WhatsApp, Messenger) used to send a judge or
             recipient link. Once
             you follow such a link, you are subject to that third party&rsquo;s own
@@ -352,7 +352,7 @@ export default function Privacy() {
               'Controller: see Section 1. Legal bases: see Section 3 (Art. 6(1)(b) contract, Art. 6(1)(f) legitimate interests, Art. 6(1)(a) consent).',
               'Your rights: access, rectification, erasure, restriction, objection, portability and withdrawal of consent (Section 5).',
               'International transfers rely on the European Commission’s Standard Contractual Clauses and the UK IDTA (Section 6).',
-              'You may complain to your national supervisory authority — in Poland, PUODO (Section 5).',
+              'You may complain to your national supervisory authority: in Poland, PUODO (Section 5).',
             ]}
           />
 
@@ -380,7 +380,7 @@ export default function Privacy() {
 
           <SubTitle>C. Brazil (LGPD)</SubTitle>
           <P>
-            If you are in Brazil, the LGPD gives you rights similar to the GDPR —
+            If you are in Brazil, the LGPD gives you rights similar to the GDPR,
             including confirmation of processing, access, correction,
             anonymisation or deletion, portability, information about sharing, and
             withdrawal of consent. You may exercise them by contacting{' '}
@@ -402,7 +402,7 @@ export default function Privacy() {
           <P>
             We may update this Privacy Policy from time to time. The
             &ldquo;Effective date&rdquo; at the top shows when it last changed. If
-            we make material changes, we will notify you before they take effect —
+            we make material changes, we will notify you before they take effect,
             for example, by email or an in-app push notification or notice. Your
             continued use of the Service after an update means you accept the
             revised policy.

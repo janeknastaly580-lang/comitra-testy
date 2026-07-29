@@ -107,7 +107,7 @@ export default function CreateTeamChallenge() {
     if (!picked) return setError('Choose the goal both teams will compete on.');
     if (numberNeeded && !pickedNum) return setError('Fill in the number in your goal.');
     if (aPlayers.some((v) => !v) || bPlayers.some((v) => !v)) {
-      return setError('Every player slot has to be filled — both teams must be the same size.');
+      return setError('Every player slot has to be filled: both teams must be the same size.');
     }
     if (!judgeA || !judgeB) return setError('Each team needs its own judge.');
 
@@ -236,7 +236,7 @@ export default function CreateTeamChallenge() {
           {numberNeeded && (
             <div className="mt-2">
               <p className="mb-1 font-mono text-[11px] uppercase tracking-widest text-muted">
-                Your goal — edit only the number
+                Your goal (edit only the number)
               </p>
               <GoalWithNumber template={picked} value={pickedNum} onChange={setPickedNum} />
             </div>

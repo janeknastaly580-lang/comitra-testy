@@ -8,7 +8,7 @@ const MIN = api.REFLECTION_MIN_CHARS;
 
 /**
  * The missed goals this user still owes answers for (oldest first). While the
- * list is non-empty no new goal can be created — `api.createGoal` enforces the
+ * list is non-empty no new goal can be created, `api.createGoal` enforces the
  * same rule, so a screen that forgets to check simply gets an error instead.
  */
 export function usePendingReflections(userId: string | undefined) {
@@ -33,7 +33,7 @@ export function usePendingReflections(userId: string | undefined) {
  * didn't work out, and what they'll do differently. Both answers need at least
  * {@link api.REFLECTION_MIN_CHARS} characters.
  *
- * The answers are private — no judge and no recipient ever sees them.
+ * The answers are private: no judge and no recipient ever sees them.
  */
 export default function ReflectionForm({ goal, onDone }: { goal: Goal; onDone: () => void }) {
   const [why, setWhy] = useState('');
@@ -72,7 +72,7 @@ export default function ReflectionForm({ goal, onDone }: { goal: Goal; onDone: (
           rows={3}
           value={why}
           onChange={(e) => setWhy(e.target.value)}
-          placeholder="Be honest with yourself — what got in the way?"
+          placeholder="Be honest with yourself. What got in the way?"
         />
         <CharCount value={why} />
       </div>

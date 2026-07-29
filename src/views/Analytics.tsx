@@ -13,6 +13,7 @@ import type { Goal } from '../lib/types';
 import PageHeader from '../components/PageHeader';
 import PremiumGate from '../components/PremiumGate';
 import { Badge, Button, Card, Label } from '../components/ui';
+import { Check } from 'lucide-react';
 
 const DAY_INITIAL = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const pct = (r: number) => `${Math.round(r * 100)}%`;
@@ -38,7 +39,7 @@ export default function Analytics() {
         <PageHeader title="Pro Analytics & Export" back />
         <PremiumGate
           title="Comitra Premium Analytics"
-          blurb="Deterministic insight into your motivation peaks, willpower price, judges and vulnerable hours — plus a downloadable report. Premium feature."
+          blurb="Deterministic insight into your motivation peaks, willpower price, judges and vulnerable hours, plus a downloadable report. Premium feature."
         />
       </div>
     );
@@ -76,7 +77,7 @@ export default function Analytics() {
         <Card className="mb-4 border-warn/40 p-4">
           <p className="text-sm text-ink">
             Resolve a few challenges to populate your analytics. The sections below fill in
-            automatically as your history grows — every figure is computed from your own data.
+            automatically as your history grows. Every figure is computed from your own data.
           </p>
         </Card>
       )}
@@ -89,14 +90,14 @@ export default function Analytics() {
       <Card className="mb-4 p-4">
         <Label>Download report</Label>
         <p className="mb-3 text-xs text-muted">
-          Export a full Comitra analytics report — all four sections, ready to print to PDF for a
+          Export a full Comitra analytics report with all four sections, ready to print to PDF for a
           coach, therapist or your own records.
         </p>
         <Button className="w-full" onClick={exportReport}>
-          {exported ? 'Downloaded ✓' : 'Export Comitra report'}
+          {exported ? <><Check className="h-4 w-4" aria-hidden /> Downloaded</> : 'Export Comitra report'}
         </Button>
         <p className="mt-2 text-[11px] text-muted">
-          Exports a formatted .txt summary — open and print to PDF.
+          Exports a formatted .txt summary. Open and print to PDF.
         </p>
       </Card>
     </div>
@@ -119,7 +120,7 @@ function MotivationCard({ a }: { a: Analysis }) {
             {m.peakLabel ? (
               <>
                 Your <span className="text-accent">Motivation Peak</span> is{' '}
-                <span className="font-semibold text-accent">{m.peakLabel}</span> — when you close
+                <span className="font-semibold text-accent">{m.peakLabel}</span>, when you close
                 challenges most often, ahead of the deadline.
               </>
             ) : (
@@ -150,7 +151,7 @@ function MotivationCard({ a }: { a: Analysis }) {
           <div className="mt-3 flex items-center justify-between border-t border-line pt-3">
             <div>
               <p className="text-xs text-muted">Avg. finish before deadline</p>
-              <p className="font-mono text-sm text-ink">{m.avgLeadLabel ?? '—'}</p>
+              <p className="font-mono text-sm text-ink">{m.avgLeadLabel ?? 'n/a'}</p>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted">Procrastination</span>
@@ -194,7 +195,7 @@ function SocialCard({ a }: { a: Analysis }) {
             <p className="mt-3 border-t border-line pt-3 text-sm text-ink">
               Cohort effect: <span className="font-mono text-accent">{pct(s.cohort.friendRate)}</span>{' '}
               success under friend judges vs{' '}
-              <span className="font-mono text-muted">{pct(s.cohort.strangerRate)}</span> under others —
+              <span className="font-mono text-muted">{pct(s.cohort.strangerRate)}</span> under others,
               you do{' '}
               <span className={s.cohort.delta >= 0 ? 'text-accent' : 'text-danger'}>
                 {s.cohort.delta >= 0 ? 'better' : 'worse'}
@@ -226,7 +227,7 @@ function JudgeTile({
   return (
     <div className="rounded-lg border border-line bg-elevated p-3">
       <p className="font-mono text-[10px] uppercase tracking-widest text-muted">{label}</p>
-      <p className="mt-1 truncate text-sm font-semibold text-ink">{judge?.name ?? '—'}</p>
+      <p className="mt-1 truncate text-sm font-semibold text-ink">{judge?.name ?? 'n/a'}</p>
       {judge && (
         <>
           <p className={`font-mono text-xs ${tone === 'danger' ? 'text-danger' : 'text-accent'}`}>
@@ -247,13 +248,13 @@ function VulnerabilityCard({ a }: { a: Analysis }) {
   return (
     <SectionCard index={3} title="Vulnerability Radar" subtitle="When goals slip">
       {v.events === 0 ? (
-        <Empty>No missed goals recorded — nothing to flag. Keep it up.</Empty>
+        <Empty>No missed goals recorded, nothing to flag. Keep it up.</Empty>
       ) : (
         <>
           {v.weakestDay && (
             <div className="mb-3 rounded-lg border border-danger/40 bg-danger/5 p-3">
               <p className="text-sm text-ink">
-                ⚠ Your success streak drops ~
+                Your success streak drops ~
                 <span className="font-mono text-danger">{v.weakestDay.dropPct}%</span> on{' '}
                 <span className="text-danger">{WEEKDAYS[v.weakestDay.day]}s</span>.
               </p>

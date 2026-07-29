@@ -14,6 +14,7 @@ import { Avatar } from '../components/Avatar';
 import AuthModal from '../components/AuthModal';
 import PageHeader from '../components/PageHeader';
 import { Badge, Button, Card, Input } from '../components/ui';
+import { Lightbulb, X } from 'lucide-react';
 
 const DEFAULT_LIMIT = 15;
 
@@ -88,7 +89,7 @@ export default function Social() {
             className="gap-1.5 px-3 py-2"
             onClick={() => navigate('/feature-requests')}
           >
-            <span aria-hidden>💡</span> Ideas
+            <Lightbulb className="h-4 w-4" aria-hidden /> Ideas
           </Button>
         }
       />
@@ -172,7 +173,7 @@ export default function Social() {
             aria-label="Clear search"
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-muted hover:text-ink"
           >
-            ✕
+            <X className="h-4 w-4" aria-hidden />
           </button>
         )}
       </div>
@@ -326,7 +327,7 @@ function Leaderboard({
             onClick={() => navigate('/premium')}
             className="mt-1 text-xs text-active hover:underline"
           >
-            Upgrade to Premium →
+            Upgrade to Premium
           </button>
         </Card>
       )}

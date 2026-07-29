@@ -31,7 +31,7 @@ export default function TugOfWarBoard({ challenge }: { challenge: TeamChallenge 
     <div className="rounded-2xl border border-line/60 bg-surface p-4">
       <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Tug of war</p>
 
-      {/* Team A on the left, team B on the right — the rope runs between them. */}
+      {/* Team A on the left, team B on the right, the rope runs between them. */}
       <div className="mt-3 flex items-start justify-between gap-3">
         <TeamHead challenge={challenge} side="A" />
         <div className="shrink-0 pt-1 text-center">
@@ -51,7 +51,7 @@ export default function TugOfWarBoard({ challenge }: { challenge: TeamChallenge 
             flag ? flag.tint : 'bg-elevated/50'
           }`}
         />
-        {/* End zones — drag the marker into one and that team wins. */}
+        {/* End zones: drag the marker into one and that team wins. */}
         <div className="absolute inset-y-0 left-0 flex w-8 items-center justify-center">
           <span className="font-mono text-[8px] uppercase tracking-widest text-muted">Win</span>
         </div>
@@ -100,7 +100,7 @@ export default function TugOfWarBoard({ challenge }: { challenge: TeamChallenge 
 
       <p className="mt-2 text-center text-[11px] text-muted">
         {leader === null
-          ? 'Dead even — the next decision moves the rope.'
+          ? 'Dead even. The next decision moves the rope.'
           : `${leader === 'A' ? challenge.teamAName : challenge.teamBName} is pulling ahead by ${Math.abs(pull)}.`}
       </p>
     </div>

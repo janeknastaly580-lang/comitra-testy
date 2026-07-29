@@ -16,6 +16,7 @@ import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
 import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
+import { Lock } from 'lucide-react';
 
 const TONE_LABEL = { neutral: 'Neutral', supportive: 'Supportive', firm: 'Firm' } as const;
 const CONSENT_TONE = { pending: 'warn', accepted: 'accent', revoked: 'danger' } as const;
@@ -37,7 +38,7 @@ export default function GoalDetail() {
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
 
-  // "Block an app until I finish this" — offered while the goal is running and
+  // "Block an app until I finish this", offered while the goal is running and
   // ends within COMMITMENT_BLOCK_MAX_DAYS.
   const [blockApp, setBlockApp] = useState(APP_BLOCK_TARGETS[0].packageName);
   const [blockAck, setBlockAck] = useState(false);
@@ -126,7 +127,7 @@ export default function GoalDetail() {
     });
     setEvOpen(false);
     await load();
-    setNotice('Proof added — the judge can see it.');
+    setNotice('Proof added. The judge can see it.');
   }
 
   async function submitRating() {
@@ -137,7 +138,7 @@ export default function GoalDetail() {
     }
     // At most two decimal places.
     if (!/^\d(\.\d{1,2})?$|^5(\.0{1,2})?$/.test(rateVal.trim())) {
-      setNotice('Use 0–5 with at most two decimals (e.g. 3.75).');
+      setNotice('Use 0-5 with at most two decimals (e.g. 3.75).');
       return;
     }
     setRateBusy(true);
@@ -145,7 +146,7 @@ export default function GoalDetail() {
       await api.rateJudge(goal!.id, user!.id, v);
       setRateVal('');
       await load();
-      setNotice('Thanks — your rating of the judge was saved.');
+      setNotice('Thanks, your rating of the judge was saved.');
     } catch (err) {
       setNotice((err as Error).message);
     } finally {
@@ -167,7 +168,7 @@ export default function GoalDetail() {
     try {
       await api.completeSoloGoal(goal!.id, user!.id);
       await load();
-      setNotice('Nice — goal marked as completed.');
+      setNotice('Nice, goal marked as completed.');
     } catch (err) {
       setNotice((err as Error).message);
     }
@@ -218,7 +219,7 @@ export default function GoalDetail() {
       setNotice(
         next
           ? 'This goal is now visible on your profile.'
-          : 'This goal is private again — others see only its number.',
+          : 'This goal is private again, so others see only its number.',
       );
     } catch (err) {
       setNotice((err as Error).message);
@@ -240,7 +241,7 @@ export default function GoalDetail() {
 
       {goal.description && <p className="mb-4 text-sm text-muted">{goal.description}</p>}
 
-      {/* The number is what everyone else sees — the title above never leaves this screen. */}
+      {/* The number is what everyone else sees, the title above never leaves this screen. */}
       <Card className="mb-4 border-accent/30 bg-accent/5 p-4">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -253,21 +254,21 @@ export default function GoalDetail() {
         </div>
         {!isSoloGoal(goal) && (
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
-            The notification sent to your judge does not contain your goal’s content — only this number.
+            The notification sent to your judge does not contain your goal’s content, only this number.
             Tell {goal.judge.name} yourself what {goalRefTitle(goal).toLowerCase()} is.
             {goal.recipients.length > 0 && ' Recipients only ever see this number too.'}
           </p>
         )}
       </Card>
 
-      {/* Publish this ONE finished goal. Only offered once it is over — a running
+      {/* Publish this ONE finished goal. Only offered once it is over, a running
           goal is never shown to anyone but its owner. */}
       {isTerminal && (
         <Card className="mb-4 p-4">
           <Label>Show this goal on your profile</Label>
           <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
             <span className="min-w-0 text-sm text-ink">
-              {goal.isPublic ? 'Public — people can read this goal' : 'Private — people see “' + goalRefTitle(goal) + '”'}
+              {goal.isPublic ? 'Public: people can read this goal' : 'Private: people see “' + goalRefTitle(goal) + '”'}
             </span>
             <input
               type="checkbox"
@@ -277,13 +278,13 @@ export default function GoalDetail() {
             />
           </label>
           <p className="mt-1 text-[11px] text-muted">
-            This is for this goal only — your other goals keep their own setting. It changes your
+            This is for this goal only, and your other goals keep their own setting. It changes your
             profile alone: messages to your judge and recipients never contain your goal’s content.
           </p>
         </Card>
       )}
 
-      {/* Answers owed after a missed goal — private to the user. */}
+      {/* Answers owed after a missed goal, private to the user. */}
       {(goal.status === 'failed_notified' || goal.status === 'failed_pending_notification') && (
         <div className="mb-4">
           {reflection ? (
@@ -301,7 +302,7 @@ export default function GoalDetail() {
         </div>
       )}
 
-      {/* Deadline progress — how much of the goal period has elapsed. Updates
+      {/* Deadline progress: how much of the goal period has elapsed. Updates
           every second while the goal is running, so the bar visibly moves. */}
       <Card className="mb-4 p-4">
         <div className="mb-1 flex items-center justify-between">
@@ -336,7 +337,8 @@ export default function GoalDetail() {
           </p>
           {goal.appBlockUntil && new Date(goal.appBlockUntil).getTime() > Date.now() ? (
             <p className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] font-semibold text-danger">
-              🔒 {goal.appBlock.appLabel} is blocked until {dateTime(goal.appBlockUntil)}.
+              <Lock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+              {goal.appBlock.appLabel} is blocked until {dateTime(goal.appBlockUntil)}.
             </p>
           ) : (
             <p className="mt-1 text-[11px] text-muted">
@@ -360,11 +362,12 @@ export default function GoalDetail() {
         <Card className="mb-4 border-accent/40 bg-accent/5 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Blocked while you work</p>
           <p className="mt-1 text-sm text-ink">
-            🔒 <span className="font-semibold">{goal.commitmentBlock!.appLabel}</span> is blocked on your
+            <Lock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
+            <span className="font-semibold">{goal.commitmentBlock!.appLabel}</span> is blocked on your
             phone until this goal is done.
           </p>
           <p className="mt-1 text-[11px] text-muted">
-            It unlocks the moment the goal is completed or ends — at the latest{' '}
+            It unlocks the moment the goal is completed or ends, at the latest{' '}
             {dateTime(goal.commitmentBlock!.untilAt)}.
           </p>
         </Card>
@@ -374,7 +377,7 @@ export default function GoalDetail() {
             <Label>Block an app until you finish</Label>
             <p className="mb-3 text-[11px] text-muted">
               Your goal ends within {api.COMMITMENT_BLOCK_MAX_DAYS} days, so you can lock an app away for
-              the rest of it. It stays blocked until you complete this goal or it ends — you can’t turn it
+              the rest of it. It stays blocked until you complete this goal or it ends, and you can’t turn it
               off in between.
             </p>
             <Select value={blockApp} onChange={(e) => setBlockApp(e.target.value)} className="mb-3">
@@ -464,7 +467,7 @@ export default function GoalDetail() {
       {isSoloGoal(goal) ? (
         <Card className="mb-4 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Judge</p>
-          <p className="mt-1 text-sm text-ink">No judge — you set this goal for yourself and track it on your own.</p>
+          <p className="mt-1 text-sm text-ink">No judge. You set this goal for yourself and track it on your own.</p>
         </Card>
       ) : (
         <Card className="mb-4 p-4">
@@ -479,13 +482,13 @@ export default function GoalDetail() {
           {goal.judge.decision && (
             <p className="mt-2 border-t border-line pt-2 text-[12px] text-muted">
               Decision: <span className="text-ink">{goal.judge.decision.replace('_', ' ')}</span>
-              {goal.judge.decisionComment && <> — “{goal.judge.decisionComment}”</>}
+              {goal.judge.decisionComment && <>: “{goal.judge.decisionComment}”</>}
             </p>
           )}
         </Card>
       )}
 
-      {/* Rate the judge — only judges with an account can be rated. */}
+      {/* Rate the judge: only judges with an account can be rated. */}
       {goal.judge.decision && goal.judge.judgeAccountUserId && (
         <Card className="mb-4 p-4">
           <Label>Rate your judge</Label>
@@ -506,7 +509,7 @@ export default function GoalDetail() {
                 inputMode="decimal"
                 value={rateVal}
                 onChange={(e) => setRateVal(e.target.value.replace(/[^\d.]/g, ''))}
-                placeholder="0–5"
+                placeholder="0-5"
                 className="flex-1"
               />
               <Button className="px-4 py-2" disabled={rateBusy || !rateVal.trim()} onClick={submitRating}>
@@ -521,7 +524,7 @@ export default function GoalDetail() {
         <div className="mb-4">
           <ShareLink
             title="Invite your judge"
-            hint="Send this so the judge can accept the role and later decide the outcome. The link shows them the goal number only — not what the goal is."
+            hint="Send this so the judge can accept the role and later decide the outcome. The link shows them the goal number only, not what the goal is."
             link={judgeLink(goal)}
             phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
           />
@@ -534,7 +537,7 @@ export default function GoalDetail() {
         <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Recipients ({goal.recipients.length})</p>
         <p className="mb-3 text-[11px] text-muted">
           Only recipients who accept can ever receive a message. They can opt out anytime. They are told
-          only that {goalRefTitle(goal).toLowerCase()} was not completed — never what it was.
+          only that {goalRefTitle(goal).toLowerCase()} was not completed, never what it was.
         </p>
         <div className="space-y-3">
           {goal.recipients.map((r) => {
@@ -655,10 +658,10 @@ export default function GoalDetail() {
           Cancel goal
         </button>
       ) : (
-        // Any goal with a judge: the creator can't cancel — they ask the judge to.
+        // Any goal with a judge: the creator can't cancel, they ask the judge to.
         goal.cancelRequested ? (
           <p className="mt-3 text-center text-[11px] text-muted">
-            You asked {goal.judge.name} to cancel this goal — they've been notified.
+            You asked {goal.judge.name} to cancel this goal, and they've been notified.
           </p>
         ) : (
           <button onClick={askCancel} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
@@ -681,7 +684,7 @@ export default function GoalDetail() {
             will be blocked on your phone straight away. You won’t be able to open it until this goal is
             marked completed or the challenge ends{' '}
             <span className="text-ink">({dateTime(goal.deadlineAt)})</span>. There is no way to lift it
-            early — that’s the point.
+            early. That’s the point.
           </>
         }
         onConfirm={applyCommitmentBlock}

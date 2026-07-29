@@ -56,7 +56,7 @@ export default function App() {
         <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
 
-        {/* Public judge view — clean URLs: /verify/:challengeId/:token */}
+        {/* Public judge view: clean URLs: /verify/:challengeId/:token */}
         <Route path="/verify/:challengeId/:token" element={<Verifier />} />
         <Route path="/verify" element={<Verifier />} />
 
