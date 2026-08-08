@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import * as api from '../lib/api';
 import { JUDGE_CODE_MIN } from '../lib/api';
@@ -63,29 +63,43 @@ export default function InviteAccept() {
   const fullNumber = fullPhone(phoneIso, phone);
 
   useEffect(() => {
-    (async () => {
-      const res = await api.getJudgeInvite(token);
-      setOwnerName(res.ownerName);
-      // The person being judged must not register as their own judge,
-      // block (with a reason) when it's the same device or the same account.
-      if (!res.ok) {
-        if (res.reason === 'same-device') return setState('same-device');
-        if (res.reason === 'same-account') return setState('same-account');
-        return setState('unreadable');
+    void (async () => {
+      try {
+        const res = await api.getJudgeInvite(token);
+        setOwnerName(res.ownerName);
+        // The person being judged must not register as their own judge,
+        // block (with a reason) when it's the same device or the same account.
+        if (!res.ok) {
+          if (res.reason === 'same-device') return setState('same-device');
+          if (res.reason === 'same-account') return setState('same-account');
+          return setState('unreadable');
+        }
+        setState('ready');
+        // Probe whether an SMS code is required (best-effort; falls back to false).
+        api.phoneVerificationAvailable().then(setSmsRequired).catch(() => setSmsRequired(false));
+      } catch (err) {
+        // Anything thrown here used to leave the page on "Loading…" forever.
+        // `unreadable` already explains a broken/expired link, which is by far
+        // the likeliest cause and tells the judge what to ask their friend for.
+        console.error('[invite-accept] could not read the invite:', err);
+        setState('unreadable');
       }
-      setState('ready');
-      // Probe whether an SMS code is required (best-effort; falls back to false).
-      api.phoneVerificationAvailable().then(setSmsRequired).catch(() => setSmsRequired(false));
     })();
   }, [token]);
 
   // Count the re-send cooldown down to zero.
-  const resendRef = useRef<ReturnType<typeof setInterval>>();
+  //
+  // The dependency is the boolean, not `resendIn` itself: depending on the
+  // number would tear down and recreate the interval on every tick, so the
+  // remaining second would restart each time and the countdown would crawl.
+  // Extracting it to a variable is also what lets the exhaustive-deps rule
+  // check this statically — an expression in the array cannot be verified.
+  const cooldownRunning = resendIn > 0;
   useEffect(() => {
-    if (resendIn <= 0) return;
-    resendRef.current = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(resendRef.current);
-  }, [resendIn > 0]);
+    if (!cooldownRunning) return;
+    const id = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [cooldownRunning]);
 
   if (state === 'loading') return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
 

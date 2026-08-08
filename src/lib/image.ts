@@ -37,7 +37,14 @@ export async function downscaleImage(
 function readAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
+    reader.onload = () => {
+      // readAsDataURL always yields a string, but the DOM type is
+      // `string | ArrayBuffer | null`. Checking it keeps a future switch to
+      // readAsArrayBuffer from silently producing "[object ArrayBuffer]".
+      const result = reader.result;
+      if (typeof result === 'string') resolve(result);
+      else reject(new Error('Could not read the file.'));
+    };
     reader.onerror = () => reject(reader.error ?? new Error('Could not read the file.'));
     reader.readAsDataURL(file);
   });

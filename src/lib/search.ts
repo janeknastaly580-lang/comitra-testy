@@ -19,8 +19,10 @@ function editDistance(a: string, b: string): number {
   if (a === b) return 0;
   if (!a.length) return b.length;
   if (!b.length) return a.length;
+  // `new Array(n).fill(0)` infers as any[], which quietly erases the row type;
+  // the explicit generic keeps the matrix genuinely number[][].
   const d: number[][] = Array.from({ length: a.length + 1 }, () =>
-    new Array(b.length + 1).fill(0),
+    new Array<number>(b.length + 1).fill(0),
   );
   for (let i = 0; i <= a.length; i++) d[i][0] = i;
   for (let j = 0; j <= b.length; j++) d[0][j] = j;

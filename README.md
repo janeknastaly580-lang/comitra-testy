@@ -32,6 +32,37 @@ npm run build     # type-check + production build to /dist
 npm run preview   # serve the production build
 ```
 
+## Checks
+
+```bash
+npm run lint      # ESLint (flat config) — src, server, scripts, config files
+npm run lint:fix  # …and apply the auto-fixable ones
+npm run typecheck # tsc --noEmit
+npm run test      # vitest
+npm run check     # all three, in that order
+```
+
+`npm run lint` currently reports **0 errors and 37 warnings**, so it exits 0 and
+is safe to use as a CI gate. The warnings are a deliberate, visible backlog —
+not noise to ignore:
+
+- **36 × `no-floating-promises`**, all one inherited idiom:
+  `useEffect(() => { (async () => { … })(); }, [])` across 21 views. If the
+  async body throws, the screen sits on "Loading…" and the only trace is an
+  unhandled rejection. Prefixing each with `void` would silence the rule without
+  handling a single rejection, so they are left visible. The real fix is one
+  shared `useAsyncEffect` helper in `lib/hooks.ts` — its own change, not a
+  linter-setup change.
+- **3 × `react-refresh/only-export-components`** — modules that export both a
+  component and something else, which costs hot-reload granularity in dev only.
+
+The config ([eslint.config.js](eslint.config.js)) is split by area, because the
+repo holds three different kinds of code: type-aware rules for `src/**` (where
+types exist), plain rules for the ESM Node backend in `server/**`, and vitest
+rules for tests. It carries **no formatting rules** on purpose — there is no
+Prettier here, and adding one would bury every real finding under a whole-repo
+reformat.
+
 ## How it works
 
 - **Create a goal**: title, description, category, deadline, deposit (USD, simulated),

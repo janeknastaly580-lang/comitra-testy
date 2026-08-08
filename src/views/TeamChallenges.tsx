@@ -33,8 +33,12 @@ export default function TeamChallenges() {
   }, [user]);
 
   useEffect(() => {
-    load();
-    const t = setInterval(load, POLL_MS);
+    // A poll that fails just skips its tick — the next one retries — so the
+    // rejection is handled here rather than escaping as an unhandled one every
+    // POLL_MS. Passing `load` straight to setInterval would do exactly that.
+    const poll = () => void load().catch(() => undefined);
+    poll();
+    const t = setInterval(poll, POLL_MS);
     return () => clearInterval(t);
   }, [load]);
 

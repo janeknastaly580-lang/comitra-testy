@@ -1467,9 +1467,12 @@ export async function submitJudgeInvite(
       // page (and deliberately carry no server internals, those go to the
       // console). Anything else gets a plain retry prompt.
       if (err instanceof SyncError) throw err;
+      // `cause` keeps the original for the console/devtools; the message stays
+      // the friendly one, since the judge can't act on a network stack trace.
       throw new Error(
         "You're almost set, but we couldn't reach the server to finish registering you. " +
           'Check your connection and tap “Become a judge” again.',
+        { cause: err },
       );
     }
   }

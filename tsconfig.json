@@ -2,7 +2,12 @@
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    /* lib is ES2022 while target stays ES2020: we emit no new syntax, but the
+     * runtime does have ES2022 APIs. Specifically `new Error(msg, { cause })`,
+     * which is how a rethrow keeps the original error (see lib/api.ts). On a
+     * pre-Chrome-93 WebView the options argument is ignored rather than
+     * throwing, so the worst case is a lost cause chain, not a crash. */
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",

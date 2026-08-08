@@ -155,7 +155,7 @@ function MotivationCard({ a }: { a: Analysis }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-muted">Procrastination</span>
-              <Badge tone={riskTone as 'danger' | 'warn' | 'accent'}>
+              <Badge tone={riskTone}>
                 {m.risk === 'high' ? 'High risk' : m.risk === 'moderate' ? 'Moderate' : 'Low'}
               </Badge>
             </div>

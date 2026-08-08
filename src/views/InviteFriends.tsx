@@ -46,12 +46,22 @@ export default function InviteFriends() {
 
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const invite = await api.getOrCreateJudgeInvite(user.id);
-      setToken(invite.inviteToken);
-      setFriends(await api.listInvitedJudges(user.id));
-      setHealth(await api.getJudgeSyncHealth());
-      setSmsOn(await api.phoneVerificationAvailable());
+    void (async () => {
+      try {
+        const invite = await api.getOrCreateJudgeInvite(user.id);
+        setToken(invite.inviteToken);
+        setFriends(await api.listInvitedJudges(user.id));
+        setHealth(await api.getJudgeSyncHealth());
+        setSmsOn(await api.phoneVerificationAvailable());
+      } catch (err) {
+        // Without this the whole panel would sit blank on any failure, with
+        // only an unhandled rejection to explain it. `offline` is the honest
+        // report: we could not read the state of the shared store.
+        console.error('[invite-friends] could not load invite state:', err);
+        setHealth('unreachable');
+        setFriends([]);
+        setSmsOn(false);
+      }
     })();
   }, [user]);
 

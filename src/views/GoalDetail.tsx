@@ -102,7 +102,13 @@ export default function GoalDetail() {
   function onPhoto(file?: File) {
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => setEvPhoto(String(reader.result));
+    reader.onload = () => {
+      // `reader.result` is typed string | ArrayBuffer | null; only a data URL
+      // is usable as an <img> src, so anything else is dropped rather than
+      // stored as the string "[object ArrayBuffer]".
+      const result = reader.result;
+      if (typeof result === 'string') setEvPhoto(result);
+    };
     reader.readAsDataURL(file);
   }
 

@@ -26,15 +26,49 @@ export interface GoogleIdentity {
   googleId: string;
 }
 
-// GIS attaches itself to window.google; keep the typing loose.
-type AnyWindow = typeof window & { google?: any };
+/**
+ * The slice of Google Identity Services this file actually uses.
+ *
+ * GIS ships no type definitions and attaches itself to `window.google` at run
+ * time. Declaring the shape here rather than reaching for `any` means the
+ * compiler checks how we call it — misspell `initTokenClient` or a config key
+ * and the build fails, instead of the button silently doing nothing.
+ */
+interface GsiTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GsiErrorResponse {
+  type?: string;
+  message?: string;
+}
+
+interface GsiTokenClient {
+  requestAccessToken(): void;
+}
+
+interface GsiOAuth2 {
+  initTokenClient(config: {
+    client_id: string;
+    scope: string;
+    prompt?: string;
+    callback: (response: GsiTokenResponse) => void;
+    error_callback?: (error: GsiErrorResponse) => void;
+  }): GsiTokenClient;
+}
+
+type GsiWindow = typeof window & {
+  google?: { accounts?: { oauth2?: GsiOAuth2 } };
+};
 
 let gsiPromise: Promise<void> | null = null;
 
 /** Load the GIS client script exactly once (idempotent, cached). */
 export function loadGoogleScript(): Promise<void> {
   if (typeof window === 'undefined') return Promise.resolve();
-  const w = window as AnyWindow;
+  const w = window as GsiWindow;
   if (w.google?.accounts?.oauth2) return Promise.resolve();
   if (gsiPromise) return gsiPromise;
 
@@ -73,7 +107,7 @@ export async function requestGoogleIdentity(): Promise<GoogleIdentity> {
     );
   }
   await loadGoogleScript();
-  const w = window as AnyWindow;
+  const w = window as GsiWindow;
   const oauth2 = w.google?.accounts?.oauth2;
   if (!oauth2) throw new Error('Google sign-in failed to initialise. Please try again.');
 
@@ -83,11 +117,11 @@ export async function requestGoogleIdentity(): Promise<GoogleIdentity> {
       scope: 'openid email profile',
       // Always let the user pick which Google account to use.
       prompt: 'select_account',
-      callback: (resp: { access_token?: string; error?: string; error_description?: string }) => {
+      callback: (resp) => {
         if (resp?.access_token) resolve(resp.access_token);
         else reject(new Error(resp?.error_description || 'Google sign-in was cancelled.'));
       },
-      error_callback: (err: { type?: string; message?: string }) => {
+      error_callback: (err) => {
         reject(new Error(err?.message || 'Google sign-in was cancelled.'));
       },
     });

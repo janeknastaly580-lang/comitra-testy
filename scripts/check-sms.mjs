@@ -32,10 +32,11 @@ const SHAPES = {
 };
 
 function readEnvFile(relative) {
-  let raw = '';
+  let raw;
   try {
     raw = readFileSync(new URL(relative, import.meta.url), 'utf8');
   } catch {
+    // A missing file is normal: server/.env only exists once someone makes it.
     return {};
   }
   const out = {};

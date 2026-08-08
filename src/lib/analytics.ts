@@ -143,7 +143,7 @@ function buildSocial(goals: Goal[], friendNames: Set<string>): SocialSection {
     const span = decidedAt ? +new Date(decidedAt) - +new Date(g.createdAt) : 0;
     const j =
       map.get(key) ??
-      ({ name, verdicts: 0, approvals: 0, rejections: 0, approvalRate: 0, avgDecisionMs: 0, isFriend: friendNames.has(key) } as JudgeStat);
+      { name, verdicts: 0, approvals: 0, rejections: 0, approvalRate: 0, avgDecisionMs: 0, isFriend: friendNames.has(key) };
     j.verdicts++;
     if (decision === 'completed') j.approvals++;
     else if (decision === 'not_completed') j.rejections++;
