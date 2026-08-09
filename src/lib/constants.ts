@@ -10,8 +10,8 @@ export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
 /* ───────────────────────────────────────────────────────── Recipients ── */
 
-/** A goal may notify at most this many recipients, never a mass broadcast. */
-export const MAX_RECIPIENTS_PER_GOAL = 3;
+/** A goal notifies a single recipient at most, never a mass broadcast. */
+export const MAX_RECIPIENTS_PER_GOAL = 1;
 /** Anti-spam: max new recipient invites a user may send per day. */
 export const MAX_INVITES_PER_DAY = 10;
 

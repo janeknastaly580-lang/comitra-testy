@@ -149,7 +149,7 @@ export default function CreateGoal() {
     if (!titleValid) return setError('Give your goal a title.');
     if (new Date(deadline).getTime() <= Date.now()) return setError('The goal’s end date must be in the future.');
     if (!judgeValid) return setError('Choose a judge from your invited friends.');
-    if (!recipientsValid) return setError('Each recipient needs a name and a valid contact (up to 3).');
+    if (!recipientsValid) return setError('The recipient needs a name and a valid contact. A goal can have only one.');
     if (hasRecipients && !ackNotify) return setError('Please acknowledge the notification consent.');
     setConfirmOpen(true);
   }
@@ -336,19 +336,21 @@ export default function CreateGoal() {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold text-ink">
-              Recipients <span className="text-muted">({filledRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
+              Recipient <span className="text-muted">({filledRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
             </span>
           </div>
-          <p className="mb-3 text-[11px] text-muted">Optional. If the judge marks the goal not completed, these people (once they accept) receive a message. Up to 3. Leave empty to keep the goal between you and your judge only.</p>
+          <p className="mb-3 text-[11px] text-muted">Optional. If the judge marks the goal not completed, this person (once they accept) receives a message. One recipient per goal. Leave empty to keep the goal between you and your judge only.</p>
           <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
-            Recipients never see your goal’s content either. The message says only that{' '}
+            Your recipient never sees your goal’s content either. The message says only that{' '}
             {goalNumber ? `goal #${goalNumber}` : 'the goal'} was not completed.
           </p>
           <div className="space-y-3">
             {recipients.map((r, i) => (
               <div key={i} className="rounded-xl border border-line bg-elevated p-3">
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Recipient {i + 1}</span>
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
+                    {MAX_RECIPIENTS_PER_GOAL > 1 ? `Recipient ${i + 1}` : 'Recipient'}
+                  </span>
                   <button type="button" onClick={() => removeRecipient(i)} className="text-[11px] text-danger hover:underline">Remove</button>
                 </div>
                 <Input value={r.name} onChange={(e) => setRecipient(i, { name: e.target.value })} placeholder="Name" />
@@ -409,7 +411,7 @@ export default function CreateGoal() {
         <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line p-3">
           <input type="checkbox" checked={ackNotify} onChange={(e) => setAckNotify(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
           <span className="text-[12px] leading-relaxed text-ink">
-            I understand that if the goal is marked as not completed, the people I chose and who accepted may receive a message.{' '}
+            I understand that if the goal is marked as not completed, the person I chose, if they accepted, may receive a message.{' '}
             <Link to="/terms" className="text-accent underline">Terms</Link>
           </span>
         </label>
@@ -427,9 +429,9 @@ export default function CreateGoal() {
         message={
           hasRecipients ? (
             <>
-              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your{' '}
-              <span className="text-ink">{filledRecipients.length}</span> recipient(s) must accept before it starts. If it is later
-              marked not completed, accepted recipients get a <span className="text-ink">{tone}</span> message about{' '}
+              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your recipient{' '}
+              <span className="text-ink">{filledRecipients[0]?.name.trim() || '—'}</span> must accept before it starts. If it is later
+              marked not completed, they get a <span className="text-ink">{tone}</span> message about{' '}
               <span className="text-ink">goal #{goalNumber ?? 1}</span>, never its content.
             </>
           ) : (

@@ -26,10 +26,8 @@ function goalInput(userId: string, over: Partial<CreateGoalInput> = {}): CreateG
     messageTone: 'neutral',
     ackNotifyConsent: true,
     judge: { name: 'Judge', channel: 'phone', contact: '+48500100200' },
-    recipients: [
-      { name: 'Alice', channel: 'phone', contact: '+48111222333' },
-      { name: 'Bob', channel: 'email', contact: 'bob@example.com' },
-    ],
+    // A goal notifies exactly one recipient (MAX_RECIPIENTS_PER_GOAL === 1).
+    recipients: [{ name: 'Alice', channel: 'phone', contact: '+48111222333' }],
     ...over,
   };
 }
@@ -46,7 +44,7 @@ async function activatedGoal(over: Partial<CreateGoalInput> = {}) {
   const goal = await api.createGoal(goalInput(owner.id, over));
   const consents = await api.listOwnerConsents(owner.id);
   const alice = consents.find((c) => c.name === 'Alice')!;
-  await api.acceptRecipientConsent(alice.inviteToken); // Alice accepts; Bob stays pending
+  await api.acceptRecipientConsent(alice.inviteToken); // the one recipient accepts
   setDevice('judge-device');
   await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
   // Deadlines are in the future in these tests, so let the judge decide now by
@@ -107,15 +105,27 @@ describe('judge acceptance is required to activate', () => {
 
 describe('notifications only reach accepted, non-revoked recipients', () => {
   it('does not send to a recipient who never accepted', async () => {
-    const { goal } = await activatedGoal();
+    // The single recipient never accepts, so the goal never starts and the
+    // judge cannot decide: no message can ever reach them.
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id));
+    setDevice('judge-device');
+    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_recipients_acceptance');
+    await expect(
+      api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE),
+    ).rejects.toThrow(/not ready/i);
+    expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
+  });
+
+  it('sends exactly one message, to the one accepted recipient', async () => {
+    const { goal, alice } = await activatedGoal();
     await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
     const notes = await api.listGoalNotifications(goal.id);
-    // Bob (pending) suppressed, Alice (accepted) sent.
     const sent = notes.filter((n) => n.status === 'sent');
-    const suppressed = notes.filter((n) => n.status === 'suppressed');
     expect(sent).toHaveLength(1);
-    expect(suppressed).toHaveLength(1);
-    expect(suppressed[0].reason).toBe('not_accepted');
+    expect(sent[0].recipientConsentId).toBe(alice.id);
   });
 
   it('does not send after a recipient revokes consent', async () => {

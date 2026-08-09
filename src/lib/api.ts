@@ -661,7 +661,7 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
       to: 'recipient',
       channel: consent.channel,
       contact: consent.recipientContact,
-      body: recipientInviteMessage(owner?.name ?? 'A Comitra user'),
+      body: recipientInviteMessage(owner?.name ?? 'An Comitra user'),
     },
     { template: 'recipient_invite', params: { ownerName: owner?.name, link: recipientLink(consent.inviteToken) } },
   );
@@ -768,7 +768,11 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     throw new Error('You must acknowledge that recipients may be messaged on failure.');
   }
   if (recips.length > MAX_RECIPIENTS_PER_GOAL) {
-    throw new Error(`You can add at most ${MAX_RECIPIENTS_PER_GOAL} recipients.`);
+    throw new Error(
+      MAX_RECIPIENTS_PER_GOAL === 1
+        ? 'A goal can have only one recipient.'
+        : `You can add at most ${MAX_RECIPIENTS_PER_GOAL} recipients.`,
+    );
   }
   // Anti-spam: count how many of these are brand-new invites.
   const newInvites = recips.filter((r) => {
@@ -1287,7 +1291,7 @@ export async function getOrCreateJudgeInvite(
     v: 1,
     t: invite.token,
     o: ownerUserId,
-    n: owner?.name ?? 'A Comitra user',
+    n: owner?.name ?? 'An Comitra user',
     d: invite.inviterDeviceId ?? deviceId,
   });
   return { ...invite, inviteToken };
@@ -1336,13 +1340,13 @@ export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
   if (payload) {
     // Self-contained link: valid on any device.
     const owner = getUsers().find((u) => u.id === payload.o);
-    return resolve(payload.o, owner?.name ?? payload.n ?? 'A Comitra user', payload.d);
+    return resolve(payload.o, owner?.name ?? payload.n ?? 'An Comitra user', payload.d);
   }
   // Legacy raw token (same-browser only).
   const invite = token ? getJudgeInvites().find((i) => i.token === token) : undefined;
   if (invite) {
     const owner = getUsers().find((u) => u.id === invite.ownerUserId);
-    return resolve(invite.ownerUserId, owner?.name ?? 'A Comitra user', invite.inviterDeviceId);
+    return resolve(invite.ownerUserId, owner?.name ?? 'An Comitra user', invite.inviterDeviceId);
   }
   // Token missing / corrupted / from an old app version, explain, don't say "invalid".
   return { ok: false, reason: 'unreadable', ownerName: '', ownerUserId: '', sameDevice: false, sameAccount: false };
@@ -2149,7 +2153,7 @@ export async function getConsentByToken(token: string): Promise<{ consent: Recip
   const consent = getConsents().find((c) => c.inviteToken === token);
   if (!consent) return null;
   const owner = getUsers().find((u) => u.id === consent.ownerUserId);
-  return { consent, ownerName: owner?.name ?? 'A Comitra user' };
+  return { consent, ownerName: owner?.name ?? 'An Comitra user' };
 }
 
 export async function acceptRecipientConsent(token: string): Promise<RecipientConsent> {
