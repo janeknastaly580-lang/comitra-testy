@@ -1,8 +1,13 @@
 import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
+import * as api from '../lib/api';
+import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
+import { SyncError } from '../lib/supabase';
 import { Button, Input, Label, PasswordInput } from './ui';
 import BrandMark from './BrandMark';
+import PhoneField from './PhoneField';
+import PhoneVerify from './PhoneVerify';
 import SocialAuthButtons from './SocialAuthButtons';
 import { X } from 'lucide-react';
 
@@ -27,22 +32,47 @@ export default function AuthModal({
 }) {
   const { login, register } = useApp();
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  // Sign-up becomes two steps once a code has been texted.
+  const [step, setStep] = useState<'form' | 'verify'>('form');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phoneIso, setPhoneIso] = useState(DEFAULT_COUNTRY_ISO);
+  const [phone, setPhone] = useState('');
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState('');
+  const [errorIsSetup, setErrorIsSetup] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const fullNumber = fullPhone(phoneIso, phone);
+  const phoneValid = phone.replace(/\D/g, '').length >= 7;
+
   if (!open) return null;
+
+  function showError(err: unknown) {
+    setError((err as Error).message);
+    setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
+  }
+
+  function switchMode(next: 'login' | 'register') {
+    setMode(next);
+    setStep('form');
+    setError('');
+    setErrorIsSetup(false);
+  }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setErrorIsSetup(false);
     if (mode === 'register') {
       if (password.length < 4) {
         setError('Password must be at least 4 characters.');
+        return;
+      }
+      if (!phoneValid) {
+        setError('Enter your phone number, including the country code.');
         return;
       }
       if (!acceptPrivacy || !acceptTerms) {
@@ -52,11 +82,51 @@ export default function AuthModal({
     }
     setBusy(true);
     try {
-      if (mode === 'login') await login(email, password);
-      else await register(name, email, password);
+      if (mode === 'login') {
+        await login(email, password);
+      } else if (await api.phoneVerificationAvailable()) {
+        // A code is on its way; the account is created on the verify step.
+        await api.startPhoneVerification(fullNumber);
+        setStep('verify');
+        return;
+      } else {
+        // No Twilio credentials on this deployment: record the number unverified
+        // rather than block sign-up on a text that can never arrive.
+        await register(name, email, password, 'standard', fullNumber, false);
+      }
       onClose?.();
     } catch (err) {
-      setError((err as Error).message);
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onVerify(code: string) {
+    setError('');
+    setErrorIsSetup(false);
+    setBusy(true);
+    try {
+      await api.verifyPhoneCode(fullNumber, code);
+      await register(name, email, password, 'standard', fullNumber, true);
+      onClose?.();
+    } catch (err) {
+      showError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onResend(): Promise<boolean> {
+    setError('');
+    setErrorIsSetup(false);
+    setBusy(true);
+    try {
+      await api.startPhoneVerification(fullNumber);
+      return true;
+    } catch (err) {
+      showError(err);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -90,12 +160,33 @@ export default function AuthModal({
           <span className="font-mono text-lg font-bold tracking-[0.15em]">Comitra</span>
         </div>
         <h2 className="text-lg font-bold tracking-tight text-ink">
-          {title ?? (mode === 'login' ? 'Log in to keep your goals' : 'Create your account')}
+          {step === 'verify'
+            ? 'Confirm your number'
+            : (title ?? (mode === 'login' ? 'Log in to keep your goals' : 'Create your account'))}
         </h2>
         <p className="mb-4 mt-0.5 text-xs text-muted">
-          {subtitle ?? 'Your goals are ready. Sign in or sign up to save them for good.'}
+          {step === 'verify'
+            ? 'One last step, then your account is created.'
+            : (subtitle ?? 'Your goals are ready. Sign in or sign up to save them for good.')}
         </p>
 
+        {step === 'verify' ? (
+          <PhoneVerify
+            phone={fullNumber}
+            busy={busy}
+            error={error}
+            errorIsSetup={errorIsSetup}
+            submitLabel="Verify & create account"
+            onVerify={onVerify}
+            onResend={onResend}
+            onBack={() => {
+              setStep('form');
+              setError('');
+              setErrorIsSetup(false);
+            }}
+          />
+        ) : (
+          <>
         <form onSubmit={onSubmit} className="space-y-3">
           {mode === 'register' && (
             <div>
@@ -119,6 +210,15 @@ export default function AuthModal({
               placeholder="you@domain.com"
             />
           </div>
+          {mode === 'register' && (
+            <div>
+              <Label>Phone number</Label>
+              <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
+              <p className="mt-1.5 text-[11px] text-muted">
+                We'll text you a 6-digit code to confirm it's yours.
+              </p>
+            </div>
+          )}
           <div>
             <Label>Password</Label>
             <PasswordInput
@@ -177,33 +277,21 @@ export default function AuthModal({
           {mode === 'login' ? (
             <>
               No account?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('register');
-                  setError('');
-                }}
-                className="text-accent hover:underline"
-              >
+              <button type="button" onClick={() => switchMode('register')} className="text-accent hover:underline">
                 Create one
               </button>
             </>
           ) : (
             <>
               Already registered?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  setMode('login');
-                  setError('');
-                }}
-                className="text-accent hover:underline"
-              >
+              <button type="button" onClick={() => switchMode('login')} className="text-accent hover:underline">
                 Log in
               </button>
             </>
           )}
         </p>
+          </>
+        )}
       </div>
     </div>
   );

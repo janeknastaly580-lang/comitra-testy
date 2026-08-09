@@ -5,14 +5,38 @@ import { claimSend, LIMITS, previousSend, releaseSend, rememberSend, takeSlot } 
 import { renderTemplate } from './templates.js';
 
 /**
- * Ordinary transactional texts (judge asked to decide, goal not completed,
- * invite links) through a Twilio Messaging Service.
+ * Every text this server sends — verification codes and transactional notices
+ * alike — goes out through a Twilio Messaging Service.
  *
  * A Messaging Service — rather than a bare `from` number — is what gives the
  * account its sender pool, per-country sender selection, opt-out handling and
  * the shared delivery-status callback. The sender is therefore configured in
  * the Twilio Console, and no phone number is hardcoded anywhere in this repo.
  */
+
+/**
+ * Put one text on the wire. The lowest level: no throttling, no de-duplication,
+ * and the body is taken as given — every caller must have composed it from a
+ * server-owned template first (see `templates.js`), because this function is
+ * what a caller would have to reach to send arbitrary text.
+ *
+ * @param {{to: string, body: string}} input  `to` must already be E.164.
+ * @returns {Promise<{sid: string, status: string}>}
+ */
+export async function sendSmsBody({ to, body }) {
+  try {
+    const message = await getTwilioClient().messages.create({
+      to,
+      messagingServiceSid: twilioConfig.messagingServiceSid,
+      body,
+      // Delivery reports come back to our signed webhook when a URL is set.
+      ...(twilioConfig.statusCallbackUrl ? { statusCallback: twilioConfig.statusCallbackUrl } : {}),
+    });
+    return { sid: message.sid, status: message.status };
+  } catch (err) {
+    throw mapTwilioError(err, 'message-send');
+  }
+}
 
 /**
  * Send one templated SMS.
@@ -58,20 +82,13 @@ export async function sendTemplatedSms({ to, template, params, idempotencyKey })
   }
 
   try {
-    const message = await getTwilioClient().messages.create({
-      to: phone,
-      messagingServiceSid: twilioConfig.messagingServiceSid,
-      body,
-      // Delivery reports come back to our signed webhook when a URL is set.
-      ...(twilioConfig.statusCallbackUrl ? { statusCallback: twilioConfig.statusCallbackUrl } : {}),
-    });
-    const result = { sid: message.sid, status: message.status };
+    const result = await sendSmsBody({ to: phone, body });
     rememberSend(key, result);
     return { ...result, duplicate: false, to: phone };
   } catch (err) {
     // A failed attempt must not burn the key — the caller is allowed to retry.
     releaseSend(key);
-    throw mapTwilioError(err, 'message-send');
+    throw err;
   }
 }
 

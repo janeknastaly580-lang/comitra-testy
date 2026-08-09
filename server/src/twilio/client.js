@@ -7,7 +7,7 @@ import { twilioConfig } from './config.js';
  *
  * Authentication uses the API Key SID + Secret with the Account SID passed
  * separately — Twilio's recommended server credential. The Auth Token is not
- * used here; it belongs to webhook signature checking only.
+ * used here; it belongs to webhook signature checking only, and is optional.
  */
 
 let client = null;
@@ -55,7 +55,7 @@ export function getTwilioClient() {
 }
 
 /**
- * Swap in a stand-in client. Tests only — it lets the Verify/Messaging modules
+ * Swap in a stand-in client. Tests only — it lets the messaging and OTP modules
  * be exercised without a network call or a real credential. Pass `null` to
  * restore the real, lazily-built one.
  */
@@ -78,33 +78,21 @@ export function mapTwilioError(err, phase) {
   const detail = `twilio ${phase} failed (status ${status || '?'}, code ${code || '?'})`;
 
   switch (code) {
-    case 60200: // Invalid parameter (almost always `To`).
     case 21211: // Invalid 'To' phone number.
       return new SmsError('bad-phone', "That phone number doesn't look right. Check the country and number, then try again.", 400, detail);
 
-    case 60203: // Max send attempts reached for this number.
-    case 60212: // Too many concurrent requests for this number.
     case 20429: // Too many requests.
-      return new SmsError('rate-limited', 'Too many attempts. Wait about a minute, then request a new code.', 429, detail);
+      return new SmsError('rate-limited', 'Too many attempts. Wait about a minute, then try again.', 429, detail);
 
-    case 60202: // Max check attempts reached — the code is now dead.
-      return new SmsError('invalid-code', "That code can't be checked any more. Request a new one.", 400, detail);
-
-    case 60205: // SMS is not supported by this landline number.
-    case 60033: // Not a mobile number.
+    case 21614: // 'To' is not a valid mobile number (e.g. a landline).
       return new SmsError('bad-phone', "That number can't receive text messages. Use a mobile number.", 400, detail);
 
-    case 60220: // Number blocked / not permitted.
     case 21608: // Trial account: unverified recipient.
     case 21610: // Recipient replied STOP.
     case 21612: // Not reachable from this sender.
       return new SmsError('undeliverable', "We can't text that number. Try a different one.", 400, detail);
 
-    case 20404: // Resource not found: expired/consumed verification, or wrong Service SID.
-      return phase === 'verify-check'
-        ? new SmsError('invalid-code', "That code isn't right, or it has expired. Request a new one.", 400, detail)
-        : new SmsError('setup', 'Text messaging is not finished being set up on the server.', 503, detail);
-
+    case 20404: // Resource not found — in practice a wrong Messaging Service SID.
     case 20003: // Authenticate — bad API key/secret, or the key lacks permission.
     case 20005: // Account not active.
       return new SmsError('setup', 'Text messaging is not finished being set up on the server.', 503, detail);

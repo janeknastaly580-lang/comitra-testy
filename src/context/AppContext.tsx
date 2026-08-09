@@ -16,7 +16,14 @@ interface AppContextValue {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, accountType?: 'standard' | 'trainer') => Promise<void>;
+  register: (
+    name: string,
+    email: string,
+    password: string,
+    accountType?: 'standard' | 'trainer',
+    phone?: string,
+    phoneVerified?: boolean,
+  ) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -75,9 +82,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const register = useCallback(
-    async (name: string, email: string, password: string, accountType: 'standard' | 'trainer' = 'standard') => {
+    async (
+      name: string,
+      email: string,
+      password: string,
+      accountType: 'standard' | 'trainer' = 'standard',
+      phone?: string,
+      phoneVerified?: boolean,
+    ) => {
       const prev = await api.getSessionUser();
-      const u = await api.register(name, email, password, accountType);
+      const u = await api.register(name, email, password, accountType, phone, phoneVerified);
       await claimGuestInto(prev, u);
     },
     [claimGuestInto],

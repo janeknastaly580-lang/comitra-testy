@@ -1,8 +1,8 @@
 /**
  * Per-destination throttling and send-once bookkeeping.
  *
- * Twilio Verify already rate-limits a phone number, and express-rate-limit
- * already caps requests per IP. Neither covers the case this guards: the SAME
+ * express-rate-limit already caps requests per IP, and `verify.js` caps the
+ * guesses against one code. Neither covers the case this guards: the SAME
  * number hammered from many IPs, or the same transactional message sent twice
  * because a request was retried. Every entry is keyed by a HASH of the number,
  * never the number itself, so a heap dump or a crash log holds no phone numbers.
@@ -26,10 +26,8 @@ function keyFor(value) {
 export const LIMITS = {
   /** Minimum gap between two verification codes to the same number. */
   otpResendCooldownMs: 60_000,
-  /** Codes per number per hour (Verify's own default is 5 per 10 min). */
+  /** Codes texted to one number per hour. */
   otpSendsPerHour: 5,
-  /** Wrong codes accepted for one number before it has to start over. */
-  otpCheckAttempts: 5,
   /** Transactional texts to one number per hour. */
   smsPerHourPerNumber: 10,
   /** How long a completed send is remembered for de-duplication. */
@@ -89,21 +87,6 @@ export function takeSlot(bucketName, destination, { max, windowMs, cooldownMs = 
   bucket.hits = recent;
   buckets.set(key, bucket);
   return { allowed: true };
-}
-
-/**
- * Count a failed code check. Returns false once the number has burned through
- * its attempts, so the server stops asking Twilio about a code that is being
- * guessed.
- */
-export function countCheckAttempt(destination, now = Date.now()) {
-  const res = takeSlot('otp-check', destination, { max: LIMITS.otpCheckAttempts, windowMs: 600_000 }, now);
-  return res.allowed;
-}
-
-/** Forget a number's failed-check history once it verifies successfully. */
-export function clearCheckAttempts(destination) {
-  buckets.delete(`otp-check:${keyFor(destination)}`);
 }
 
 /** Reset every counter. Tests only. */

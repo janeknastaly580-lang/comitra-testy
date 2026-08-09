@@ -10,11 +10,10 @@ import { twilioConfig } from '../config.js';
 
 const AC = `AC${'a'.repeat(32)}`;
 const SK = `SK${'b'.repeat(32)}`;
-const VA = `VA${'c'.repeat(32)}`;
 const MG = `MG${'d'.repeat(32)}`;
 
 export const TEST_AUTH_TOKEN = '0123456789abcdef0123456789abcdef';
-export const TEST_SIDS = { AC, SK, VA, MG };
+export const TEST_SIDS = { AC, SK, MG };
 
 /**
  * Put the process into "Twilio is configured" state for the duration of a test
@@ -28,7 +27,6 @@ export function useTestTwilioConfig(overrides = {}) {
     apiKeySid: SK,
     apiKeySecret: 'test-secret',
     authToken: TEST_AUTH_TOKEN,
-    verifyServiceSid: VA,
     messagingServiceSid: MG,
     statusCallbackUrl: null,
     ...overrides,
@@ -44,8 +42,7 @@ export function clearTestTwilioConfig() {
     accountSid: undefined,
     apiKeySid: undefined,
     apiKeySecret: undefined,
-    authToken: undefined,
-    verifyServiceSid: undefined,
+    authToken: null,
     messagingServiceSid: undefined,
     statusCallbackUrl: null,
   });
@@ -64,40 +61,13 @@ export class FakeRestException extends Error {
  * Build a fake client.
  *
  * @param {object} handlers
- * @param {(args: object) => object|Promise<object>} [handlers.onVerificationCreate]
- * @param {(args: object) => object|Promise<object>} [handlers.onCheckCreate]
  * @param {(args: object) => object|Promise<object>} [handlers.onMessageCreate]
  */
 export function createFakeTwilioClient(handlers = {}) {
-  const calls = { verifications: [], checks: [], messages: [], services: [] };
+  const calls = { messages: [] };
 
-  const client = {
+  return {
     calls,
-    verify: {
-      v2: {
-        services(sid) {
-          calls.services.push(sid);
-          return {
-            verifications: {
-              create: async (args) => {
-                calls.verifications.push(args);
-                return handlers.onVerificationCreate
-                  ? handlers.onVerificationCreate(args)
-                  : { sid: 'VE1', status: 'pending', to: args.to };
-              },
-            },
-            verificationChecks: {
-              create: async (args) => {
-                calls.checks.push(args);
-                return handlers.onCheckCreate
-                  ? handlers.onCheckCreate(args)
-                  : { sid: 'VE1', status: 'approved', to: args.to };
-              },
-            },
-          };
-        },
-      },
-    },
     messages: {
       create: async (args) => {
         calls.messages.push(args);
@@ -107,6 +77,4 @@ export function createFakeTwilioClient(handlers = {}) {
       },
     },
   };
-
-  return client;
 }

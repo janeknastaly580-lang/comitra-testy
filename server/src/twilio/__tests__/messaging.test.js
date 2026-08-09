@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { setTwilioClientForTests } from '../client.js';
 import { sendTemplatedSms } from '../messaging.js';
-import { renderTemplate } from '../templates.js';
+import { renderTemplate, TEMPLATE_IDS, verificationCodeMessage } from '../templates.js';
 import { resetThrottleForTests } from '../throttle.js';
 import {
   clearTestTwilioConfig,
@@ -179,5 +179,33 @@ describe('message templates', () => {
     const body = renderTemplate('goal_not_completed', {});
     expect(body).not.toContain('undefined');
     expect(body).not.toContain('NaN');
+  });
+
+  it('says who failed which numbered goal, whatever the tone', () => {
+    for (const tone of ['neutral', 'supportive', 'firm']) {
+      const body = renderTemplate('goal_not_completed', { ownerName: 'Ala', goalNumber: 4, tone });
+      expect(body).toContain('Ala failed their goal #4');
+    }
+  });
+
+  it('adds a sentence for the firm and supportive tones, and nothing for neutral', () => {
+    const of = (tone) => renderTemplate('goal_not_completed', { ownerName: 'Ala', goalNumber: 4, tone });
+    const neutral = of('neutral');
+    expect(of('supportive')).toContain('encouragement');
+    expect(of('firm')).toContain('commitment');
+    expect(of('supportive')).not.toBe(neutral);
+    expect(of('firm')).not.toBe(neutral);
+    // An unknown or missing tone is treated as neutral, never as an error.
+    expect(of('SHOUTY')).toBe(neutral);
+    expect(of(undefined)).toBe(neutral);
+  });
+
+  it('keeps the verification-code body out of the client-selectable templates', () => {
+    // Otherwise anyone could POST /api/sms/send and text a fake "your code is…"
+    // message from Comitra's own sender.
+    expect(TEMPLATE_IDS).not.toContain('verification_code');
+    expect(renderTemplate('verification_code', { code: '123456' })).toBeNull();
+    // It exists, it is just not reachable by naming a template.
+    expect(verificationCodeMessage('123456')).toContain('123456');
   });
 });

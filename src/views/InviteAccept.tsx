@@ -6,6 +6,7 @@ import { SyncError } from '../lib/supabase';
 import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import BrandMark from '../components/BrandMark';
 import PhoneField from '../components/PhoneField';
+import PhoneVerify from '../components/PhoneVerify';
 import { Badge, Button, Card, Input, Label } from '../components/ui';
 import { Check } from 'lucide-react';
 
@@ -29,9 +30,6 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Seconds to block a re-send after a code is texted (matches Supabase's SMS throttle). */
-const RESEND_COOLDOWN = 60;
-
 export default function InviteAccept() {
   const { token = '' } = useParams();
   const [state, setState] = useState<
@@ -54,10 +52,8 @@ export default function InviteAccept() {
   // probed yet; the answer only changes the button label, never blocks the form.
   const [smsRequired, setSmsRequired] = useState<boolean | null>(null);
 
-  // SMS verification step state.
-  const [otp, setOtp] = useState('');
+  // SMS verification step state (the code itself lives inside <PhoneVerify/>).
   const [otpError, setOtpError] = useState('');
-  const [resendIn, setResendIn] = useState(0);
   const [phoneVerified, setPhoneVerified] = useState(false);
 
   const fullNumber = fullPhone(phoneIso, phone);
@@ -86,20 +82,6 @@ export default function InviteAccept() {
       }
     })();
   }, [token]);
-
-  // Count the re-send cooldown down to zero.
-  //
-  // The dependency is the boolean, not `resendIn` itself: depending on the
-  // number would tear down and recreate the interval on every tick, so the
-  // remaining second would restart each time and the countdown would crawl.
-  // Extracting it to a variable is also what lets the exhaustive-deps rule
-  // check this statically — an expression in the array cannot be verified.
-  const cooldownRunning = resendIn > 0;
-  useEffect(() => {
-    if (!cooldownRunning) return;
-    const id = setInterval(() => setResendIn((s) => Math.max(0, s - 1)), 1000);
-    return () => clearInterval(id);
-  }, [cooldownRunning]);
 
   if (state === 'loading') return <Shell><p className="text-sm text-muted">Loading…</p></Shell>;
 
@@ -211,9 +193,7 @@ export default function InviteAccept() {
       setSmsRequired(needsSms);
       if (needsSms) {
         await api.startPhoneVerification(fullNumber);
-        setOtp('');
         setOtpError('');
-        setResendIn(RESEND_COOLDOWN);
         setState('verify');
       } else {
         await finishRegistration(false);
@@ -225,27 +205,27 @@ export default function InviteAccept() {
     }
   }
 
-  async function onResend() {
-    if (resendIn > 0) return;
+  async function onResend(): Promise<boolean> {
     setOtpError('');
     setBusy(true);
     try {
       await api.startPhoneVerification(fullNumber);
-      setResendIn(RESEND_COOLDOWN);
+      return true;
     } catch (err) {
       showError(err, setOtpError);
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
   // On the verify step: check the SMS code, then finish registration.
-  async function onVerify() {
+  async function onVerify(code: string) {
     setOtpError('');
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyPhoneCode(fullNumber, otp);
+      await api.verifyPhoneCode(fullNumber, code);
       await finishRegistration(true);
     } catch (err) {
       showError(err, setOtpError);
@@ -255,62 +235,27 @@ export default function InviteAccept() {
   }
 
   if (state === 'verify') {
-    const otpReady = otp.replace(/\D/g, '').length >= 6;
     return (
       <Shell>
         <h1 className="mb-1 text-xl font-bold text-ink">Confirm your phone</h1>
         <p className="mb-4 text-sm text-muted">
-          We texted a 6-digit code to <span className="font-semibold text-ink">{fullNumber}</span>. Enter it
-          below to prove this number is yours.
+          Enter the code below to prove this number is yours.
         </p>
 
         <Card className="p-4">
-          <Label>Verification code</Label>
-          <Input
-            value={otp}
-            onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-            placeholder="123456"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            className="text-center text-lg tracking-[0.4em]"
+          <PhoneVerify
+            phone={fullNumber}
+            busy={busy}
+            error={otpError}
+            errorIsSetup={errorIsSetup}
+            submitLabel="Verify & become a judge"
+            onVerify={onVerify}
+            onResend={onResend}
+            onBack={() => {
+              setState('ready');
+              setOtpError('');
+            }}
           />
-
-          {otpError && (
-            <div className="mt-3 rounded-xl border border-danger/40 bg-danger/5 p-3">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-danger">
-                {errorIsSetup ? "Server isn't ready" : "Couldn't verify"}
-              </p>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{otpError}</p>
-            </div>
-          )}
-
-          <Button className="mt-3 w-full" disabled={busy || !otpReady} onClick={onVerify}>
-            {busy ? 'Checking…' : 'Verify & become a judge'}
-          </Button>
-
-          <div className="mt-3 flex items-center justify-between text-[12px]">
-            <button
-              type="button"
-              className="text-accent hover:underline disabled:text-muted disabled:no-underline"
-              disabled={busy || resendIn > 0}
-              onClick={onResend}
-            >
-              {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
-            </button>
-            <button
-              type="button"
-              className="text-muted hover:text-ink hover:underline"
-              disabled={busy}
-              onClick={() => {
-                setState('ready');
-                setOtp('');
-                setOtpError('');
-              }}
-            >
-              Change number
-            </button>
-          </div>
         </Card>
       </Shell>
     );

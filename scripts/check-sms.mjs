@@ -5,7 +5,7 @@
  *   npm run sms:status
  *
  * Two checks, in order:
- *   1. the local `.env` — are all the TWILIO_* values filled in?
+ *   1. the local `.env` — are the required TWILIO_* values filled in?
  *   2. the running backend (`VITE_API_BASE` + /api/sms/status) — does the
  *      deployed server agree?
  *
@@ -18,8 +18,6 @@ const REQUIRED = [
   'TWILIO_ACCOUNT_SID',
   'TWILIO_API_KEY_SID',
   'TWILIO_API_KEY_SECRET',
-  'TWILIO_AUTH_TOKEN',
-  'TWILIO_VERIFY_SERVICE_SID',
   'TWILIO_MESSAGING_SERVICE_SID',
 ];
 
@@ -27,7 +25,6 @@ const REQUIRED = [
 const SHAPES = {
   TWILIO_ACCOUNT_SID: [/^AC[0-9a-fA-F]{32}$/, 'Account SID (AC…)'],
   TWILIO_API_KEY_SID: [/^SK[0-9a-fA-F]{32}$/, 'API Key SID (SK…)'],
-  TWILIO_VERIFY_SERVICE_SID: [/^VA[0-9a-fA-F]{32}$/, 'Verify Service SID (VA…)'],
   TWILIO_MESSAGING_SERVICE_SID: [/^MG[0-9a-fA-F]{32}$/, 'Messaging Service SID (MG…)'],
 };
 
@@ -71,19 +68,33 @@ for (const name of REQUIRED) {
     console.log(`  ✔ ${name} — set`);
   }
 }
+// Both optional, and only meaningful together: delivery receipts arrive on a
+// public endpoint that can only be trusted by checking Twilio's signature, and
+// that needs the Auth Token.
 const callback = value('TWILIO_STATUS_CALLBACK_URL').trim();
+const authToken = value('TWILIO_AUTH_TOKEN').trim();
 console.log(
   callback
     ? `  ✔ TWILIO_STATUS_CALLBACK_URL — set`
     : `  · TWILIO_STATUS_CALLBACK_URL — empty (optional: no delivery receipts)`,
 );
+if (callback && !authToken) {
+  console.log('  ✖ TWILIO_AUTH_TOKEN — empty, but required to verify the callback signature');
+  localOk = false;
+} else {
+  console.log(
+    authToken
+      ? '  ✔ TWILIO_AUTH_TOKEN — set'
+      : '  · TWILIO_AUTH_TOKEN — empty (optional: only used for delivery receipts)',
+  );
+}
 
 console.log('');
 if (localOk) {
-  console.log('✔ All Twilio values are present locally.');
+  console.log('✔ All required Twilio values are present locally.');
 } else {
   console.log('✖ Twilio is not fully configured locally — see TWILIO_SETUP.md.');
-  console.log('  Until every value above is set, the app registers judges WITHOUT the code step.');
+  console.log('  Until every value above is set, sign-up and judge registration skip the code step.');
 }
 
 /* ------------------------------------------------- the deployed backend --- */

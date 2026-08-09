@@ -15,12 +15,12 @@ interface ImportMetaEnv {
   /** Supabase public anon key (safe to ship in the client bundle). */
   readonly VITE_SUPABASE_ANON_KEY?: string;
   /**
-   * Whether to require an SMS code when someone accepts a judge invite.
-   * `auto` (default) turns it on only when the backend reports working Twilio
-   * credentials; `off` disables the step. `on` cannot conjure a texting
-   * backend, so it still defers to that check.
+   * Whether to require an SMS code at sign-up and when someone accepts a judge
+   * invite. `auto` (default) turns it on only when the backend reports working
+   * Twilio credentials; `off` disables the step. There is no value that forces
+   * it on — that could only strand people at a code no backend can send.
    */
-  readonly VITE_SMS_VERIFY?: 'auto' | 'on' | 'off';
+  readonly VITE_SMS_VERIFY?: 'auto' | 'off';
 }
 
 interface ImportMeta {

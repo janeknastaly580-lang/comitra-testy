@@ -8,11 +8,15 @@ import '../env.js';
  *   • API Key SID + API Key Secret authenticate every REST call. They can be
  *     revoked on their own, so the Account's master credentials are not spread
  *     across servers. The Account SID identifies which account the key acts on.
- *   • The Auth Token is used for ONE thing only: recomputing the
+ *   • A Messaging Service is the sender for everything this app texts —
+ *     verification codes and transactional notices alike. No Verify Service is
+ *     involved: the one-time codes are issued and checked by `verify.js`.
+ *   • The Auth Token is OPTIONAL and used for one thing only: recomputing the
  *     `X-Twilio-Signature` HMAC on incoming webhooks. It never authenticates an
- *     outgoing request here.
+ *     outgoing request, so an account that does not use delivery receipts does
+ *     not need it at all.
  *
- * All-or-nothing on purpose:
+ * All-or-nothing on the four required names:
  *   • nothing set  → SMS is switched OFF. The API answers 503 on the SMS routes
  *     and the app falls back to its no-SMS behaviour. The server still boots.
  *   • partially set → the process refuses to boot, naming exactly what is
@@ -24,7 +28,6 @@ import '../env.js';
 const SID_PATTERNS = {
   TWILIO_ACCOUNT_SID: /^AC[0-9a-fA-F]{32}$/,
   TWILIO_API_KEY_SID: /^SK[0-9a-fA-F]{32}$/,
-  TWILIO_VERIFY_SERVICE_SID: /^VA[0-9a-fA-F]{32}$/,
   TWILIO_MESSAGING_SERVICE_SID: /^MG[0-9a-fA-F]{32}$/,
 };
 
@@ -33,8 +36,6 @@ export const TWILIO_ENV_KEYS = [
   'TWILIO_ACCOUNT_SID',
   'TWILIO_API_KEY_SID',
   'TWILIO_API_KEY_SECRET',
-  'TWILIO_AUTH_TOKEN',
-  'TWILIO_VERIFY_SERVICE_SID',
   'TWILIO_MESSAGING_SERVICE_SID',
 ];
 
@@ -75,16 +76,15 @@ function validateCallbackUrl(raw) {
  * touching `process.env`.
  *
  * @returns {{configured: boolean, problems: string[], accountSid?: string,
- *   apiKeySid?: string, apiKeySecret?: string, authToken?: string,
- *   verifyServiceSid?: string, messagingServiceSid?: string,
- *   statusCallbackUrl: string|null}}
+ *   apiKeySid?: string, apiKeySecret?: string, authToken: string|null,
+ *   messagingServiceSid?: string, statusCallbackUrl: string|null}}
  */
 export function parseTwilioEnv(env = {}) {
   const present = TWILIO_ENV_KEYS.filter((key) => !isBlank(env[key]));
 
   // Nothing filled in: SMS is simply off. Not an error.
   if (present.length === 0) {
-    return { configured: false, problems: [], statusCallbackUrl: null };
+    return { configured: false, problems: [], authToken: null, statusCallbackUrl: null };
   }
 
   const problems = [];
@@ -99,7 +99,6 @@ export function parseTwilioEnv(env = {}) {
       problems.push(
         `${key} does not look like a Twilio ${key.includes('ACCOUNT') ? 'Account SID (AC…)' : ''}` +
           `${key.includes('API_KEY') ? 'API Key SID (SK…)' : ''}` +
-          `${key.includes('VERIFY') ? 'Verify Service SID (VA…)' : ''}` +
           `${key.includes('MESSAGING') ? 'Messaging Service SID (MG…)' : ''}` +
           ' — check you copied the right value.',
       );
@@ -113,15 +112,28 @@ export function parseTwilioEnv(env = {}) {
     problems.push('TWILIO_API_KEY_SECRET looks like a SID, not the API Key Secret.');
   }
 
+  const rawToken = (env.TWILIO_AUTH_TOKEN ?? '').trim();
+  const authToken = isBlank(rawToken) ? null : rawToken;
+
   const rawCallback = (env.TWILIO_STATUS_CALLBACK_URL ?? '').trim();
   const statusCallbackUrl = isBlank(rawCallback) ? null : rawCallback;
   if (statusCallbackUrl) {
     const err = validateCallbackUrl(statusCallbackUrl);
     if (err) problems.push(err);
+    // Delivery receipts arrive on a public endpoint that can only be trusted by
+    // recomputing Twilio's signature, and that needs the Auth Token. Asking for
+    // receipts without it would mean answering 403 to every one of them.
+    if (!authToken) {
+      problems.push(
+        'TWILIO_STATUS_CALLBACK_URL is set but TWILIO_AUTH_TOKEN is empty — the ' +
+          'delivery-status webhook cannot verify Twilio\'s signature without it. ' +
+          'Add the Auth Token, or clear the callback URL to skip delivery receipts.',
+      );
+    }
   }
 
   if (problems.length > 0) {
-    return { configured: false, problems, statusCallbackUrl };
+    return { configured: false, problems, authToken, statusCallbackUrl };
   }
 
   return {
@@ -130,8 +142,7 @@ export function parseTwilioEnv(env = {}) {
     accountSid: env.TWILIO_ACCOUNT_SID.trim(),
     apiKeySid: env.TWILIO_API_KEY_SID.trim(),
     apiKeySecret: secret,
-    authToken: env.TWILIO_AUTH_TOKEN.trim(),
-    verifyServiceSid: env.TWILIO_VERIFY_SERVICE_SID.trim(),
+    authToken,
     messagingServiceSid: env.TWILIO_MESSAGING_SERVICE_SID.trim(),
     statusCallbackUrl,
   };
@@ -147,9 +158,6 @@ if (parsed.problems.length > 0) {
   );
 }
 
+/** Whether real texts can be sent at all is `twilioConfig.configured`; the rest
+ * of the server asks `client.js#isConfigured()` rather than reading it directly. */
 export const twilioConfig = parsed;
-
-/** Whether real texts can be sent at all. Safe to expose to the client. */
-export function smsEnabled() {
-  return twilioConfig.configured === true;
-}

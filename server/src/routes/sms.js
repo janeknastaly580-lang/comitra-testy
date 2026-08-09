@@ -13,8 +13,9 @@ import { checkVerification, startVerification } from '../twilio/verify.js';
  * or template ever reaches the browser or the Android bundle.
  *
  * These endpoints are deliberately cookie-less and unauthenticated — the person
- * confirming a phone number while accepting a judge invite has no account yet,
- * so there is no session to require. What protects them instead:
+ * confirming a phone number while signing up, or while accepting a judge
+ * invite, has no account yet, so there is no session to require. What protects
+ * them instead:
  *   • CORS, so only the app's own origin may call them from a browser;
  *   • a tight per-IP rate limit on each route (below);
  *   • a per-NUMBER cooldown and quota in twilio/throttle.js, which is what
@@ -92,12 +93,12 @@ export function createSmsRouter() {
   router.use(express.json({ limit: '8kb' }));
 
   /**
-   * Is SMS live on this deployment? Public, and free of anything sensitive:
-   * booleans only, no SIDs. The app uses it to decide whether to show the
+   * Is SMS live on this deployment? Public, and free of anything sensitive: one
+   * boolean, no SIDs. The app uses it to decide whether to show the
    * phone-verification step at all.
    */
   router.get('/status', (_req, res) => {
-    res.json({ configured: isConfigured(), verify: isConfigured(), messaging: isConfigured() });
+    res.json({ configured: isConfigured() });
   });
 
   /** Text a one-time code to a phone number. */
@@ -111,7 +112,7 @@ export function createSmsRouter() {
       try {
         const { masked } = await startVerification({ phone: req.body.phone });
         console.info('[sms:verify-start] code requested for', masked);
-        // The code is not in this response — it only exists inside Twilio.
+        // The code is not in this response, and never leaves the text message.
         return res.json({ status: 'pending', to: masked });
       } catch (err) {
         return fail(res, err, 'verify-start');

@@ -100,7 +100,8 @@ app.post('/callback', (req, res, next) => {
 });
 
 /* -------------------------------------------------------------- SMS API --
- * Twilio Verify (one-time codes) + Programmable Messaging. Mounted before the
+ * One-time codes + transactional texts, both via Programmable Messaging.
+ * Mounted before the
  * CSRF layer on purpose: these routes read no cookie, so there is no session
  * for a cross-site request to ride on. See routes/sms.js for what guards them.
  */
@@ -254,7 +255,7 @@ app.listen(config.port, () => {
   console.log(`FineLine payments API on http://localhost:${config.port} [${config.paypal.env}]`);
   console.log(
     smsConfigured()
-      ? 'SMS: Twilio configured (Verify + Messaging Service).'
+      ? 'SMS: Twilio configured (Messaging Service — codes and notifications).'
       : 'SMS: OFF — no TWILIO_* values in .env, so /api/sms/* answers 503. See TWILIO_SETUP.md.',
   );
 });

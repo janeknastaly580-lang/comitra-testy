@@ -255,10 +255,10 @@ export async function remoteListInvitedJudges(ownerUserId: string): Promise<Remo
  *
  * Phone verification used to ride on Supabase's built-in phone auth, which
  * meant the browser called GoTrue's `/otp` and `/verify` directly. It now goes
- * through this app's own backend and Twilio Verify (`server/src/twilio/`), so
- * there is exactly one SMS path, no Twilio credential in the client bundle, and
- * the per-number rate limits live somewhere a phone cannot bypass.
+ * through this app's own backend and Twilio (`server/src/twilio/`), so there is
+ * exactly one SMS path, no Twilio credential in the client bundle, and the
+ * per-number rate limits live somewhere a phone cannot bypass.
  *
  * `SyncError` and its kinds stay here because both paths report failures in the
- * same vocabulary, which is what the invite page reads.
+ * same vocabulary, which is what the sign-up and invite pages read.
  */

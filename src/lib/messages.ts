@@ -22,31 +22,24 @@ export interface FailureMessageInput {
 }
 
 /**
- * Compose the failure-notification message. Tone changes only the framing,
- * never the safety: no insults, no moral judgement, no "lazy / failed / shame",
- * and never any goal content.
+ * The one sentence the chosen tone adds after the plain statement of fact. Tone
+ * changes only the framing, never the safety: no insults, no moral judgement,
+ * no "lazy / shame", and never any goal content.
+ *
+ * Kept identical to `TONE_SUFFIX` in server/src/twilio/templates.js, so the text
+ * a recipient is sent matches the preview the owner approved.
  */
+const TONE_SUFFIX: Record<MessageTone, string> = {
+  neutral: '',
+  supportive: ' You can send them a few words of encouragement to help them get back on track.',
+  firm: ' They asked to have you told if they did not keep their commitment.',
+};
+
+/** Compose the failure-notification message: who, which numbered goal, tone. */
 export function buildFailureMessage(input: FailureMessageInput): string {
   const name = input.ownerName.trim() || 'Someone';
   const ref = goalRef({ goalNumber: input.goalNumber });
-  const commitmentWord = 'commitment';
-  const backOnTrack = 'get back on track';
-
-  switch (input.tone) {
-    case 'supportive':
-      return (
-        `${name} did not complete their ${ref} by the deadline. ` +
-        `You can send them a few words of encouragement to help them ${backOnTrack}.`
-      );
-    case 'firm':
-      return (
-        `${name} asked to have you told if they did not keep their ${commitmentWord}. ` +
-        `Their ${ref} was not completed by the deadline.`
-      );
-    case 'neutral':
-    default:
-      return `${name} did not complete their ${ref} by the deadline.`;
-  }
+  return `${name} failed their ${ref}.${TONE_SUFFIX[input.tone] ?? TONE_SUFFIX.neutral}`;
 }
 
 /** Build the failure message straight from a stored goal. */

@@ -5,13 +5,16 @@ browser calling Supabase's `/auth/v1/otp` directly and Supabase holding the
 Twilio credentials.
 
 That is no longer how it works. SMS now runs through the app's own backend
-(`server/`) and the official Twilio SDK:
+(`server/`) and the official Twilio SDK, with a single **Messaging Service** as
+the sender for everything:
 
-- **Twilio Verify** issues and checks the 6-digit codes,
-- **Twilio Programmable Messaging** (via a **Messaging Service**) sends the
-  ordinary texts — judge review requests, "X did not complete their goal",
+- **verification codes** — issued, hashed and checked by
+  `server/src/twilio/verify.js` (5 minutes, 5 attempts); no Twilio Verify
+  Service is involved, so `.env` needs no `VA…` SID,
+- **the ordinary texts** — judge review requests, "X failed their goal #N",
   invite links,
-- the delivery-status webhook verifies `X-Twilio-Signature` on every request.
+- the delivery-status webhook verifies `X-Twilio-Signature` on every request
+  (optional; needs `TWILIO_AUTH_TOKEN`).
 
 Nothing to configure in Supabase for this any more; leave Phone auth off. The
 Supabase project is still used for the shared judge store

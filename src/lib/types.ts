@@ -413,6 +413,19 @@ export interface User {
   email: string;
   password: string; // plain text. MVP / mock only
 
+  /**
+   * Normalized phone (with country code), collected at sign-up. Absent on guest
+   * accounts, on accounts created through a social provider, and on accounts
+   * that pre-date phone sign-up.
+   */
+  phone?: string;
+  /**
+   * When they proved they own `phone` with an SMS code. Absent means the number
+   * was recorded but not verified — which is what happens on a deployment with
+   * no Twilio credentials, where the code step is skipped entirely.
+   */
+  phoneVerifiedAt?: string;
+
   /** Account type: standard user or personal trainer. */
   accountType: AccountType;
 

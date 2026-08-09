@@ -370,11 +370,21 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
   };
 }
 
+/**
+ * Create an account.
+ *
+ * `phone` is the number the sign-up form collected; `phoneVerified` records that
+ * the SMS code was accepted first (the UI only passes true after
+ * `verifyPhoneCode` resolves). Both are optional so the social sign-in path and
+ * a deployment without Twilio still work.
+ */
 export async function register(
   name: string,
   email: string,
   password: string,
   accountType: 'standard' | 'trainer' = 'standard',
+  phone?: string,
+  phoneVerified = false,
 ): Promise<User> {
   await delay();
   const users = getUsers();
@@ -382,7 +392,17 @@ export async function register(
   if (users.some((u) => u.email === normalized && !u.deleted)) {
     throw new Error('An account with this email already exists.');
   }
-  const user = blankUser({ id: uid('user'), name: name.trim() || 'Friend', email: normalized, password, accountType });
+  const normalizedPhone = phone ? normalizePhone(phone) : '';
+  const now = new Date().toISOString();
+  const user = blankUser({
+    id: uid('user'),
+    name: name.trim() || 'Friend',
+    email: normalized,
+    password,
+    accountType,
+    ...(normalizedPhone ? { phone: normalizedPhone } : {}),
+    ...(normalizedPhone && phoneVerified ? { phoneVerifiedAt: now } : {}),
+  });
   users.push(user);
   saveUsers(users);
   write(KEYS.session, user.id);
@@ -1340,15 +1360,15 @@ function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: 
 /* ─────────────────────────────── Phone (SMS) verification ── */
 
 /**
- * Whether the judge-invite flow should require an SMS code before someone can
- * become a judge. True only when the backend actually holds Twilio credentials,
- * so:
+ * Whether a phone number can be confirmed with an SMS code — used by both the
+ * sign-up form and the judge-invite page. True only when the backend actually
+ * holds Twilio credentials, so:
  *  • the app keeps working before Twilio is set up (falls back to no SMS step),
  *  • tests stay hermetic (`smsVerificationAvailable()` is false under MODE==='test').
  *
  * `VITE_SMS_VERIFY=off` switches the step off. There is deliberately no way to
  * force it *on*: showing a "we texted you a code" screen that no backend can
- * follow through on would strand every judge at a code that never arrives.
+ * follow through on would strand everyone at a code that never arrives.
  */
 export async function phoneVerificationAvailable(): Promise<boolean> {
   if (import.meta.env.VITE_SMS_VERIFY?.trim().toLowerCase() === 'off') return false;
@@ -1356,9 +1376,10 @@ export async function phoneVerificationAvailable(): Promise<boolean> {
 }
 
 /**
- * Text a 6-digit verification code to a judge's phone (E.164). Used by the
- * invite page to prove the number really belongs to the person accepting.
- * The code is generated and checked by Twilio Verify, behind our own backend.
+ * Text a 6-digit verification code to a phone (E.164), to prove the number
+ * belongs to the person entering it. The code is generated, hashed and checked
+ * by our own backend (server/src/twilio/verify.js); it is valid for 5 minutes
+ * and allows 5 attempts.
  */
 export async function startPhoneVerification(phone: string): Promise<void> {
   const normalized = normalizePhone(phone);
@@ -1366,7 +1387,7 @@ export async function startPhoneVerification(phone: string): Promise<void> {
   await sendPhoneOtp(normalized);
 }
 
-/** Check the 6-digit code the judge received by SMS. Throws if it's wrong/expired. */
+/** Check the 6-digit code that was texted. Throws if it's wrong or expired. */
 export async function verifyPhoneCode(phone: string, code: string): Promise<void> {
   const normalized = normalizePhone(phone);
   const digits = (code ?? '').replace(/\D/g, '');
@@ -2099,7 +2120,8 @@ export function dispatchFailureNotifications(goalId: string): void {
         void sendTransactionalSms({
           to: consent.recipientContact,
           template: 'goal_not_completed',
-          params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber },
+          // Who + which numbered goal + the owner's chosen tone. Never the title.
+          params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, tone: goal.messageTone },
           idempotencyKey: logId,
         });
       }

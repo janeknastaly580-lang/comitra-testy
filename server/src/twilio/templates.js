@@ -38,6 +38,34 @@ function cleanLink(raw) {
   }
 }
 
+/**
+ * The tone the goal's owner chose when they created it. It changes the framing
+ * of the failure notice and nothing else: no insults, no moral judgement, and
+ * never any goal content. Mirrors `src/lib/messages.ts` so the text a recipient
+ * receives matches the preview the owner was shown.
+ */
+const TONE_SUFFIX = {
+  neutral: '',
+  supportive: ' You can send them a few words of encouragement to help them get back on track.',
+  firm: ' They asked to have you told if they did not keep their commitment.',
+};
+
+function toneSuffix(raw) {
+  return TONE_SUFFIX[String(raw ?? '').trim()] ?? TONE_SUFFIX.neutral;
+}
+
+/**
+ * The body of a verification-code text.
+ *
+ * Deliberately NOT one of the `TEMPLATES` below: those can be named by any
+ * caller of `POST /api/sms/send`, and a client-selectable code template would
+ * let anyone text "Comitra: your code is 123456" to any number. Only
+ * `verify.js`, which generated the code, can reach this.
+ */
+export function verificationCodeMessage(code) {
+  return `Comitra: ${code} is your verification code. It expires in 5 minutes. Never share it with anyone.`;
+}
+
 export const TEMPLATES = {
   /**
    * The judge is asked to decide a goal. Says who and which numbered goal,
@@ -52,9 +80,13 @@ export const TEMPLATES = {
     );
   },
 
-  /** Someone did not complete a goal, sent to a recipient who has consented. */
-  goal_not_completed: ({ ownerName, goalNumber }) =>
-    `Comitra: ${cleanName(ownerName)} did not complete their ${goalRef(goalNumber)} by the deadline.`,
+  /**
+   * Someone did not complete a goal, sent to a recipient who has consented.
+   * Names the person and the goal NUMBER, then one sentence set by the owner's
+   * chosen tone. An unknown or missing tone falls back to neutral.
+   */
+  goal_not_completed: ({ ownerName, goalNumber, tone }) =>
+    `Comitra: ${cleanName(ownerName)} failed their ${goalRef(goalNumber)}.${toneSuffix(tone)}`,
 
   /** Invite to become a judge. */
   judge_invite: ({ ownerName, link }) => {

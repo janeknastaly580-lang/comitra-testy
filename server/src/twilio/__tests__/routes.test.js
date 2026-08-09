@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createSmsRouter } from '../../routes/sms.js';
 import { setTwilioClientForTests } from '../client.js';
 import { resetThrottleForTests } from '../throttle.js';
+import { resetVerificationsForTests } from '../verify.js';
 import { clearTestTwilioConfig, createFakeTwilioClient, useTestTwilioConfig } from './fakeTwilio.js';
 
 let server;
@@ -23,7 +24,10 @@ afterAll(async () => {
   await new Promise((resolve) => server.close(resolve));
 });
 
-beforeEach(() => resetThrottleForTests());
+beforeEach(() => {
+  resetThrottleForTests();
+  resetVerificationsForTests();
+});
 
 afterEach(() => {
   setTwilioClientForTests(null);
@@ -51,7 +55,7 @@ describe('GET /api/sms/status', () => {
   it('reports on once credentials are present', async () => {
     useTestTwilioConfig();
     const body = await (await fetch(`${baseUrl}/api/sms/status`)).json();
-    expect(body).toEqual({ configured: true, verify: true, messaging: true });
+    expect(body).toEqual({ configured: true });
   });
 });
 
@@ -97,20 +101,31 @@ describe('POST /api/sms/verify/start', () => {
 describe('POST /api/sms/verify/check', () => {
   beforeEach(() => useTestTwilioConfig());
 
-  it('approves a good code', async () => {
-    setTwilioClientForTests(createFakeTwilioClient());
-    const res = await post('/api/sms/verify/check', { phone: '+48500100200', code: '123456' });
+  it('approves the code that was texted', async () => {
+    const fake = createFakeTwilioClient();
+    setTwilioClientForTests(fake);
+    await post('/api/sms/verify/start', { phone: '+48500100200' });
+    const code = /\b(\d{6})\b/.exec(fake.calls.messages[0].body)[1];
+
+    const res = await post('/api/sms/verify/check', { phone: '+48500100200', code });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ approved: true });
   });
 
   it('rejects a wrong code with a message that does not echo it', async () => {
-    setTwilioClientForTests(createFakeTwilioClient({ onCheckCreate: () => ({ status: 'pending' }) }));
-    const res = await post('/api/sms/verify/check', { phone: '+48500100200', code: '999999' });
+    const fake = createFakeTwilioClient();
+    setTwilioClientForTests(fake);
+    await post('/api/sms/verify/start', { phone: '+48500100200' });
+    // Derived from the real one so this can never accidentally be right.
+    const issued = /\b(\d{6})\b/.exec(fake.calls.messages[0].body)[1];
+    const wrong = String((Number(issued) + 1) % 1_000_000).padStart(6, '0');
+
+    const res = await post('/api/sms/verify/check', { phone: '+48500100200', code: wrong });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe('invalid-code');
-    expect(JSON.stringify(body)).not.toContain('999999');
+    expect(JSON.stringify(body)).not.toContain(wrong);
+    expect(JSON.stringify(body)).not.toContain(issued);
   });
 });
 

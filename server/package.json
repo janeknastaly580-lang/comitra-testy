@@ -1,7 +1,7 @@
 {
   "name": "fineline-payments-server",
   "version": "1.0.0",
-  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Twilio SMS (Verify OTP + Messaging Service).",
+  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Twilio SMS (OTP + notifications via a Messaging Service).",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
