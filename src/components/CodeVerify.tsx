@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Button, Input, Label } from './ui';
 
 /**
- * The "enter the code we texted you" step, shared by every place that confirms
- * a phone number: sign-up (Register, AuthModal) and the judge invite.
+ * The "enter the code we sent you" step, shared by every place that confirms a
+ * contact: sign-up (Register, AuthModal), which sends the code by EMAIL, and
+ * the judge invite, which still sends it by TEXT.
  *
  * It owns the two things that are identical everywhere — the six-digit input and
  * the resend cooldown — so those are not re-implemented per screen. Everything
@@ -18,8 +19,14 @@ import { Button, Input, Label } from './ui';
 /** Seconds before another code may be requested. Matches the server's cooldown. */
 const RESEND_COOLDOWN = 60;
 
-export default function PhoneVerify({
-  phone,
+const CHANNEL = {
+  email: { sent: 'We emailed a 6-digit code to', back: 'Change email' },
+  sms: { sent: 'We texted a 6-digit code to', back: 'Change number' },
+} as const;
+
+export default function CodeVerify({
+  destination,
+  channel = 'email',
   busy,
   error,
   errorIsSetup = false,
@@ -27,10 +34,12 @@ export default function PhoneVerify({
   onVerify,
   onResend,
   onBack,
-  backLabel = 'Change number',
+  backLabel,
 }: {
-  /** The number a code was just texted to, shown so a typo is obvious. */
-  phone: string;
+  /** Where the code was just sent, shown so a typo is obvious. */
+  destination: string;
+  /** How it was sent — only changes the wording. */
+  channel?: keyof typeof CHANNEL;
   busy: boolean;
   /** Message to show under the input; the caller owns the wording. */
   error: string;
@@ -62,6 +71,7 @@ export default function PhoneVerify({
     if (await onResend()) setResendIn(RESEND_COOLDOWN);
   }
 
+  const copy = CHANNEL[channel];
   const ready = otp.length === 6;
 
   return (
@@ -77,9 +87,11 @@ export default function PhoneVerify({
         className="text-center text-lg tracking-[0.4em]"
       />
       <p className="mt-1.5 text-[11px] text-muted">
-        We texted a 6-digit code to <span className="font-semibold text-ink">{phone}</span>. It expires in 5
-        minutes.
+        {copy.sent} <span className="font-semibold text-ink">{destination}</span>. It expires in 5 minutes.
       </p>
+      {channel === 'email' && (
+        <p className="mt-1 text-[11px] text-muted">Not there? Check your spam folder.</p>
+      )}
 
       {error && (
         <div className="mt-3 rounded-xl border border-danger/40 bg-danger/5 p-3">
@@ -104,7 +116,7 @@ export default function PhoneVerify({
           {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
         </button>
         <button type="button" className="text-muted hover:text-ink hover:underline" disabled={busy} onClick={onBack}>
-          {backLabel}
+          {backLabel ?? copy.back}
         </button>
       </div>
     </div>

@@ -2,10 +2,8 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import { SyncError } from '../lib/supabase';
-import PhoneField from '../components/PhoneField';
-import PhoneVerify from '../components/PhoneVerify';
+import CodeVerify from '../components/CodeVerify';
 import { Button, Input, Label, PasswordInput } from '../components/ui';
 
 export default function Register() {
@@ -15,8 +13,6 @@ export default function Register() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phoneIso, setPhoneIso] = useState(DEFAULT_COUNTRY_ISO);
-  const [phone, setPhone] = useState('');
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState('');
@@ -25,18 +21,17 @@ export default function Register() {
   const [errorIsSetup, setErrorIsSetup] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const fullNumber = fullPhone(phoneIso, phone);
-  const phoneValid = phone.replace(/\D/g, '').length >= 7;
-  const canSubmit = acceptPrivacy && acceptTerms && phoneValid;
+  const emailValid = api.emailLooksValid(email);
+  const canSubmit = acceptPrivacy && acceptTerms && emailValid;
 
   function showError(err: unknown) {
     setError((err as Error).message);
     setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
   }
 
-  /** Create the account, recording whether the number was proved by SMS. */
-  async function createAccount(phoneVerified: boolean) {
-    await register(name, email, password, 'standard', fullNumber, phoneVerified);
+  /** Create the account, recording whether the address was proved by a code. */
+  async function createAccount(emailVerified: boolean) {
+    await register(name, email, password, 'standard', emailVerified);
   }
 
   async function onSubmit(e: FormEvent) {
@@ -47,8 +42,8 @@ export default function Register() {
       setError('Password must be at least 4 characters.');
       return;
     }
-    if (!phoneValid) {
-      setError('Enter your phone number, including the country code.');
+    if (!emailValid) {
+      setError('Enter a valid email address.');
       return;
     }
     if (!acceptPrivacy || !acceptTerms) {
@@ -57,11 +52,11 @@ export default function Register() {
     }
     setBusy(true);
     try {
-      // On a deployment with no Twilio credentials there is no code to send, so
-      // the number is recorded unverified rather than blocking sign-up on a text
-      // that can never arrive.
-      if (await api.phoneVerificationAvailable()) {
-        await api.startPhoneVerification(fullNumber);
+      // On a deployment with no Amazon SES settings there is no code to send, so
+      // the address is recorded unverified rather than blocking sign-up on an
+      // email that can never arrive.
+      if (await api.emailVerificationAvailable()) {
+        await api.startEmailVerification(email);
         setStep('verify');
       } else {
         await createAccount(false);
@@ -78,7 +73,7 @@ export default function Register() {
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyPhoneCode(fullNumber, code);
+      await api.verifyEmailCode(email, code);
       await createAccount(true);
     } catch (err) {
       showError(err);
@@ -92,7 +87,7 @@ export default function Register() {
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.startPhoneVerification(fullNumber);
+      await api.startEmailVerification(email);
       return true;
     } catch (err) {
       showError(err);
@@ -121,11 +116,12 @@ export default function Register() {
       {step === 'verify' ? (
         <>
           <div className="mb-8">
-            <h1 className="text-2xl font-bold tracking-tight">Confirm your number</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Confirm your email</h1>
             <p className="mt-1 text-sm text-muted">One last step, then your account is created.</p>
           </div>
-          <PhoneVerify
-            phone={fullNumber}
+          <CodeVerify
+            destination={api.normalizeEmail(email)}
+            channel="email"
             busy={busy}
             error={error}
             errorIsSetup={errorIsSetup}
@@ -156,16 +152,13 @@ export default function Register() {
               <Input
                 type="email"
                 required
+                autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@domain.com"
               />
-            </div>
-            <div>
-              <Label>Phone number</Label>
-              <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
               <p className="mt-1.5 text-[11px] text-muted">
-                We'll text you a 6-digit code to confirm this number is yours.
+                We'll email you a 6-digit code to confirm this address is yours.
               </p>
             </div>
             <div>

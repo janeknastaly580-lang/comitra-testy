@@ -92,7 +92,7 @@ export const TEMPLATES = {
   judge_invite: ({ ownerName, link }) => {
     const url = cleanLink(link);
     if (!url) return null;
-    return `Comitra: ${cleanName(ownerName, 'An Comitra user')} asks you to be the judge of their goals. Accept here: ${url}`;
+    return `Comitra: ${cleanName(ownerName, 'A Comitra user')} asks you to be the judge of their goals. Accept here: ${url}`;
   },
 
   /** Invite to receive result notifications about one person's goals. */
@@ -100,7 +100,7 @@ export const TEMPLATES = {
     const url = cleanLink(link);
     if (!url) return null;
     return (
-      `Comitra: ${cleanName(ownerName, 'An Comitra user')} wants to be able to tell you the result of a goal. ` +
+      `Comitra: ${cleanName(ownerName, 'A Comitra user')} wants to be able to tell you the result of a goal. ` +
       `Agree here: ${url}`
     );
   },

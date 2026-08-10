@@ -15,8 +15,10 @@ import {
   verifyWebhookSignature,
   extractCapture,
 } from './paypal.js';
+import { createEmailRouter } from './routes/email.js';
 import { createSmsRouter } from './routes/sms.js';
 import { createTwilioWebhookRouter } from './routes/twilioWebhook.js';
+import { isEmailConfigured } from './email/client.js';
 import { isConfigured as smsConfigured } from './twilio/client.js';
 
 const app = express();
@@ -106,6 +108,13 @@ app.post('/callback', (req, res, next) => {
  * for a cross-site request to ride on. See routes/sms.js for what guards them.
  */
 app.use('/api/sms', createSmsRouter());
+
+/* ------------------------------------------------------------ Email API --
+ * The sign-up verification code, sent with Amazon SES. Mounted next to the SMS
+ * API and for the same reason: these routes read no cookie, so there is no
+ * session for a cross-site request to ride on. See routes/email.js.
+ */
+app.use('/api/email', createEmailRouter());
 
 /* ------------------------------------------------------ JSON + CSRF layer */
 // Body size cap mitigates large-payload DoS.
@@ -257,5 +266,10 @@ app.listen(config.port, () => {
     smsConfigured()
       ? 'SMS: Twilio configured (Messaging Service — codes and notifications).'
       : 'SMS: OFF — no TWILIO_* values in .env, so /api/sms/* answers 503. See TWILIO_SETUP.md.',
+  );
+  console.log(
+    isEmailConfigured()
+      ? 'Email: Amazon SES configured (sign-up verification codes).'
+      : 'Email: OFF — no SES_* values in .env, so /api/email/* answers 503. See SES_SETUP.md.',
   );
 });

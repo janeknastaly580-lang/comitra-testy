@@ -50,6 +50,7 @@ function kindFor(code: string | undefined): SyncErrorKind {
 const FALLBACK: Record<SyncErrorKind, string> = {
   'setup': "Text-message verification isn't finished being set up yet. This is nothing you did wrong. Tell the person who sent you this link, and try again once they've turned it on.",
   'bad-phone': "That phone number doesn't look right. Check the country and number, then try again.",
+  'bad-email': "That email address doesn't look right. Check it and try again.",
   'rate-limited': 'Too many attempts. Wait about a minute, then request a new code.',
   'invalid-code': "That code isn't right, or it has expired. Check the text and try again, or resend a new code.",
   'not-configured': 'Phone verification is not configured.',

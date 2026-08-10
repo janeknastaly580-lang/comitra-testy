@@ -414,9 +414,17 @@ export interface User {
   password: string; // plain text. MVP / mock only
 
   /**
-   * Normalized phone (with country code), collected at sign-up. Absent on guest
-   * accounts, on accounts created through a social provider, and on accounts
-   * that pre-date phone sign-up.
+   * When they proved they can open `email`, by typing back the code sent there
+   * at sign-up. Absent means the address was recorded but not verified — which
+   * is what happens on a deployment with no Amazon SES settings (the code step
+   * is skipped entirely), and on accounts created through a social provider.
+   */
+  emailVerifiedAt?: string;
+
+  /**
+   * Normalized phone (with country code). No longer collected at sign-up —
+   * accounts created since the switch to email verification have none. Kept for
+   * accounts that pre-date it, and for people who joined as a judge by phone.
    */
   phone?: string;
   /**

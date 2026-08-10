@@ -69,7 +69,9 @@ export type SyncErrorKind =
   /** Too many code requests/attempts too fast (server rate limit). */
   | 'rate-limited'
   /** The phone number itself isn't a valid E.164 number. */
-  | 'bad-phone';
+  | 'bad-phone'
+  /** The email address itself isn't one we could send to. */
+  | 'bad-email';
 
 export class SyncError extends Error {
   readonly kind: SyncErrorKind;

@@ -6,7 +6,7 @@ import { SyncError } from '../lib/supabase';
 import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import BrandMark from '../components/BrandMark';
 import PhoneField from '../components/PhoneField';
-import PhoneVerify from '../components/PhoneVerify';
+import CodeVerify from '../components/CodeVerify';
 import { Badge, Button, Card, Input, Label } from '../components/ui';
 import { Check } from 'lucide-react';
 
@@ -52,7 +52,7 @@ export default function InviteAccept() {
   // probed yet; the answer only changes the button label, never blocks the form.
   const [smsRequired, setSmsRequired] = useState<boolean | null>(null);
 
-  // SMS verification step state (the code itself lives inside <PhoneVerify/>).
+  // SMS verification step state (the code itself lives inside <CodeVerify/>).
   const [otpError, setOtpError] = useState('');
   const [phoneVerified, setPhoneVerified] = useState(false);
 
@@ -243,8 +243,9 @@ export default function InviteAccept() {
         </p>
 
         <Card className="p-4">
-          <PhoneVerify
-            phone={fullNumber}
+          <CodeVerify
+            destination={fullNumber}
+            channel="sms"
             busy={busy}
             error={otpError}
             errorIsSetup={errorIsSetup}

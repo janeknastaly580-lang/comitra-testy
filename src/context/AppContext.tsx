@@ -21,8 +21,8 @@ interface AppContextValue {
     email: string,
     password: string,
     accountType?: 'standard' | 'trainer',
-    phone?: string,
-    phoneVerified?: boolean,
+    /** True once the code emailed to `email` was accepted. */
+    emailVerified?: boolean,
   ) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -87,11 +87,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       accountType: 'standard' | 'trainer' = 'standard',
-      phone?: string,
-      phoneVerified?: boolean,
+      emailVerified?: boolean,
     ) => {
       const prev = await api.getSessionUser();
-      const u = await api.register(name, email, password, accountType, phone, phoneVerified);
+      const u = await api.register(name, email, password, accountType, emailVerified);
       await claimGuestInto(prev, u);
     },
     [claimGuestInto],

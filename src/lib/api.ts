@@ -40,6 +40,7 @@ import {
   verifyPhoneOtp,
   type SmsTemplate,
 } from './sms';
+import { emailVerificationAvailable as emailOtpAvailable, sendEmailOtp, verifyEmailOtp } from './email';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -373,18 +374,17 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
 /**
  * Create an account.
  *
- * `phone` is the number the sign-up form collected; `phoneVerified` records that
- * the SMS code was accepted first (the UI only passes true after
- * `verifyPhoneCode` resolves). Both are optional so the social sign-in path and
- * a deployment without Twilio still work.
+ * Sign-up asks for an email and nothing else contactable — no phone number.
+ * `emailVerified` records that the emailed code was accepted first (the UI only
+ * passes true after `verifyEmailCode` resolves). It is optional so the social
+ * sign-in path, and a deployment with no Amazon SES settings, still work.
  */
 export async function register(
   name: string,
   email: string,
   password: string,
   accountType: 'standard' | 'trainer' = 'standard',
-  phone?: string,
-  phoneVerified = false,
+  emailVerified = false,
 ): Promise<User> {
   await delay();
   const users = getUsers();
@@ -392,7 +392,6 @@ export async function register(
   if (users.some((u) => u.email === normalized && !u.deleted)) {
     throw new Error('An account with this email already exists.');
   }
-  const normalizedPhone = phone ? normalizePhone(phone) : '';
   const now = new Date().toISOString();
   const user = blankUser({
     id: uid('user'),
@@ -400,8 +399,7 @@ export async function register(
     email: normalized,
     password,
     accountType,
-    ...(normalizedPhone ? { phone: normalizedPhone } : {}),
-    ...(normalizedPhone && phoneVerified ? { phoneVerifiedAt: now } : {}),
+    ...(emailVerified ? { emailVerifiedAt: now } : {}),
   });
   users.push(user);
   saveUsers(users);
@@ -661,7 +659,7 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
       to: 'recipient',
       channel: consent.channel,
       contact: consent.recipientContact,
-      body: recipientInviteMessage(owner?.name ?? 'An Comitra user'),
+      body: recipientInviteMessage(owner?.name ?? 'A Comitra user'),
     },
     { template: 'recipient_invite', params: { ownerName: owner?.name, link: recipientLink(consent.inviteToken) } },
   );
@@ -1291,7 +1289,7 @@ export async function getOrCreateJudgeInvite(
     v: 1,
     t: invite.token,
     o: ownerUserId,
-    n: owner?.name ?? 'An Comitra user',
+    n: owner?.name ?? 'A Comitra user',
     d: invite.inviterDeviceId ?? deviceId,
   });
   return { ...invite, inviteToken };
@@ -1340,13 +1338,13 @@ export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
   if (payload) {
     // Self-contained link: valid on any device.
     const owner = getUsers().find((u) => u.id === payload.o);
-    return resolve(payload.o, owner?.name ?? payload.n ?? 'An Comitra user', payload.d);
+    return resolve(payload.o, owner?.name ?? payload.n ?? 'A Comitra user', payload.d);
   }
   // Legacy raw token (same-browser only).
   const invite = token ? getJudgeInvites().find((i) => i.token === token) : undefined;
   if (invite) {
     const owner = getUsers().find((u) => u.id === invite.ownerUserId);
-    return resolve(invite.ownerUserId, owner?.name ?? 'An Comitra user', invite.inviterDeviceId);
+    return resolve(invite.ownerUserId, owner?.name ?? 'A Comitra user', invite.inviterDeviceId);
   }
   // Token missing / corrupted / from an old app version, explain, don't say "invalid".
   return { ok: false, reason: 'unreadable', ownerName: '', ownerUserId: '', sameDevice: false, sameAccount: false };
@@ -1397,6 +1395,54 @@ export async function verifyPhoneCode(phone: string, code: string): Promise<void
   const digits = (code ?? '').replace(/\D/g, '');
   if (digits.length < 4) throw new Error('Enter the code from the text message.');
   await verifyPhoneOtp(normalized, digits);
+}
+
+/* ────────────────────────────────── Email verification (sign-up) ── */
+
+/** Loose on purpose: the authority on whether an address works is the mailbox. */
+const EMAIL_SHAPE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
+
+/** Trim + lower-case, the same normalisation `register` and `login` apply. */
+export function normalizeEmail(email: string): string {
+  return (email ?? '').trim().toLowerCase();
+}
+
+/** Whether an address is worth sending a code to at all. */
+export function emailLooksValid(email: string): boolean {
+  const value = normalizeEmail(email);
+  return value.length >= 5 && value.length <= 254 && EMAIL_SHAPE.test(value);
+}
+
+/**
+ * Whether an email address can be confirmed with a code — used by the sign-up
+ * form. True only when the backend actually holds Amazon SES settings, so:
+ *  • the app keeps working before SES is set up (falls back to no code step),
+ *  • tests stay hermetic (`emailOtpAvailable()` is false under MODE==='test').
+ *
+ * `VITE_EMAIL_VERIFY=off` switches the step off. There is deliberately no way
+ * to force it *on*: showing a "we emailed you a code" screen that no backend
+ * can follow through on would strand everyone at a code that never arrives.
+ */
+export async function emailVerificationAvailable(): Promise<boolean> {
+  if (import.meta.env.VITE_EMAIL_VERIFY?.trim().toLowerCase() === 'off') return false;
+  return emailOtpAvailable();
+}
+
+/**
+ * Email a 6-digit verification code to prove the address belongs to the person
+ * entering it. The code is generated, hashed and checked by our own backend
+ * (server/src/email/verify.js); it is valid for 5 minutes and allows 5 attempts.
+ */
+export async function startEmailVerification(email: string): Promise<void> {
+  if (!emailLooksValid(email)) throw new Error('Enter a valid email address.');
+  await sendEmailOtp(normalizeEmail(email));
+}
+
+/** Check the 6-digit code that was emailed. Throws if it's wrong or expired. */
+export async function verifyEmailCode(email: string, code: string): Promise<void> {
+  const digits = (code ?? '').replace(/\D/g, '');
+  if (digits.length < 4) throw new Error('Enter the code from the email.');
+  await verifyEmailOtp(normalizeEmail(email), digits);
 }
 
 /**
@@ -2153,7 +2199,7 @@ export async function getConsentByToken(token: string): Promise<{ consent: Recip
   const consent = getConsents().find((c) => c.inviteToken === token);
   if (!consent) return null;
   const owner = getUsers().find((u) => u.id === consent.ownerUserId);
-  return { consent, ownerName: owner?.name ?? 'An Comitra user' };
+  return { consent, ownerName: owner?.name ?? 'A Comitra user' };
 }
 
 export async function acceptRecipientConsent(token: string): Promise<RecipientConsent> {

@@ -2,12 +2,10 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import { SyncError } from '../lib/supabase';
 import { Button, Input, Label, PasswordInput } from './ui';
 import BrandMark from './BrandMark';
-import PhoneField from './PhoneField';
-import PhoneVerify from './PhoneVerify';
+import CodeVerify from './CodeVerify';
 import SocialAuthButtons from './SocialAuthButtons';
 import { X } from 'lucide-react';
 
@@ -32,21 +30,18 @@ export default function AuthModal({
 }) {
   const { login, register } = useApp();
   const [mode, setMode] = useState<'login' | 'register'>('login');
-  // Sign-up becomes two steps once a code has been texted.
+  // Sign-up becomes two steps once a code has been emailed.
   const [step, setStep] = useState<'form' | 'verify'>('form');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phoneIso, setPhoneIso] = useState(DEFAULT_COUNTRY_ISO);
-  const [phone, setPhone] = useState('');
   const [acceptPrivacy, setAcceptPrivacy] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [error, setError] = useState('');
   const [errorIsSetup, setErrorIsSetup] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  const fullNumber = fullPhone(phoneIso, phone);
-  const phoneValid = phone.replace(/\D/g, '').length >= 7;
+  const emailValid = api.emailLooksValid(email);
 
   if (!open) return null;
 
@@ -71,8 +66,8 @@ export default function AuthModal({
         setError('Password must be at least 4 characters.');
         return;
       }
-      if (!phoneValid) {
-        setError('Enter your phone number, including the country code.');
+      if (!emailValid) {
+        setError('Enter a valid email address.');
         return;
       }
       if (!acceptPrivacy || !acceptTerms) {
@@ -84,15 +79,15 @@ export default function AuthModal({
     try {
       if (mode === 'login') {
         await login(email, password);
-      } else if (await api.phoneVerificationAvailable()) {
+      } else if (await api.emailVerificationAvailable()) {
         // A code is on its way; the account is created on the verify step.
-        await api.startPhoneVerification(fullNumber);
+        await api.startEmailVerification(email);
         setStep('verify');
         return;
       } else {
-        // No Twilio credentials on this deployment: record the number unverified
-        // rather than block sign-up on a text that can never arrive.
-        await register(name, email, password, 'standard', fullNumber, false);
+        // No Amazon SES settings on this deployment: record the address
+        // unverified rather than block sign-up on an email that never arrives.
+        await register(name, email, password, 'standard', false);
       }
       onClose?.();
     } catch (err) {
@@ -107,8 +102,8 @@ export default function AuthModal({
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyPhoneCode(fullNumber, code);
-      await register(name, email, password, 'standard', fullNumber, true);
+      await api.verifyEmailCode(email, code);
+      await register(name, email, password, 'standard', true);
       onClose?.();
     } catch (err) {
       showError(err);
@@ -122,7 +117,7 @@ export default function AuthModal({
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.startPhoneVerification(fullNumber);
+      await api.startEmailVerification(email);
       return true;
     } catch (err) {
       showError(err);
@@ -161,7 +156,7 @@ export default function AuthModal({
         </div>
         <h2 className="text-lg font-bold tracking-tight text-ink">
           {step === 'verify'
-            ? 'Confirm your number'
+            ? 'Confirm your email'
             : (title ?? (mode === 'login' ? 'Log in to keep your goals' : 'Create your account'))}
         </h2>
         <p className="mb-4 mt-0.5 text-xs text-muted">
@@ -171,8 +166,9 @@ export default function AuthModal({
         </p>
 
         {step === 'verify' ? (
-          <PhoneVerify
-            phone={fullNumber}
+          <CodeVerify
+            destination={api.normalizeEmail(email)}
+            channel="email"
             busy={busy}
             error={error}
             errorIsSetup={errorIsSetup}
@@ -209,16 +205,12 @@ export default function AuthModal({
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@domain.com"
             />
-          </div>
-          {mode === 'register' && (
-            <div>
-              <Label>Phone number</Label>
-              <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
+            {mode === 'register' && (
               <p className="mt-1.5 text-[11px] text-muted">
-                We'll text you a 6-digit code to confirm it's yours.
+                We'll email you a 6-digit code to confirm it's yours.
               </p>
-            </div>
-          )}
+            )}
+          </div>
           <div>
             <Label>Password</Label>
             <PasswordInput
