@@ -57,6 +57,7 @@ export default function Dashboard() {
   async function createSolo() {
     setSoloErr('');
     if (soloTitle.trim().length < 3) return setSoloErr('Give your goal a title.');
+    if (!soloDeadline) return setSoloErr('Set the end date and time.');
     if (new Date(soloDeadline).getTime() <= Date.now()) return setSoloErr('The end date must be in the future.');
     setSoloBusy(true);
     try {

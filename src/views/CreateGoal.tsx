@@ -139,14 +139,24 @@ export default function CreateGoal() {
     filledRecipients.length <= MAX_RECIPIENTS_PER_GOAL &&
     filledRecipients.every((r) => r.name.trim().length >= 2 && contactValid(r.channel, r.contact));
 
+  // Re-read the clock rather than trusting the value the field started with: a
+  // form left open long enough would otherwise let a past deadline through.
+  const deadlineValid = !!deadline && new Date(deadline).getTime() > Date.now();
+
   const canSubmit =
-    titleValid && judgeValid && recipientsValid && (!hasRecipients || ackNotify) && contentCheck.ok;
+    titleValid &&
+    deadlineValid &&
+    judgeValid &&
+    recipientsValid &&
+    (!hasRecipients || ackNotify) &&
+    contentCheck.ok;
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     if (!contentCheck.ok) return setError(SENSITIVE_CONTENT_MESSAGE);
     if (!titleValid) return setError('Give your goal a title.');
+    if (!deadline) return setError('Set the goal’s end date and time.');
     if (new Date(deadline).getTime() <= Date.now()) return setError('The goal’s end date must be in the future.');
     if (!judgeValid) return setError('Choose a judge from your invited friends.');
     if (!recipientsValid) return setError('The recipient needs a name and a valid contact. A goal can have only one.');

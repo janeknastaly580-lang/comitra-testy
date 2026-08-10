@@ -110,6 +110,8 @@ export default function CreateTeamChallenge() {
       return setError('Every player slot has to be filled: both teams must be the same size.');
     }
     if (!judgeA || !judgeB) return setError('Each team needs its own judge.');
+    if (!deadline) return setError('Set the challenge’s end date and time.');
+    if (new Date(deadline).getTime() <= Date.now()) return setError('The end date must be in the future.');
 
     setBusy(true);
     try {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { toLocalInputValue } from '../lib/format';
 
 /**
  * A date + time field split into separate day / month / year / hour / minute
@@ -59,18 +60,57 @@ function combine(p: Parts): string {
   return `${pad(y, 4)}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}`;
 }
 
+/**
+ * The digits the user just typed, given the box's previous text and the text the
+ * browser produced. Typing into an already-full box (caret parked in "2025",
+ * pressing 2/0/2/6) used to keep the OLD digits and drop the new ones, so a year
+ * came out mangled — "0202" and friends. Diffing tells us which digits are new
+ * so we can restart the box with them instead.
+ */
+function insertedDigits(prev: string, next: string): string {
+  let start = 0;
+  while (start < prev.length && start < next.length && prev[start] === next[start]) start++;
+  let end = 0;
+  while (
+    end < prev.length - start &&
+    end < next.length - start &&
+    prev[prev.length - 1 - end] === next[next.length - 1 - end]
+  ) {
+    end++;
+  }
+  return next.slice(start, next.length - end);
+}
+
 export default function DateTimeField({
   value,
   onChange,
   className = '',
+  min = 'now',
 }: {
   value: string;
   onChange: (value: string) => void;
   className?: string;
+  /**
+   * Earliest moment the field accepts. `'now'` (the default) means the current
+   * clock time, re-read while the form is open so a page left sitting around
+   * can't smuggle through a moment that has since passed. `null` disables the
+   * check; a `YYYY-MM-DDTHH:mm` string pins a fixed floor.
+   */
+  min?: string | null;
 }) {
   const [parts, setParts] = useState<Parts>(() => parse(value));
   const refs = useRef<Partial<Record<SegmentKey, HTMLInputElement | null>>>({});
   const nativeRef = useRef<HTMLInputElement>(null);
+
+  // The app's own clock, ticking so "is this in the future?" stays honest.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (min !== 'now') return;
+    const id = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(id);
+  }, [min]);
+
+  const minTime = min === null ? null : min === 'now' ? now : new Date(min).getTime();
 
   // Adopt a value set from the outside (a "1 week" preset, a reset), but never
   // clobber a partially typed one: while editing, `combine` already equals the
@@ -95,7 +135,14 @@ export default function DateTimeField({
 
   function onSegmentInput(index: number, raw: string) {
     const seg = SEGMENTS[index];
-    const digits = raw.replace(/\D/g, '').slice(0, seg.len);
+    const prev = parts[seg.key];
+    let digits = raw.replace(/\D/g, '');
+    if (digits.length > seg.len) {
+      // Overflowing means the user typed into a box that was already full: keep
+      // what they just pressed and throw the stale digits away.
+      const typed = insertedDigits(prev, digits);
+      digits = (typed || digits).slice(0, seg.len);
+    }
     commit({ ...parts, [seg.key]: digits });
 
     // Jump on when the box is full, or when another digit couldn't fit anyway
@@ -127,10 +174,22 @@ export default function DateTimeField({
     const seg = SEGMENTS[index];
     const raw = parts[seg.key];
     if (!raw) return;
+
+    if (seg.key === 'y') {
+      // Never left-pad a year: that turned a half-typed "202" into the year 202.
+      // Two digits are read as this century ("26" → 2026); anything else short
+      // is left alone and flagged, so the user can just finish typing it.
+      if (raw.length === 2) {
+        const century = Math.floor(new Date(minTime ?? Date.now()).getFullYear() / 100) * 100;
+        commit({ ...parts, y: String(century + Number(raw)) });
+      }
+      return;
+    }
+
     let n = Number(raw);
     const min = seg.key === 'h' || seg.key === 'min' ? 0 : 1;
     n = Math.min(seg.max, Math.max(min, n));
-    const padded = String(n).padStart(seg.len === 4 ? 4 : 2, '0');
+    const padded = String(n).padStart(2, '0'); // the year returned above; the rest are 2-digit
     if (padded !== raw) commit({ ...parts, [seg.key]: padded });
   }
 
@@ -149,7 +208,17 @@ export default function DateTimeField({
     el.click();
   }
 
-  const invalid = SEGMENTS.every((s) => parts[s.key]) && combine(parts) === '';
+  const combined = combine(parts);
+  const allFilled = SEGMENTS.every((s) => parts[s.key]);
+  const inPast = combined !== '' && minTime !== null && new Date(combined).getTime() <= minTime;
+
+  let problem = '';
+  if (allFilled && combined === '') {
+    problem = parts.y.length !== 4 ? 'Write the year in full, e.g. 2026.' : 'That date doesn’t exist.';
+  } else if (inPast) {
+    problem = 'That moment has already passed — pick a later one.';
+  }
+  const invalid = problem !== '';
 
   return (
     <div className={className}>
@@ -175,7 +244,6 @@ export default function DateTimeField({
                 onFocus={(e) => e.target.select()}
                 inputMode="numeric"
                 autoComplete="off"
-                maxLength={seg.len}
                 placeholder={seg.len === 4 ? 'YYYY' : seg.label === 'Month' ? 'MM' : seg.label === 'Day' ? 'DD' : seg.label === 'Hour' ? 'HH' : 'MM'}
                 aria-label={seg.label}
                 className={`${seg.width} bg-transparent text-center font-mono text-sm text-ink outline-none placeholder:text-muted/50`}
@@ -201,7 +269,10 @@ export default function DateTimeField({
         <input
           ref={nativeRef}
           type="datetime-local"
-          value={combine(parts)}
+          value={combined}
+          // A minute past the floor: `min` on the native control is inclusive,
+          // and the deadline has to be strictly later than now.
+          min={minTime === null ? undefined : toLocalInputValue(new Date(minTime + 60_000))}
           onChange={(e) => {
             if (e.target.value) commit(parse(e.target.value));
           }}
@@ -210,7 +281,7 @@ export default function DateTimeField({
           className="pointer-events-none absolute h-0 w-0 opacity-0"
         />
       </div>
-      {invalid && <p className="mt-1 font-mono text-[11px] text-danger">That date doesn’t exist.</p>}
+      {invalid && <p className="mt-1 font-mono text-[11px] text-danger">{problem}</p>}
     </div>
   );
 }
