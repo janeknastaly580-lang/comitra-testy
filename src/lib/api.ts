@@ -175,45 +175,14 @@ export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
   return getOutbox().filter((m) => m.goalId === goalId);
 }
 
-/**
- * Compose the "please review this goal" message sent to the judge.
+/*
+ * There is deliberately no "notify the judge" helper here.
  *
- * PRIVACY RULE: the judge is told only WHO and WHICH numbered goal, never the
- * title or the details. The user tells their judge what the goal is themselves.
- * Marking a goal public afterwards does NOT change any message.
+ * Asking the judge for anything — a decision, a change, a cancellation — is the
+ * owner's own act: the goal screen gives them two links to send. Comitra sends
+ * the judge nothing by itself, so a judge is never messaged about a goal its
+ * owner didn't choose to hand them. See `applyJudgeLinkRequest`.
  */
-function judgeReviewMessage(goal: Goal, reason: 'deadline' | 'early' | 'ready'): string {
-  const who = goal.creatorName || 'Someone';
-  const ref = goalRef(goal);
-  const head =
-    reason === 'deadline'
-      ? `The deadline for ${who}'s ${ref} has passed.`
-      : reason === 'early'
-        ? `${who} is asking you to decide their ${ref} now, before the deadline.`
-        : `${who} marked their ${ref} ready and added proof.`;
-  return (
-    `${head} Did ${who} complete ${ref}? Open your judge link to mark it completed or not ` +
-    `completed. You'll need your secret code. Comitra does not show you what the goal is. ` +
-    `${who} tells you that themselves.`
-  );
-}
-
-/** Record a judge-review notification once per goal (no duplicates). */
-function notifyJudgeReview(goal: Goal, reason: 'deadline' | 'early' | 'ready'): void {
-  if (goal.noJudge) return;
-  queueOutbox(
-    {
-      goalId: goal.id,
-      kind: 'judge_review_request',
-      to: 'judge',
-      channel: goal.judge.channel,
-      contact: goal.judge.judgeContact,
-      body: judgeReviewMessage(goal, reason),
-    },
-    // Same privacy rule on the text as in-app: who + which numbered goal only.
-    { template: 'judge_review_request', params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, link: judgeLink(goal) } },
-  );
-}
 
 /* ──────────────────────────────────────────────────── audit / logging ── */
 
@@ -937,11 +906,11 @@ export async function addEvidence(
     item.plannedActionId = paId;
   }
 
-  const firstProof = goal.evidence.length === 0;
   goal.evidence = [item, ...goal.evidence];
   saveGoals(goals);
-  // Notify the judge when the user first marks progress (adds proof).
-  if (firstProof && !goal.noJudge) notifyJudgeReview(goal, 'ready');
+  // Comitra never messages the judge on its own, not even "there's proof now":
+  // the owner sends the judge one of the two links from the goal screen when
+  // they want something from them. See `applyJudgeLinkRequest`.
   logAudit({ actorId: goal.userId, actionType: 'evidence_added', entityType: 'goal', entityId: goal.id, metadata: { type: item.type } });
   return goal;
 }
@@ -1029,9 +998,12 @@ export async function cancelGoal(goalId: string): Promise<Goal> {
 }
 
 /**
- * The creator asks their judge to cancel a running goal (they can't cancel a
- * judged goal themselves). Notifies the judge; the judge can only cancel after
- * this. No secret code is involved in cancelling.
+ * The creator asks their judge to change or cancel a running goal (they can't
+ * cancel a judged goal themselves). The judge can only cancel after this.
+ *
+ * Comitra sends nothing: the owner passes on the "ask for a change" link and
+ * opening it is what records the request. No secret code is involved in
+ * cancelling.
  */
 export async function requestCancel(goalId: string, userId: string): Promise<Goal> {
   await delay(80);
@@ -1043,17 +1015,6 @@ export async function requestCancel(goalId: string, userId: string): Promise<Goa
   if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
   goal.cancelRequested = true;
   saveGoals(goals);
-  queueOutbox(
-    {
-      goalId: goal.id,
-      kind: 'judge_review_request',
-      to: 'judge',
-      channel: goal.judge.channel,
-      contact: goal.judge.judgeContact,
-      body: `${goal.creatorName} asks you to cancel their goal. Open your judge link and cancel it. No code needed.`,
-    },
-    { template: 'judge_review_request', params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, link: judgeLink(goal) } },
-  );
   logAudit({ actorId: userId, actionType: 'cancel_requested', entityType: 'goal', entityId: goal.id });
   return goal;
 }
@@ -1078,9 +1039,66 @@ export async function completeSoloGoal(goalId: string, userId: string): Promise<
   return goal;
 }
 
+/** Creator marks their own solo (judge-less) goal as NOT completed. */
+export async function failSoloGoal(goalId: string, userId: string): Promise<Goal> {
+  await delay();
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can decide this goal.');
+  if (!goal.noJudge) throw new Error('This goal has a judge, so only the judge can decide it.');
+  if (goal.status !== 'active') throw new Error('Only an active goal can be marked not completed.');
+  const at = new Date().toISOString();
+  goal.status = 'failed_notified';
+  goal.failedAt = at;
+  goal.judge = { ...goal.judge, decision: 'not_completed', decisionAt: at };
+  liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
+  // Admitting the miss costs exactly what letting the deadline pass costs: the
+  // app block the user chose when they set the goal. Otherwise "I failed" would
+  // be the cheap way out of the penalty.
+  applyAppBlockPenalty(goal);
+  saveGoals(goals);
+  logAudit({ actorId: userId, actionType: 'solo_goal_failed', entityType: 'goal', entityId: goal.id });
+  return goal;
+}
+
+/**
+ * Change a goal's deadline. The deadline is the ONE thing the owner may edit
+ * after a goal is set: the goal itself, its judge, its recipients and its
+ * penalty are the commitment, and editing those would empty it out. A judged
+ * goal that has already been decided is closed.
+ */
+export async function updateGoalDeadline(goalId: string, userId: string, deadlineAt: string): Promise<Goal> {
+  await delay(80);
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can change the deadline.');
+  if (TERMINAL_STATUSES.includes(goal.status)) throw new Error('This goal is finished, so its deadline is fixed.');
+  if (goal.judge?.decision) throw new Error('Your judge has already decided this goal.');
+  const at = new Date(deadlineAt);
+  if (Number.isNaN(at.getTime())) throw new Error('That date and time is not valid.');
+  if (at.getTime() <= Date.now()) throw new Error('The new deadline must be in the future.');
+  goal.deadlineAt = at.toISOString();
+  // A live "blocked while you work" lock runs until the goal ends, so it follows
+  // the deadline rather than unlocking early or outliving the goal.
+  if (goal.commitmentBlock && !goal.commitmentBlock.liftedAt) {
+    goal.commitmentBlock = { ...goal.commitmentBlock, untilAt: goal.deadlineAt };
+    const b = goal.commitmentBlock;
+    void scheduleAppBlock(commitmentBlockId(goal.id), b.packageName, b.appLabel, at.getTime());
+  }
+  saveGoals(goals);
+  logAudit({ actorId: userId, actionType: 'goal_deadline_changed', entityType: 'goal', entityId: goal.id });
+  return goal;
+}
+
 /**
  * The creator asks their judge to decide the goal before the deadline. This is
- * the ONLY way a judge may decide early. Notifies the judge.
+ * the ONLY way a judge may decide early.
+ *
+ * Comitra does not message the judge about it: the owner sends them the "ask for
+ * a decision" link themselves (see `judgeLink(goal, 'decision')`), and opening
+ * that link is what records the request. See `applyJudgeLinkRequest`.
  */
 export async function requestEarlyDecision(goalId: string, userId: string): Promise<Goal> {
   await delay(80);
@@ -1092,7 +1110,6 @@ export async function requestEarlyDecision(goalId: string, userId: string): Prom
   if (goal.status !== 'active') throw new Error('You can only ask for an early decision while the goal is active.');
   goal.earlyDecisionRequested = true;
   saveGoals(goals);
-  notifyJudgeReview(goal, 'early');
   logAudit({ actorId: userId, actionType: 'early_decision_requested', entityType: 'goal', entityId: goal.id });
   return goal;
 }
@@ -1107,36 +1124,31 @@ export async function deleteGoal(id: string): Promise<void> {
   saveGoals(getGoals().filter((g) => g.id !== id));
 }
 
-/** Move active goals past their deadline into proof/decision, and expire stale ones. */
+/**
+ * Resolve goals whose deadline has passed.
+ *
+ * Solo (judge-less) goals end here: missing the deadline is the failure, and the
+ * app-block penalty starts.
+ *
+ * A JUDGED goal does not. Nothing about a passing deadline decides it, so it
+ * stays `active` until its judge says completed or not completed: it keeps
+ * showing under Active goals, and stays out of the history and every
+ * leaderboard, however long that takes. There is deliberately no timeout that
+ * would close it without a decision.
+ */
 function resolveExpired() {
   ensureGoalNumbers();
   const now = Date.now();
   const goals = getGoals();
   let changed = false;
   for (const g of goals) {
-    if (g.status === 'active' && now > +new Date(g.deadlineAt)) {
-      if (g.noJudge) {
-        // Solo goal missed → apply the app-block penalty (blocks the chosen app
-        // for `durationMinutes` starting now). See src/lib/appBlock.ts.
-        g.status = 'failed_notified';
-        g.failedAt = new Date().toISOString();
-        liftCommitmentBlock(g); // the goal is over, so its commitment block ends
-        applyAppBlockPenalty(g, now);
-      } else {
-        // Judged goal past its deadline → wait for the judge and notify them.
-        g.status = 'proof_pending';
-        if (!g.judgeReviewNotifiedAt) {
-          g.judgeReviewNotifiedAt = new Date().toISOString();
-          notifyJudgeReview(g, 'deadline');
-        }
-      }
-      changed = true;
-    }
-    // If the judge never decides within 30 days after the deadline, expire it.
-    const graceEnd = +new Date(g.deadlineAt) + 30 * 24 * 3600 * 1000;
-    if ((g.status === 'proof_pending' || g.status === 'judge_review') && now > graceEnd) {
-      g.status = 'expired_without_judge_decision';
-      liftCommitmentBlock(g);
+    if (g.status === 'active' && now > +new Date(g.deadlineAt) && g.noJudge) {
+      // Solo goal missed → apply the app-block penalty (blocks the chosen app
+      // for `durationMinutes` starting now). See src/lib/appBlock.ts.
+      g.status = 'failed_notified';
+      g.failedAt = new Date().toISOString();
+      liftCommitmentBlock(g); // the goal is over, so its commitment block ends
+      applyAppBlockPenalty(g, now);
       changed = true;
     }
   }
@@ -1646,6 +1658,47 @@ export async function getJudgeAccess(goalId: string, token: string): Promise<Jud
   if (goal.status === 'cancelled') return { state: 'decided', goal };
   if (goal.judge.status !== 'accepted') return { state: 'pending-acceptance', goal };
   return { state: 'awaiting-decision', goal };
+}
+
+/** What the owner asked their judge for, carried by the link they sent. */
+export type JudgeLinkRequest = 'decision' | 'edit';
+
+/**
+ * Record what the owner asked for, from the link the judge just opened.
+ *
+ * The link IS the request: Comitra never messages a judge by itself, so a judge
+ * can only be looking at `?ask=decision` / `?ask=edit` because the owner sent
+ * them that link. Opening it unlocks exactly one panel — the decision one, or
+ * the change/cancel one — and nothing else. Best-effort: a link for a goal that
+ * is finished (or on a device that doesn't have it) simply changes nothing.
+ */
+export async function applyJudgeLinkRequest(
+  goalId: string,
+  token: string,
+  ask: JudgeLinkRequest,
+): Promise<void> {
+  await delay(40);
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) return;
+  if (goal.judge.acceptToken !== token && goal.shareToken !== token) return;
+  if (goal.noJudge || goal.judge.decision) return;
+  if (!CANCELLABLE_STATUSES.includes(goal.status)) return;
+
+  if (ask === 'decision' && !goal.earlyDecisionRequested) {
+    goal.earlyDecisionRequested = true;
+  } else if (ask === 'edit' && !goal.cancelRequested) {
+    goal.cancelRequested = true;
+  } else {
+    return; // already recorded, don't rewrite storage on every page load
+  }
+  saveGoals(goals);
+  logAudit({
+    actorContact: goal.judge.judgeContact,
+    actionType: ask === 'decision' ? 'judge_asked_to_decide' : 'judge_asked_to_change',
+    entityType: 'goal',
+    entityId: goal.id,
+  });
 }
 
 function authorizeJudge(goalId: string, token: string): { goals: Goal[]; goal: Goal } {

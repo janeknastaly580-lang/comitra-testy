@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import * as api from '../lib/api';
-import type { JudgeAccess } from '../lib/api';
+import type { JudgeAccess, JudgeLinkRequest } from '../lib/api';
 import { countdown, dateTime } from '../lib/format';
 import { goalRef, goalRefTitle } from '../lib/goal';
 import { useNow } from '../lib/hooks';
@@ -9,6 +9,7 @@ import type { JudgeDecision } from '../lib/types';
 import { JUDGE_CODE_MIN } from '../lib/api';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
 import BrandMark from '../components/BrandMark';
+import ConfirmDialog from '../components/ConfirmDialog';
 
 // Module-scope so it keeps a stable identity across renders, see InviteAccept:
 // an in-component Shell remounts every keystroke and inputs (the judge password /
@@ -31,6 +32,11 @@ export default function Verifier() {
   const [params] = useSearchParams();
   const goalId = routeParams.challengeId ?? params.get('challengeId') ?? '';
   const token = routeParams.token ?? params.get('token') ?? '';
+  // What the owner is asking for. The link they sent IS the request: Comitra
+  // never messages a judge by itself. See `api.applyJudgeLinkRequest`.
+  const askParam = params.get('ask');
+  const ask: JudgeLinkRequest | null =
+    askParam === 'decision' || askParam === 'edit' ? askParam : null;
 
   const [access, setAccess] = useState<JudgeAccess | null>(null);
   const [busy, setBusy] = useState(false);
@@ -39,6 +45,8 @@ export default function Verifier() {
   const [decideCode, setDecideCode] = useState('');
   const [comment, setComment] = useState('');
   const [error, setError] = useState('');
+  const [confirmDecision, setConfirmDecision] = useState<JudgeDecision | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState('');
   const [reported, setReported] = useState(false);
@@ -54,9 +62,12 @@ export default function Verifier() {
   }
 
   useEffect(() => {
-    refresh();
+    void (async () => {
+      if (ask && goalId && token) await api.applyJudgeLinkRequest(goalId, token, ask);
+      await refresh();
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [goalId, token]);
+  }, [goalId, token, ask]);
 
   if (!access) {
     return (
@@ -119,14 +130,17 @@ export default function Verifier() {
     }
   }
 
+  /** Runs only after the judge confirms in the dialog: this is the real decision. */
   async function decide(decision: JudgeDecision) {
     setError('');
     setBusy(true);
     try {
       await api.judgeDecision(goalId, token, decision, comment, decideCode);
+      setConfirmDecision(null);
       await refresh();
     } catch (err) {
       setError((err as Error).message);
+      setConfirmDecision(null);
     } finally {
       setBusy(false);
     }
@@ -137,9 +151,11 @@ export default function Verifier() {
     setBusy(true);
     try {
       await api.judgeCancelGoal(goalId, token);
+      setConfirmCancel(false);
       await refresh();
     } catch (err) {
       setError((err as Error).message);
+      setConfirmCancel(false);
     } finally {
       setBusy(false);
     }
@@ -238,7 +254,7 @@ export default function Verifier() {
                 onChange={(e) => setAckRole(e.target.checked)}
                 className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]"
               />
-              <span className="text-[12px] leading-relaxed text-ink">
+              <span className="text-[12px] leading-relaxed text-danger">
                 I understand that my decision may cause a message to be sent to the people the user
                 chose.
               </span>
@@ -342,44 +358,105 @@ export default function Verifier() {
                 className="mb-3"
               />
               {error && <p className="mb-3 font-mono text-xs text-danger">{error}</p>}
+              {/* Every button here only OPENS the confirmation: nothing is
+                  recorded until the judge confirms in the dialog. */}
               <div className="space-y-2">
-                <Button className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('completed')}>
+                <Button className="w-full" disabled={busy || !decideCode.trim()} onClick={() => setConfirmDecision('completed')}>
                   {goalRefTitle(goal)} completed
                 </Button>
-                <Button variant="danger" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('not_completed')}>
+                <Button variant="danger" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => setConfirmDecision('not_completed')}>
                   {goalRefTitle(goal)} not completed
                 </Button>
-                <Button variant="outline" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => decide('needs_proof')}>
+                <Button variant="outline" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => setConfirmDecision('needs_proof')}>
                   Need proof / can't decide
                 </Button>
               </div>
-              <p className="mt-3 text-[11px] text-muted">
-                “Not completed” sends the pre-set message to the recipients who accepted, and starts any
-                app block {goal.creatorName} set for themselves. The message never says what the goal was.
+              <p className="mt-3 text-[11px] text-danger">
+                “Not completed” sends the pre-set message to the recipients who accepted. The message
+                never says what the goal was.
+              </p>
+              <p className="mt-1 text-[11px] font-medium text-active">
+                It also starts any app block {goal.creatorName} set for themselves.
               </p>
             </Card>
           )}
 
-          {/* Cancel only when the creator has asked for it (they can't cancel a judged goal themselves). */}
+          {/* Change / cancel: only when the creator asked for it, by sending the
+              "ask for a change" link (they can't cancel a judged goal themselves). */}
           <Card className="mt-4 p-4">
-            <Label>Cancel at the user's request</Label>
+            <Label>Change or cancel at the user's request</Label>
             {goal.cancelRequested ? (
               <>
                 <p className="mb-2 text-[11px] text-muted">
-                  {goal.creatorName} asked you to cancel this goal. No code is needed, because cancelling never sends a message.
+                  {goal.creatorName} is asking you to change or cancel {goalRef(goal)}. Cancelling ends
+                  the goal with no decision and no message to anyone, so no code is needed. If they only
+                  need more time, they can move the deadline themselves — you don't have to do anything.
                 </p>
-                <Button variant="outline" className="w-full" disabled={busy} onClick={cancelByJudge}>
+                <Button variant="outline" className="w-full" disabled={busy} onClick={() => setConfirmCancel(true)}>
                   Cancel this goal
                 </Button>
               </>
             ) : (
               <p className="text-[11px] text-muted">
-                You can only cancel this goal if {goal.creatorName} asks you to. If they do, a cancel button appears here.
+                You can only cancel this goal if {goal.creatorName} asks you to, by sending you their
+                “ask for a change” link. If they do, a cancel button appears here.
               </p>
             )}
           </Card>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmDecision !== null}
+        title={
+          confirmDecision === 'completed'
+            ? `Mark ${goalRef(goal)} completed?`
+            : confirmDecision === 'not_completed'
+              ? `Mark ${goalRef(goal)} not completed?`
+              : 'Ask for more proof?'
+        }
+        message={
+          confirmDecision === 'completed' ? (
+            <>
+              You confirm {goal.creatorName} did what they told you {goalRef(goal)} was. This is final
+              and cannot be changed afterwards.
+            </>
+          ) : confirmDecision === 'not_completed' ? (
+            <>
+              <span className="text-danger">
+                Anyone {goal.creatorName} chose, and who accepted, gets the message about {goalRef(goal)}.
+              </span>{' '}
+              <span className="font-medium text-active">
+                Any app block they set for themselves starts now.
+              </span>{' '}
+              This is final and cannot be changed afterwards.
+            </>
+          ) : (
+            <>
+              You tell {goal.creatorName} you can't decide yet and need more proof. Nothing is sent to
+              anyone, and you can decide later.
+            </>
+          )
+        }
+        confirmLabel="I confirm"
+        cancelLabel="Go back"
+        danger={confirmDecision === 'not_completed'}
+        busy={busy}
+        onConfirm={() => confirmDecision && decide(confirmDecision)}
+        onCancel={() => setConfirmDecision(null)}
+      />
+
+      <ConfirmDialog
+        open={confirmCancel}
+        title={`Cancel ${goalRef(goal)}?`}
+        message={`This ends ${goal.creatorName}'s goal with no decision. No message is sent to anyone, and no app is blocked.`}
+        confirmLabel="I confirm"
+        cancelLabel="Go back"
+        danger
+        busy={busy}
+        onConfirm={cancelByJudge}
+        onCancel={() => setConfirmCancel(false)}
+      />
 
       {/* Report abuse */}
       <div className="mt-6 border-t border-line pt-4">

@@ -132,7 +132,8 @@ export default function Dashboard() {
           <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
           <p className="mt-1 text-[12px] text-muted">
             A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
-            them what it is yourself. You can also add people who’ll be told if you don’t do it.
+            them what it is yourself.{' '}
+            <span className="text-danger">You can also add people who’ll be told if you don’t do it.</span>
           </p>
           <Button className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
             {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
@@ -144,7 +145,10 @@ export default function Dashboard() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Without a judge</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal just for you</p>
           <p className="mt-1 text-[12px] text-muted">
-            No judge, no one else. If you miss it, a chosen app gets blocked on your phone for a while.
+            No judge, no one else.{' '}
+            <span className="font-medium text-active">
+              If you miss it, a chosen app gets blocked on your phone for a while.
+            </span>
           </p>
           {!soloOpen ? (
             <Button
@@ -178,7 +182,7 @@ export default function Dashboard() {
                   <option key={d.minutes} value={d.minutes}>{d.label}</option>
                 ))}
               </Select>
-              <p className="mb-3 text-[11px] text-muted">The block runs on your phone (Android). It starts if the deadline passes before you mark the goal done.</p>
+              <p className="mb-3 text-[11px] font-medium text-active">The block runs on your phone (Android). It starts if the deadline passes before you mark the goal done, or if you mark it not completed yourself.</p>
 
               {soloErr && <p className="mb-2 font-mono text-xs text-danger">{soloErr}</p>}
               <Button className="w-full" disabled={soloBusy} onClick={createSolo}>

@@ -688,6 +688,115 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     const done = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
     expect(done.status).toBe('completed');
   });
+
+  it('a solo goal can be marked not completed, and that costs the app block', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(
+      goalInput(owner.id, {
+        recipients: [],
+        judge: undefined,
+        appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
+      }),
+    );
+    const failed = await api.failSoloGoal(goal.id, owner.id);
+    expect(failed.status).toBe('failed_notified');
+    // Owning up costs exactly what missing the deadline costs.
+    expect(+new Date(failed.appBlockUntil!)).toBeGreaterThan(Date.now());
+    // No message goes anywhere: a solo goal has no recipients and no judge.
+    expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
+  });
+
+  it('only the owner of a judge-less goal can mark it not completed', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const solo = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
+    const stranger = await freshOwner();
+    await expect(api.failSoloGoal(solo.id, stranger.id)).rejects.toThrow(/owner/i);
+    // A judged goal is the judge's call, never the owner's.
+    const judged = (await activatedGoal()).goal;
+    await expect(api.failSoloGoal(judged.id, judged.userId)).rejects.toThrow(/judge/i);
+  });
+});
+
+describe('a judged goal is only ever ended by its judge', () => {
+  /** Rewrite a goal's stored deadline, the way time passing would. */
+  function forceDeadline(goalId: string, at: number) {
+    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]') as { id: string; deadlineAt: string }[];
+    for (const g of stored) if (g.id === goalId) g.deadlineAt = new Date(at).toISOString();
+    localStorage.setItem('fineline:goals', JSON.stringify(stored));
+  }
+
+  it('stays active past its deadline, out of history and off the leaderboards', async () => {
+    const { goal, owner } = await activatedGoal();
+    // Deadline long gone (a month), and still nobody has decided.
+    forceDeadline(goal.id, Date.now() - 31 * 86_400_000);
+    const after = (await api.getGoal(goal.id))!;
+    expect(after.status).toBe('active');
+    expect(await api.listCompletedGoals(owner.id)).toHaveLength(0);
+    const boards = await api.getLeaderboards(owner.id);
+    expect(boards.completions.find((e) => e.id === owner.id)).toBeUndefined();
+    expect(boards.consistency.find((e) => e.id === owner.id)).toBeUndefined();
+    // Only the judge's decision ends it, however late that is.
+    setDevice('judge-device');
+    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    expect(decided.status).toBe('completed');
+    expect(await api.listCompletedGoals(owner.id)).toHaveLength(1);
+  });
+
+  it('the judge link carries the request: Comitra messages the judge for nothing', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
+    setDevice('judge-device');
+    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    // Nothing was ever queued to the judge beyond their original invite.
+    const queued = await api.listOutbox(goal.id);
+    expect(queued.filter((m) => m.kind === 'judge_review_request')).toHaveLength(0);
+
+    // Opening the "ask for a decision" link is what unlocks deciding early.
+    await expect(
+      api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE),
+    ).rejects.toThrow(/deadline|early/i);
+    await api.applyJudgeLinkRequest(goal.id, goal.judge.acceptToken, 'decision');
+    expect((await api.getGoal(goal.id))!.earlyDecisionRequested).toBe(true);
+    expect((await api.getGoal(goal.id))!.cancelRequested).toBeFalsy();
+    expect(await api.listOutbox(goal.id)).toHaveLength(queued.length);
+
+    // And the "ask for a change" link is what unlocks cancelling.
+    await expect(api.judgeCancelGoal(goal.id, goal.judge.acceptToken)).rejects.toThrow(/asked/i);
+    await api.applyJudgeLinkRequest(goal.id, goal.judge.acceptToken, 'edit');
+    const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken);
+    expect(cancelled.status).toBe('cancelled');
+  });
+
+  it('a wrong token never records a request', async () => {
+    const { goal } = await activatedGoal();
+    await api.applyJudgeLinkRequest(goal.id, 'not-the-token', 'edit');
+    expect((await api.getGoal(goal.id))!.cancelRequested).toBeFalsy();
+  });
+});
+
+describe('the deadline is the only thing the owner may edit', () => {
+  it('moves the deadline, and refuses a past one', async () => {
+    const { goal, owner } = await activatedGoal();
+    const later = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    const moved = await api.updateGoalDeadline(goal.id, owner.id, later);
+    expect(moved.deadlineAt).toBe(later);
+    await expect(
+      api.updateGoalDeadline(goal.id, owner.id, new Date(Date.now() - 1000).toISOString()),
+    ).rejects.toThrow(/future/i);
+  });
+
+  it('only the owner, and never after the goal is over', async () => {
+    const { goal, owner } = await activatedGoal();
+    const stranger = await freshOwner();
+    const later = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    await expect(api.updateGoalDeadline(goal.id, stranger.id, later)).rejects.toThrow(/owner/i);
+    setDevice('judge-device');
+    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    await expect(api.updateGoalDeadline(goal.id, owner.id, later)).rejects.toThrow(/finished|decided/i);
+  });
 });
 
 describe('content is action-based', () => {

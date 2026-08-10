@@ -191,8 +191,16 @@ export async function remoteUpsertInvitedJudge(row: RemoteInvitedJudge): Promise
   }
 }
 
-/** Health of the shared store, as far as it can be told without writing data. */
-export type SyncHealth = 'off' | 'ok' | 'setup' | 'unreachable';
+/**
+ * Health of the shared store, as far as it can be told without writing data.
+ *
+ * `unreachable` and `no-server` are both "the request never got an answer", told
+ * apart by whether the device itself is online: a phone in a tunnel is a
+ * different problem from a `VITE_SUPABASE_URL` that no longer resolves (a
+ * deleted or renamed Supabase project), and only the second one is the owner's
+ * to fix.
+ */
+export type SyncHealth = 'off' | 'ok' | 'setup' | 'unreachable' | 'no-server';
 
 /**
  * Ask the server whether a friend would actually be able to register, before the
@@ -222,7 +230,11 @@ export async function remoteSyncHealth(): Promise<SyncHealth> {
     const row = Array.isArray(rows) ? rows[0] : undefined;
     return row?.has_insert && row?.has_update ? 'ok' : 'setup';
   } catch {
-    return 'unreachable';
+    // fetch rejects the same way for "no network" and "that host doesn't exist",
+    // so the browser's own connectivity flag is what separates them. Online +
+    // no answer = the configured project address is dead, which no amount of
+    // retrying from this phone will fix.
+    return navigator.onLine ? 'no-server' : 'unreachable';
   }
 }
 

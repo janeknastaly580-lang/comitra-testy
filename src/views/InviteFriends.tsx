@@ -26,8 +26,15 @@ const HEALTH: Record<SyncHealth, { label: string; note: string; tone: string }> 
   },
   unreachable: {
     label: 'Sync · offline',
-    note: "Can't reach the server right now. Friends may not be able to finish the invite.",
+    note: "This device is offline, so the server can't be checked. Friends may not be able to finish the invite.",
     tone: 'text-warn',
+  },
+  'no-server': {
+    label: 'Sync · no server',
+    note:
+      "The address Comitra is configured with doesn't answer, so nobody can finish an invite. " +
+      'The Supabase project has to be restored or recreated, and VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY pointed at it.',
+    tone: 'text-danger',
   },
   off: {
     label: 'Sync · this device only',
@@ -58,7 +65,7 @@ export default function InviteFriends() {
         // only an unhandled rejection to explain it. `offline` is the honest
         // report: we could not read the state of the shared store.
         console.error('[invite-friends] could not load invite state:', err);
-        setHealth('unreachable');
+        setHealth(navigator.onLine ? 'no-server' : 'unreachable');
         setFriends([]);
         setSmsOn(false);
       }

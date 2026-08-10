@@ -212,7 +212,7 @@ export default function CreateGoal() {
       <Card className="mb-5 border-accent/30 bg-accent/5 p-4">
         <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Your goal stays private</p>
         <p className="mt-1 text-[12px] leading-relaxed text-ink">
-          The notification sent to your judge does not contain your goal’s content. They are only asked
+          The link you send your judge does not contain your goal’s content. They are only asked
           whether you completed {goalNumber ? `goal #${goalNumber}` : 'your goal'}. Telling them what
           the goal is, is up to you.
         </p>
@@ -286,8 +286,9 @@ export default function CreateGoal() {
             accepted your invite (they set their own judge password). You cannot judge your own goal.
           </p>
           <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
-            The notification sent to your judge does not contain your goal’s content. They are asked
-            only: “Did {user.name.split(' ')[0]} complete {goalNumber ? `goal #${goalNumber}` : 'this goal'}?”
+            Comitra never messages your judge by itself. When you want their decision, you send them a
+            link, and it asks only: “Did {user.name.split(' ')[0]} complete{' '}
+            {goalNumber ? `goal #${goalNumber}` : 'this goal'}?”
           </p>
 
           {invitedJudges.length === 0 ? (
@@ -316,7 +317,7 @@ export default function CreateGoal() {
             <span className="text-sm font-semibold text-ink">If you don’t do it</span>
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
           </div>
-          <p className="mb-3 text-[11px] text-muted">
+          <p className="mb-3 text-[11px] font-medium text-active">
             Block an app on your phone when your judge marks this goal as not completed.
           </p>
           <ToggleRow label="Block an app if I miss this goal" checked={blockOn} onChange={setBlockOn} />
@@ -334,7 +335,7 @@ export default function CreateGoal() {
                   <option key={d.minutes} value={d.minutes}>{d.label}</option>
                 ))}
               </Select>
-              <p className="mt-2 text-[11px] text-muted">
+              <p className="mt-2 text-[11px] font-medium text-active">
                 The block runs on your phone (Android). It starts the moment your judge marks the goal
                 as not completed.
               </p>
@@ -349,8 +350,8 @@ export default function CreateGoal() {
               Recipient <span className="text-muted">({filledRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
             </span>
           </div>
-          <p className="mb-3 text-[11px] text-muted">Optional. If the judge marks the goal not completed, this person (once they accept) receives a message. One recipient per goal. Leave empty to keep the goal between you and your judge only.</p>
-          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
+          <p className="mb-3 text-[11px] text-danger">Optional. If the judge marks the goal not completed, this person (once they accept) receives a message. One recipient per goal. Leave empty to keep the goal between you and your judge only.</p>
+          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-danger">
             Your recipient never sees your goal’s content either. The message says only that{' '}
             {goalNumber ? `goal #${goalNumber}` : 'the goal'} was not completed.
           </p>
@@ -410,7 +411,7 @@ export default function CreateGoal() {
         {/* Preview */}
         <Card className="p-4">
           <Label>Message preview</Label>
-          <p className="mb-2 text-[11px] text-muted">
+          <p className="mb-2 text-[11px] text-danger">
             Sent only if the judge marks the goal as not completed. This is the whole message, and there is
             no option to add your goal’s content to it.
           </p>
@@ -420,7 +421,7 @@ export default function CreateGoal() {
         {/* Notify consent */}
         <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line p-3">
           <input type="checkbox" checked={ackNotify} onChange={(e) => setAckNotify(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
-          <span className="text-[12px] leading-relaxed text-ink">
+          <span className="text-[12px] leading-relaxed text-danger">
             I understand that if the goal is marked as not completed, the person I chose, if they accepted, may receive a message.{' '}
             <Link to="/terms" className="text-accent underline">Terms</Link>
           </span>

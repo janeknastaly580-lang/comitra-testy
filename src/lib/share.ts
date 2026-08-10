@@ -29,10 +29,21 @@ function base(): string {
   return `${origin}${path}`;
 }
 
-/** Absolute judge link: `…/#/verify/<goalId>/<token>`. */
-export function judgeLink(goal: Pick<Goal, 'id'> & { judge?: { acceptToken?: string }; shareToken?: string }): string {
+/**
+ * Absolute judge link: `…/#/verify/<goalId>/<token>`.
+ *
+ * `ask` is what the owner wants from their judge, and it is the whole request:
+ * Comitra never messages a judge on its own, so the link the owner hands over is
+ * what opens the matching panel — `decision` to mark the goal completed or not
+ * completed, `edit` to ask for a change or a cancellation. Plain (no `ask`) is
+ * the invite link, which only offers the judge role.
+ */
+export function judgeLink(
+  goal: Pick<Goal, 'id'> & { judge?: { acceptToken?: string }; shareToken?: string },
+  ask?: 'decision' | 'edit',
+): string {
   const token = goal.judge?.acceptToken ?? goal.shareToken ?? '';
-  return `${base()}#/verify/${goal.id}/${token}`;
+  return `${base()}#/verify/${goal.id}/${token}${ask ? `?ask=${ask}` : ''}`;
 }
 
 /** Absolute recipient invite / manage link: `…/#/recipient/<inviteToken>`. */

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
-import { countdown, countdownClock, dateTime, shortDate, timeOfDay } from '../lib/format';
+import { countdown, countdownClock, dateTime, shortDate, timeOfDay, toLocalInputValue } from '../lib/format';
 import { deadlineElapsedRatio, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
 import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
@@ -12,6 +12,7 @@ import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
 import type { Goal, GoalReflection, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
 import AppBlockPermission from '../components/AppBlockPermission';
 import ConfirmDialog from '../components/ConfirmDialog';
+import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
@@ -37,6 +38,15 @@ export default function GoalDetail() {
   const now = useNow(1000);
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
+  // Solo goals are decided by their owner, so both outcomes go through a
+  // confirmation: neither "I did it" nor "I didn't" can be a stray tap.
+  const [confirmSolo, setConfirmSolo] = useState<'completed' | 'failed' | null>(null);
+  const [soloBusy, setSoloBusy] = useState(false);
+
+  // Deadline editing: the one part of a set goal its owner may still change.
+  const [editDeadline, setEditDeadline] = useState(false);
+  const [newDeadline, setNewDeadline] = useState('');
+  const [deadlineBusy, setDeadlineBusy] = useState(false);
 
   // "Block an app until I finish this", offered while the goal is running and
   // ends within COMMITMENT_BLOCK_MAX_DAYS.
@@ -89,6 +99,10 @@ export default function GoalDetail() {
   const isPreActive = PRE_ACTIVE.includes(goal.status);
   const isTerminal = TERMINAL.includes(goal.status);
   const canAddEvidence = ['active', 'proof_pending', 'judge_review'].includes(goal.status);
+  const canEditDeadline = !isTerminal && !goal.judge.decision;
+  // The two links the owner sends their judge. Comitra messages the judge for
+  // nothing, so these are the whole channel.
+  const showJudgeAsk = !isSoloGoal(goal) && !isTerminal && goal.judge.status === 'accepted' && !goal.judge.decision;
 
   function openEvidence(target?: string) {
     setEvTarget(target);
@@ -170,33 +184,34 @@ export default function GoalDetail() {
     setConfirmCancel(false);
   }
 
-  async function completeSolo() {
+  /** Solo goal, own verdict. Runs only after the confirmation dialog. */
+  async function decideSolo(outcome: 'completed' | 'failed') {
+    setSoloBusy(true);
     try {
-      await api.completeSoloGoal(goal!.id, user!.id);
+      if (outcome === 'completed') await api.completeSoloGoal(goal!.id, user!.id);
+      else await api.failSoloGoal(goal!.id, user!.id);
+      setConfirmSolo(null);
       await load();
-      setNotice('Nice, goal marked as completed.');
+      setNotice(outcome === 'completed' ? 'Nice, goal marked as completed.' : 'Goal marked as not completed.');
     } catch (err) {
       setNotice((err as Error).message);
+      setConfirmSolo(null);
+    } finally {
+      setSoloBusy(false);
     }
   }
 
-  async function askJudgeNow() {
+  async function saveDeadline() {
+    setDeadlineBusy(true);
     try {
-      await api.requestEarlyDecision(goal!.id, user!.id);
+      await api.updateGoalDeadline(goal!.id, user!.id, new Date(newDeadline).toISOString());
+      setEditDeadline(false);
       await load();
-      setNotice('Your judge has been asked to decide now.');
+      setNotice('Deadline changed.');
     } catch (err) {
       setNotice((err as Error).message);
-    }
-  }
-
-  async function askCancel() {
-    try {
-      await api.requestCancel(goal!.id, user!.id);
-      await load();
-      setNotice('Your judge has been asked to cancel this goal.');
-    } catch (err) {
-      setNotice((err as Error).message);
+    } finally {
+      setDeadlineBusy(false);
     }
   }
   /** Switch on the commitment block, once the user has confirmed twice. */
@@ -260,9 +275,11 @@ export default function GoalDetail() {
         </div>
         {!isSoloGoal(goal) && (
           <p className="mt-2 text-[11px] leading-relaxed text-muted">
-            The notification sent to your judge does not contain your goal’s content, only this number.
-            Tell {goal.judge.name} yourself what {goalRefTitle(goal).toLowerCase()} is.
-            {goal.recipients.length > 0 && ' Recipients only ever see this number too.'}
+            Nothing you send your judge contains your goal’s content, only this number. Tell{' '}
+            {goal.judge.name} yourself what {goalRefTitle(goal).toLowerCase()} is.
+            {goal.recipients.length > 0 && (
+              <span className="text-danger"> Recipients only ever see this number too.</span>
+            )}
           </p>
         )}
       </Card>
@@ -330,24 +347,76 @@ export default function GoalDetail() {
           <Mini label="Start" value={shortDate(goalStart(goal))} sub={timeOfDay(goalStart(goal))} />
           <Mini label="Deadline" value={shortDate(goal.deadlineAt)} sub={timeOfDay(goal.deadlineAt)} />
         </div>
+
+        {/* The deadline is the only thing the owner may still change. Everything
+            else (the goal, its judge, its recipients, its penalty) is the
+            commitment, and editing that would empty it out. */}
+        {canEditDeadline && (
+          <div className="mt-3 border-t border-line pt-3">
+            {!editDeadline ? (
+              <button
+                onClick={() => {
+                  setNewDeadline(toLocalInputValue(new Date(goal.deadlineAt)));
+                  setEditDeadline(true);
+                }}
+                className="w-full text-center font-mono text-[11px] uppercase tracking-widest text-muted transition hover:text-accent"
+              >
+                Change the deadline
+              </button>
+            ) : (
+              <>
+                <Label>New deadline</Label>
+                <DateTimeField value={newDeadline} onChange={setNewDeadline} className="mb-2" />
+                <p className="mb-2 text-[11px] text-muted">
+                  The deadline is the only part of a set goal you can change yourself. It has to be in
+                  the future.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" onClick={() => setEditDeadline(false)}>Keep it</Button>
+                  <Button
+                    disabled={deadlineBusy || !newDeadline || new Date(newDeadline).getTime() <= Date.now()}
+                    onClick={saveDeadline}
+                  >
+                    {deadlineBusy ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Card>
+
+      {/* A judged goal past its deadline is still running: only the judge's
+          decision ends it, however long they take. */}
+      {!isSoloGoal(goal) && isRunning && cd.overdue && (
+        <Card className="mb-4 border-warn/30 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Deadline passed</p>
+          <p className="mt-1 text-sm text-ink">
+            This goal stays active until {goal.judge.name} decides whether you completed it. It is not
+            in your history and counts nowhere until then.
+          </p>
+          <p className="mt-1 text-[11px] text-muted">
+            Send them the “ask for a decision” link below when you're ready.
+          </p>
+        </Card>
+      )}
 
       {/* Penalty: app block. Solo goals fire it on a missed deadline, judged goals
           when the judge marks the goal as not completed. */}
       {goal.appBlock && (
-        <Card className="mb-4 border-danger/30 p-4">
+        <Card className="mb-4 border-active/30 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">If you miss this goal</p>
-          <p className="mt-1 text-sm text-ink">
-            <span className="font-semibold">{goal.appBlock.appLabel}</span> gets blocked on your phone for{' '}
-            <span className="font-semibold">{blockDurationLabel(goal.appBlock.durationMinutes)}</span>.
+          <p className="mt-1 text-sm font-medium text-active">
+            {goal.appBlock.appLabel} gets blocked on your phone for{' '}
+            {blockDurationLabel(goal.appBlock.durationMinutes)}.
           </p>
           {goal.appBlockUntil && new Date(goal.appBlockUntil).getTime() > Date.now() ? (
-            <p className="mt-2 rounded-lg bg-danger/10 px-3 py-2 text-[12px] font-semibold text-danger">
+            <p className="mt-2 rounded-lg bg-active/10 px-3 py-2 text-[12px] font-medium text-active">
               <Lock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
               {goal.appBlock.appLabel} is blocked until {dateTime(goal.appBlockUntil)}.
             </p>
           ) : (
-            <p className="mt-1 text-[11px] text-muted">
+            <p className="mt-1 text-[11px] font-medium text-active">
               {isSoloGoal(goal)
                 ? 'The block runs on Android; it starts if the deadline passes before you mark the goal done.'
                 : `The block runs on Android; it starts if ${goal.judge.name} marks this goal as not completed.`}
@@ -365,12 +434,11 @@ export default function GoalDetail() {
 
       {/* Commitment block: live state, or the offer to switch it on. */}
       {api.isCommitmentBlockLive(goal) ? (
-        <Card className="mb-4 border-accent/40 bg-accent/5 p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Blocked while you work</p>
-          <p className="mt-1 text-sm text-ink">
+        <Card className="mb-4 border-active/40 bg-active/5 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-active">Blocked while you work</p>
+          <p className="mt-1 text-sm font-medium text-active">
             <Lock className="mr-1 inline h-3.5 w-3.5" aria-hidden />
-            <span className="font-semibold">{goal.commitmentBlock!.appLabel}</span> is blocked on your
-            phone until this goal is done.
+            {goal.commitmentBlock!.appLabel} is blocked on your phone until this goal is done.
           </p>
           <p className="mt-1 text-[11px] text-muted">
             It unlocks the moment the goal is completed or ends, at the latest{' '}
@@ -381,7 +449,7 @@ export default function GoalDetail() {
         api.canSetCommitmentBlock(goal) && (
           <Card className="mb-4 p-4">
             <Label>Block an app until you finish</Label>
-            <p className="mb-3 text-[11px] text-muted">
+            <p className="mb-3 text-[11px] font-medium text-active">
               Your goal ends within {api.COMMITMENT_BLOCK_MAX_DAYS} days, so you can lock an app away for
               the rest of it. It stays blocked until you complete this goal or it ends, and you can’t turn it
               off in between.
@@ -541,7 +609,7 @@ export default function GoalDetail() {
       {goal.recipients.length > 0 && (
       <Card className="mb-4 p-4">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Recipients ({goal.recipients.length})</p>
-        <p className="mb-3 text-[11px] text-muted">
+        <p className="mb-3 text-[11px] text-danger">
           Only recipients who accept can ever receive a message. They can opt out anytime. They are told
           only that {goalRefTitle(goal).toLowerCase()} was not completed, never what it was.
         </p>
@@ -586,25 +654,43 @@ export default function GoalDetail() {
       </Card>
       )}
 
-      {/* Ask the judge to decide before the deadline */}
-      {!isSoloGoal(goal) && goal.status === 'active' && Date.now() < +new Date(goal.deadlineAt) && (
-        goal.earlyDecisionRequested ? (
-          <Card className="mb-4 p-4">
-            <p className="text-sm text-ink">You asked {goal.judge.name} to decide now.</p>
-            <p className="mt-0.5 text-[11px] text-muted">They've been notified and can decide before the deadline.</p>
-          </Card>
-        ) : (
-          <Button variant="outline" className="mb-4 w-full" onClick={askJudgeNow}>
-            Ask your judge to decide now
-          </Button>
-        )
+      {/* Asking the judge for something: two links, and nothing is sent by the
+          app. Which link they open decides what they can do. */}
+      {showJudgeAsk && (
+        <Card className="mb-4 p-4">
+          <Label>Ask {goal.judge.name}</Label>
+          <p className="mb-3 text-[11px] text-muted">
+            Comitra doesn't message your judge. Send them one of these yourself, and it opens only what
+            you're asking for. Neither link shows them what your goal is.
+          </p>
+          <div className="space-y-3">
+            <ShareLink
+              title="Ask for a decision"
+              hint={`They mark ${goalRefTitle(goal).toLowerCase()} completed or not completed, and confirm it. That is all this link can do.`}
+              link={judgeLink(goal, 'decision')}
+              phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
+            />
+            <ShareLink
+              title="Ask for a change"
+              hint="Opens their change panel, where they can cancel this goal. Use it when the goal itself has to go — you can move the deadline yourself."
+              link={judgeLink(goal, 'edit')}
+              phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
+            />
+          </div>
+          {(goal.earlyDecisionRequested || goal.cancelRequested) && (
+            <p className="mt-3 text-[11px] text-muted">
+              {goal.earlyDecisionRequested && 'Your judge has opened the decision link. '}
+              {goal.cancelRequested && 'Your judge has opened the change link and can cancel this goal.'}
+            </p>
+          )}
+        </Card>
       )}
 
       {/* Notifications the system will send for this goal */}
       {outbox.length > 0 && (
         <Card className="mb-4 p-4">
           <Label>Notifications</Label>
-          <p className="mb-2 text-[11px] text-muted">
+          <p className="mb-2 text-[11px] text-danger">
             Messages Comitra sends for this goal. Recipients are only ever messaged after they accept.
           </p>
           <div className="space-y-2">
@@ -647,11 +733,17 @@ export default function GoalDetail() {
         </div>
       )}
 
-      {/* Solo goals: the creator finishes them themselves (no judge to decide). */}
+      {/* Solo goals: the creator decides them themselves (no judge). Both
+          outcomes are available, and both go through a confirmation. */}
       {isSoloGoal(goal) && goal.status === 'active' && (
-        <Button className="mb-2 mt-2 w-full" onClick={completeSolo}>
-          Mark goal as completed
-        </Button>
+        <div className="mb-2 mt-2 space-y-2">
+          <Button className="w-full" onClick={() => setConfirmSolo('completed')}>
+            Mark goal as completed
+          </Button>
+          <Button variant="danger" className="w-full" onClick={() => setConfirmSolo('failed')}>
+            Mark goal as not completed
+          </Button>
+        </div>
       )}
 
       {isTerminal ? (
@@ -664,16 +756,14 @@ export default function GoalDetail() {
           Cancel goal
         </button>
       ) : (
-        // Any goal with a judge: the creator can't cancel, they ask the judge to.
-        goal.cancelRequested ? (
-          <p className="mt-3 text-center text-[11px] text-muted">
-            You asked {goal.judge.name} to cancel this goal, and they've been notified.
-          </p>
-        ) : (
-          <button onClick={askCancel} className="mt-3 w-full py-2 text-center font-mono text-[11px] uppercase tracking-widest text-muted hover:text-danger">
-            Ask your judge to cancel this goal
-          </button>
-        )
+        // Any goal with a judge: the creator can't cancel it, and Comitra won't
+        // ask on their behalf. They send the "ask for a change" link above.
+        <p className="mt-3 text-center text-[11px] text-muted">
+          Only {goal.judge.name} can cancel this goal.{' '}
+          {showJudgeAsk
+            ? 'Send them the “ask for a change” link above.'
+            : `Once ${goal.judge.name} accepts, a link for asking them appears here.`}
+        </p>
       )}
 
       <ConfirmDialog
@@ -706,6 +796,38 @@ export default function GoalDetail() {
         danger
         onConfirm={cancel}
         onCancel={() => setConfirmCancel(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmSolo !== null}
+        title={confirmSolo === 'completed' ? 'Mark this goal completed?' : 'Mark this goal not completed?'}
+        message={
+          confirmSolo === 'completed' ? (
+            <>
+              You're saying you did it. The goal closes as completed and counts towards your streak.
+              {api.isCommitmentBlockLive(goal) && ' Any app you locked away for this goal unlocks now.'}
+            </>
+          ) : (
+            <>
+              You're saying you didn't do it. The goal closes as not completed, and you'll be asked why
+              before you can set a new one.
+              {goal.appBlock && (
+                <span className="font-medium text-active">
+                  {' '}
+                  {goal.appBlock.appLabel} gets blocked on your phone for{' '}
+                  {blockDurationLabel(goal.appBlock.durationMinutes)}, exactly as if you'd let the
+                  deadline pass.
+                </span>
+              )}
+            </>
+          )
+        }
+        confirmLabel="I confirm"
+        cancelLabel="Go back"
+        danger={confirmSolo === 'failed'}
+        busy={soloBusy}
+        onConfirm={() => confirmSolo && decideSolo(confirmSolo)}
+        onCancel={() => setConfirmSolo(null)}
       />
     </div>
   );

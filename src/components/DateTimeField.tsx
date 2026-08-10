@@ -102,6 +102,19 @@ export default function DateTimeField({
   const refs = useRef<Partial<Record<SegmentKey, HTMLInputElement | null>>>({});
   const nativeRef = useRef<HTMLInputElement>(null);
 
+  /**
+   * The live parts, readable from a handler that runs BEFORE React re-renders.
+   *
+   * Typing the last digit of a box moves focus to the next one, which fires this
+   * box's `blur` in the same tick — so `onSegmentBlur` used to read the `parts`
+   * of the previous render, i.e. the value WITHOUT the digit just typed, and
+   * "tidied" that stale value back over the fresh one. Typing 08 in the month
+   * landed as 01, 05 in the day as 01, 09 in the hour as 00. Minutes were the
+   * only clean segment, because nothing follows them to move focus to.
+   */
+  const partsRef = useRef(parts);
+  partsRef.current = parts;
+
   // The app's own clock, ticking so "is this in the future?" stays honest.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -121,6 +134,7 @@ export default function DateTimeField({
   }, [value]);
 
   function commit(next: Parts) {
+    partsRef.current = next;
     setParts(next);
     onChange(combine(next));
   }
@@ -135,7 +149,8 @@ export default function DateTimeField({
 
   function onSegmentInput(index: number, raw: string) {
     const seg = SEGMENTS[index];
-    const prev = parts[seg.key];
+    const current = partsRef.current;
+    const prev = current[seg.key];
     let digits = raw.replace(/\D/g, '');
     if (digits.length > seg.len) {
       // Overflowing means the user typed into a box that was already full: keep
@@ -143,7 +158,7 @@ export default function DateTimeField({
       const typed = insertedDigits(prev, digits);
       digits = (typed || digits).slice(0, seg.len);
     }
-    commit({ ...parts, [seg.key]: digits });
+    commit({ ...current, [seg.key]: digits });
 
     // Jump on when the box is full, or when another digit couldn't fit anyway
     // (typing "5" as the month can only mean May).
@@ -172,7 +187,10 @@ export default function DateTimeField({
   /** Tidy a segment when leaving it: pad "5" → "05" and clamp out-of-range. */
   function onSegmentBlur(index: number) {
     const seg = SEGMENTS[index];
-    const raw = parts[seg.key];
+    // `partsRef`, never `parts`: this runs before the render that carries the
+    // digit the user just typed. See the ref's comment above.
+    const current = partsRef.current;
+    const raw = current[seg.key];
     if (!raw) return;
 
     if (seg.key === 'y') {
@@ -181,7 +199,7 @@ export default function DateTimeField({
       // is left alone and flagged, so the user can just finish typing it.
       if (raw.length === 2) {
         const century = Math.floor(new Date(minTime ?? Date.now()).getFullYear() / 100) * 100;
-        commit({ ...parts, y: String(century + Number(raw)) });
+        commit({ ...current, y: String(century + Number(raw)) });
       }
       return;
     }
@@ -190,7 +208,7 @@ export default function DateTimeField({
     const min = seg.key === 'h' || seg.key === 'min' ? 0 : 1;
     n = Math.min(seg.max, Math.max(min, n));
     const padded = String(n).padStart(2, '0'); // the year returned above; the rest are 2-digit
-    if (padded !== raw) commit({ ...parts, [seg.key]: padded });
+    if (padded !== raw) commit({ ...current, [seg.key]: padded });
   }
 
   /** The calendar button hands off to the platform's own picker. */
