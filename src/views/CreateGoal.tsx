@@ -349,11 +349,10 @@ export default function CreateGoal() {
             <span className="text-sm font-semibold text-ink">
               Recipient <span className="text-muted">({filledRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
             </span>
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
           </div>
-          <p className="mb-3 text-[11px] text-danger">Optional. If the judge marks the goal not completed, this person (once they accept) receives a message. One recipient per goal. Leave empty to keep the goal between you and your judge only.</p>
-          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-danger">
-            Your recipient never sees your goal’s content either. The message says only that{' '}
-            {goalNumber ? `goal #${goalNumber}` : 'the goal'} was not completed.
+          <p className="mb-3 text-[11px] text-active">
+            If the judge marks the goal not completed, this person (once they accept) receives a message
           </p>
           <div className="space-y-3">
             {recipients.map((r, i) => (
@@ -411,18 +410,15 @@ export default function CreateGoal() {
         {/* Preview */}
         <Card className="p-4">
           <Label>Message preview</Label>
-          <p className="mb-2 text-[11px] text-danger">
-            Sent only if the judge marks the goal as not completed. This is the whole message, and there is
-            no option to add your goal’s content to it.
-          </p>
+          <p className="mb-2 text-[11px] text-active">Sent only if the judge marks the goal not completed.</p>
           <div className="whitespace-pre-line rounded-xl border border-line bg-elevated p-3 text-sm text-ink">{preview}</div>
         </Card>
 
         {/* Notify consent */}
         <label className="flex cursor-pointer items-start gap-2 rounded-xl border border-line p-3">
           <input type="checkbox" checked={ackNotify} onChange={(e) => setAckNotify(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
-          <span className="text-[12px] leading-relaxed text-danger">
-            I understand that if the goal is marked as not completed, the person I chose, if they accepted, may receive a message.{' '}
+          <span className="text-[12px] leading-relaxed text-active">
+            I understand a message may be sent if the goal is marked not completed.{' '}
             <Link to="/terms" className="text-accent underline">Terms</Link>
           </span>
         </label>

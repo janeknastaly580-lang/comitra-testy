@@ -254,9 +254,8 @@ export default function Verifier() {
                 onChange={(e) => setAckRole(e.target.checked)}
                 className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]"
               />
-              <span className="text-[12px] leading-relaxed text-danger">
-                I understand that my decision may cause a message to be sent to the people the user
-                chose.
+              <span className="text-[12px] leading-relaxed text-active">
+                I understand my decision may cause a message to be sent.
               </span>
             </label>
 
@@ -371,9 +370,8 @@ export default function Verifier() {
                   Need proof / can't decide
                 </Button>
               </div>
-              <p className="mt-3 text-[11px] text-danger">
-                “Not completed” sends the pre-set message to the recipients who accepted. The message
-                never says what the goal was.
+              <p className="mt-3 text-[11px] text-active">
+                “Not completed” messages the recipients who accepted.
               </p>
               <p className="mt-1 text-[11px] font-medium text-active">
                 It also starts any app block {goal.creatorName} set for themselves.
@@ -423,8 +421,8 @@ export default function Verifier() {
             </>
           ) : confirmDecision === 'not_completed' ? (
             <>
-              <span className="text-danger">
-                Anyone {goal.creatorName} chose, and who accepted, gets the message about {goalRef(goal)}.
+              <span className="text-active">
+                Recipients who accepted get the message about {goalRef(goal)}.
               </span>{' '}
               <span className="font-medium text-active">
                 Any app block they set for themselves starts now.

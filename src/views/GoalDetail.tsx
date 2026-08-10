@@ -278,7 +278,7 @@ export default function GoalDetail() {
             Nothing you send your judge contains your goal’s content, only this number. Tell{' '}
             {goal.judge.name} yourself what {goalRefTitle(goal).toLowerCase()} is.
             {goal.recipients.length > 0 && (
-              <span className="text-danger"> Recipients only ever see this number too.</span>
+              <span className="text-active"> Recipients only see this number too.</span>
             )}
           </p>
         )}
@@ -609,9 +609,9 @@ export default function GoalDetail() {
       {goal.recipients.length > 0 && (
       <Card className="mb-4 p-4">
         <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted">Recipients ({goal.recipients.length})</p>
-        <p className="mb-3 text-[11px] text-danger">
-          Only recipients who accept can ever receive a message. They can opt out anytime. They are told
-          only that {goalRefTitle(goal).toLowerCase()} was not completed, never what it was.
+        <p className="mb-3 text-[11px] text-active">
+          Only recipients who accepted are messaged, and only that {goalRefTitle(goal).toLowerCase()} was
+          not completed. They can opt out anytime.
         </p>
         <div className="space-y-3">
           {goal.recipients.map((r) => {
@@ -690,9 +690,7 @@ export default function GoalDetail() {
       {outbox.length > 0 && (
         <Card className="mb-4 p-4">
           <Label>Notifications</Label>
-          <p className="mb-2 text-[11px] text-danger">
-            Messages Comitra sends for this goal. Recipients are only ever messaged after they accept.
-          </p>
+          <p className="mb-2 text-[11px] text-active">Recipients are only messaged after they accept.</p>
           <div className="space-y-2">
             {outbox.map((m) => (
               <div key={m.id} className="rounded-lg border border-line bg-elevated p-2.5">

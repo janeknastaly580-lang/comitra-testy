@@ -133,7 +133,7 @@ export default function Dashboard() {
           <p className="mt-1 text-[12px] text-muted">
             A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
             them what it is yourself.{' '}
-            <span className="text-danger">You can also add people who’ll be told if you don’t do it.</span>
+            <span className="text-active">You can also add someone who’ll be told if you don’t do it.</span>
           </p>
           <Button className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
             {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
