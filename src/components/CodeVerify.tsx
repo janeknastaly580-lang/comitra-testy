@@ -19,9 +19,16 @@ import { Button, Input, Label } from './ui';
 /** Seconds before another code may be requested. Matches the server's cooldown. */
 const RESEND_COOLDOWN = 60;
 
+/**
+ * `expiresInMinutes` mirrors the server's own TTL per channel — email is
+ * `CODE_TTL_MS` in server/src/email/verify.js, SMS the one in
+ * server/src/twilio/verify.js. They are not the same number, so the wording
+ * cannot be shared: promising five minutes on a code that lives seven (or the
+ * reverse) is worse than saying nothing.
+ */
 const CHANNEL = {
-  email: { sent: 'We emailed a 6-digit code to', back: 'Change email' },
-  sms: { sent: 'We texted a 6-digit code to', back: 'Change number' },
+  email: { sent: 'We emailed a 6-digit code to', back: 'Change email', expiresInMinutes: 7 },
+  sms: { sent: 'We texted a 6-digit code to', back: 'Change number', expiresInMinutes: 5 },
 } as const;
 
 export default function CodeVerify({
@@ -87,7 +94,8 @@ export default function CodeVerify({
         className="text-center text-lg tracking-[0.4em]"
       />
       <p className="mt-1.5 text-[11px] text-muted">
-        {copy.sent} <span className="font-semibold text-ink">{destination}</span>. It expires in 5 minutes.
+        {copy.sent} <span className="font-semibold text-ink">{destination}</span>. It expires in{' '}
+        {copy.expiresInMinutes} minutes.
       </p>
       {channel === 'email' && (
         <p className="mt-1 text-[11px] text-muted">Not there? Check your spam folder.</p>

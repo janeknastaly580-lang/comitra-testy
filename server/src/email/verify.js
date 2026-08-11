@@ -21,10 +21,10 @@ import { LIMITS, takeSlot } from '../twilio/throttle.js';
  *     with a pepper generated at boot and held only in memory.
  *   • **The address is not a key either** — entries are filed under a keyed
  *     hash of it, so a heap dump holds no email addresses.
- *   • **Five minutes, five attempts.** An expired or exhausted entry is deleted,
+ *   • **Seven minutes, five attempts.** An expired or exhausted entry is deleted,
  *     not just refused, so a code can never be checked after it dies.
  *   • **Single use.** A correct code deletes its entry, so it cannot be replayed
- *     inside the five minutes.
+ *     inside the seven minutes.
  *
  * The per-address cooldown and hourly quota come from the same throttle store
  * the SMS side uses, under their own bucket names, so codes to one address are
@@ -34,8 +34,12 @@ import { LIMITS, takeSlot } from '../twilio/throttle.js';
  * every pending code, which for the person is the same as a code expiring.
  */
 
-/** How long a code stays valid. Mirrored in the email copy. */
-export const CODE_TTL_MS = 5 * 60_000;
+/**
+ * How long a code stays valid, counted from the moment it is generated.
+ * Mirrored in the email copy (templates.js) and in the app's copy
+ * (src/components/CodeVerify.tsx) — change all three together.
+ */
+export const CODE_TTL_MS = 7 * 60_000;
 /** Wrong guesses allowed before the code is destroyed and a new one is needed. */
 export const MAX_ATTEMPTS = 5;
 /** Digits in a code. The UI's input is sized for exactly this. */

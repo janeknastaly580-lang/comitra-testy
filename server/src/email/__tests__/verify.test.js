@@ -157,6 +157,23 @@ describe('checking a code', () => {
     await expect(checkEmailVerification({ email: EMAIL, code })).rejects.toMatchObject({ code: 'invalid-code' });
   });
 
+  it('keeps a code alive for 7 minutes from generation, and not a minute longer', async () => {
+    vi.useFakeTimers();
+    const fake = createFakeSesClient();
+    setSesClientForTests(fake);
+    await startEmailVerification({ email: EMAIL });
+    const code = codeFrom(fake);
+
+    // The stated contract, not just "whatever CODE_TTL_MS happens to be" — the
+    // email tells the person seven minutes, so this is what must be true.
+    expect(CODE_TTL_MS).toBe(7 * 60_000);
+    expect(fake.calls.emails[0].Content.Simple.Body.Text.Data).toContain('7 minutes');
+
+    // A second before the deadline it still works.
+    vi.advanceTimersByTime(7 * 60_000 - 1000);
+    await expect(checkEmailVerification({ email: EMAIL, code })).resolves.toEqual({ approved: true });
+  });
+
   it('expires a code after its TTL', async () => {
     vi.useFakeTimers();
     const fake = createFakeSesClient();

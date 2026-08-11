@@ -11,7 +11,7 @@
  */
 
 /** How long a code stays valid, in minutes. Mirrors verify.js's CODE_TTL_MS. */
-const TTL_MINUTES = 5;
+const TTL_MINUTES = 7;
 
 /** HTML-escape everything interpolated into the HTML part. */
 function esc(value) {

@@ -26,7 +26,8 @@ Four things worth knowing:
   flow — that is Twilio, and unrelated (see `TWILIO_SETUP.md`).
 - **The plaintext code is never stored.** `server/src/email/verify.js` generates
   it, emails it, and keeps only a keyed HMAC-SHA256 digest. It is valid for
-  **5 minutes**, allows **5 attempts**, and is destroyed the moment it is used,
+  **7 minutes** from the moment it is generated, allows **5 attempts**, and is
+  destroyed the moment it is used,
   expires, or runs out of attempts.
 - **No AWS credential reaches the browser or the APK.** The web app calls *our*
   backend (`VITE_API_BASE`), and the backend calls SES. An AWS key shipped in a
