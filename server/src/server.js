@@ -47,12 +47,28 @@ app.use(
   }),
 );
 
+/**
+ * Refuse every payment route when no PayPal app is configured, in a way the
+ * frontend can tell apart from a failure. Payments are optional here: a
+ * deployment may run only sign-up emails and SMS (see config.js), and those
+ * must not be held hostage by a missing checkout credential.
+ */
+function requirePaypalConfigured(_req, res, next) {
+  if (!config.paypal.configured) {
+    return res.status(503).json({
+      error: 'Payments are not set up on this server yet.',
+      code: 'paypal_not_configured',
+    });
+  }
+  next();
+}
+
 /* -------------------------------------------------------------- Webhook ---
  * Registered BEFORE express.json so we keep the exact raw bytes PayPal signed.
  * Webhooks are server-to-server, so they are CSRF-exempt and auth-exempt;
  * trust is established cryptographically via signature verification instead.
  */
-app.post('/api/paypal/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/paypal/webhook', requirePaypalConfigured, express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const ok = await verifyWebhookSignature({ headers: req.headers, rawBody: req.body });
     if (!ok) {
@@ -157,6 +173,7 @@ function handleValidation(req, res, next) {
  */
 app.post(
   '/api/orders',
+  requirePaypalConfigured,
   doubleCsrfProtection,
   requireAuth,
   body('productId').isString().trim().isLength({ min: 1, max: 64 }),
@@ -197,6 +214,7 @@ app.post(
  */
 app.post(
   '/api/orders/:orderId/capture',
+  requirePaypalConfigured,
   doubleCsrfProtection,
   requireAuth,
   param('orderId').isUUID(),

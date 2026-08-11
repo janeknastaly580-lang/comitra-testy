@@ -44,7 +44,12 @@ import {
   verifyPhoneOtp,
   type SmsTemplate,
 } from './sms';
-import { emailVerificationAvailable as emailOtpAvailable, sendEmailOtp, verifyEmailOtp } from './email';
+import {
+  emailVerificationMode as emailOtpMode,
+  sendEmailOtp,
+  verifyEmailOtp,
+  type EmailVerifyMode,
+} from './email';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -1567,18 +1572,19 @@ export function emailLooksValid(email: string): boolean {
 }
 
 /**
- * Whether an email address can be confirmed with a code — used by the sign-up
- * form. True only when the backend actually holds Amazon SES settings, so:
- *  • the app keeps working before SES is set up (falls back to no code step),
- *  • tests stay hermetic (`emailOtpAvailable()` is false under MODE==='test').
+ * What the sign-up form should do about the email code step — see
+ * `EmailVerifyMode` in lib/email.ts for why this is not a boolean.
  *
- * `VITE_EMAIL_VERIFY=off` switches the step off. There is deliberately no way
- * to force it *on*: showing a "we emailed you a code" screen that no backend
- * can follow through on would strand everyone at a code that never arrives.
+ * `VITE_EMAIL_VERIFY=off` is the one deliberate escape hatch, and it is checked
+ * here rather than in lib/email.ts so the kill switch cannot be confused with
+ * "the backend happens to be down". Without it, a misconfigured SES would lock
+ * every new person out of the app with no way back in.
  */
-export async function emailVerificationAvailable(): Promise<boolean> {
-  if (import.meta.env.VITE_EMAIL_VERIFY?.trim().toLowerCase() === 'off') return false;
-  return emailOtpAvailable();
+export type { EmailVerifyMode };
+
+export async function emailVerificationMode(): Promise<EmailVerifyMode> {
+  if (import.meta.env.VITE_EMAIL_VERIFY?.trim().toLowerCase() === 'off') return 'disabled';
+  return emailOtpMode();
 }
 
 /**

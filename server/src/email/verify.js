@@ -1,6 +1,7 @@
 import { createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 
 import { EmailError } from './client.js';
+import { emailConfig } from './config.js';
 import { normalizeEmail, maskEmail } from './address.js';
 import { sendEmail } from './send.js';
 import { verificationCodeEmail } from './templates.js';
@@ -136,8 +137,19 @@ export async function startEmailVerification({ email }) {
   });
 
   try {
-    const { subject, text, html } = verificationCodeEmail(code);
-    await sendEmail({ to, subject, text, html });
+    if (emailConfig.templateName) {
+      // The email itself lives in SES. The ONLY thing handed to the template is
+      // the six digits — no name, no address, nothing about the goal — which is
+      // why a single-variable template is all this ever needs.
+      await sendEmail({
+        to,
+        templateName: emailConfig.templateName,
+        templateData: { [emailConfig.templateVar]: code },
+      });
+    } else {
+      const { subject, text, html } = verificationCodeEmail(code);
+      await sendEmail({ to, subject, text, html });
+    }
   } catch (err) {
     // The email never went out, so leaving a live code behind would strand the
     // person on a code they were never shown.

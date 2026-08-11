@@ -79,14 +79,24 @@ export default function AuthModal({
     try {
       if (mode === 'login') {
         await login(email, password);
-      } else if (await api.emailVerificationAvailable()) {
-        // A code is on its way; the account is created on the verify step.
-        await api.startEmailVerification(email);
-        setStep('verify');
-        return;
       } else {
-        // No Amazon SES settings on this deployment: record the address
-        // unverified rather than block sign-up on an email that never arrives.
+        const verify = await api.emailVerificationMode();
+        if (verify === 'required') {
+          // A code is on its way; the account is created on the verify step.
+          await api.startEmailVerification(email);
+          setStep('verify');
+          return;
+        }
+        if (verify === 'unavailable') {
+          // Refuse rather than create an account on an unproven address.
+          setError(
+            "We can't email you a confirmation code right now, so your account wasn't created. " +
+              'This is nothing you did wrong — please try again in a few minutes.',
+          );
+          setErrorIsSetup(true);
+          return;
+        }
+        // Verification deliberately switched off for this build.
         await register(name, email, password, 'standard', false);
       }
       onClose?.();

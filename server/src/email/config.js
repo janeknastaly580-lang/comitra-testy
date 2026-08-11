@@ -36,6 +36,16 @@ const REGION = /^[a-z]{2}(-[a-z]+)+-\d$/;
  */
 const EMAIL = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
 
+/**
+ * The `{{placeholder}}` a SES-hosted template uses for the six digits, when
+ * `SES_TEMPLATE_VAR` does not say otherwise. `code` is the obvious name and the
+ * one SES_SETUP.md tells people to use.
+ */
+const DEFAULT_TEMPLATE_VAR = 'code';
+
+/** A Handlebars-safe identifier — what SES accepts between `{{` and `}}`. */
+const TEMPLATE_VAR = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /** Blank, or one of the placeholder styles this repo uses in its .env.example files. */
 function isBlank(value) {
   if (typeof value !== 'string') return true;
@@ -55,7 +65,8 @@ function isBlank(value) {
  * @returns {{configured: boolean, problems: string[], region?: string,
  *   fromEmail?: string, fromName: string, replyTo: string|null,
  *   configurationSet: string|null, accessKeyId: string|null,
- *   secretAccessKey: string|null}}
+ *   secretAccessKey: string|null, templateName: string|null,
+ *   templateVar: string}}
  */
 export function parseEmailEnv(env = {}) {
   const present = EMAIL_ENV_KEYS.filter((key) => !isBlank(env[key]));
@@ -70,6 +81,8 @@ export function parseEmailEnv(env = {}) {
       configurationSet: null,
       accessKeyId: null,
       secretAccessKey: null,
+      templateName: null,
+      templateVar: DEFAULT_TEMPLATE_VAR,
     };
   }
 
@@ -118,6 +131,25 @@ export function parseEmailEnv(env = {}) {
   const configurationSetRaw = (env.SES_CONFIGURATION_SET ?? '').trim();
   const configurationSet = isBlank(configurationSetRaw) ? null : configurationSetRaw;
 
+  // A SES-hosted template. When set, the subject and both bodies come from AWS
+  // and this server sends only the six digits — see send.js. Left blank, the
+  // built-in copy in templates.js is used instead, so a deployment that never
+  // created a template still sends a usable email.
+  const templateNameRaw = (env.SES_TEMPLATE_NAME ?? '').trim();
+  const templateName = isBlank(templateNameRaw) ? null : templateNameRaw;
+
+  const templateVarRaw = (env.SES_TEMPLATE_VAR ?? '').trim();
+  const templateVar = isBlank(templateVarRaw) ? DEFAULT_TEMPLATE_VAR : templateVarRaw;
+  if (!TEMPLATE_VAR.test(templateVar)) {
+    // Caught here rather than at send time: a bad name means SES substitutes
+    // nothing and the person receives an email with an empty box where the
+    // code should be — which looks like "the code never arrived".
+    problems.push(
+      `SES_TEMPLATE_VAR "${templateVar}" is not a valid placeholder name. ` +
+        'Use the bare word from between {{ and }} in your template, e.g. code.',
+    );
+  }
+
   const base = {
     problems,
     fromName,
@@ -125,6 +157,8 @@ export function parseEmailEnv(env = {}) {
     configurationSet,
     accessKeyId,
     secretAccessKey,
+    templateName,
+    templateVar,
   };
 
   if (problems.length > 0) return { configured: false, ...base };

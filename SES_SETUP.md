@@ -15,7 +15,7 @@ away, skips the code step, and no email is ever attempted.
 | Feature | Where |
 |---|---|
 | 6-digit code emailed when someone creates an account | `server/src/email/verify.js` |
-| The email itself (subject, text + HTML body) | `server/src/email/templates.js` |
+| The email itself (subject, text + HTML body) | `server/src/email/templates.js`, or a SES-hosted template — Step 5B |
 | The only two endpoints the app calls | `POST /api/email/verify/start`, `POST /api/email/verify/check` |
 
 Four things worth knowing:
@@ -137,6 +137,10 @@ SES_FROM_NAME=Comitra
 SES_REPLY_TO=
 SES_CONFIGURATION_SET=
 
+# Optional — a SES-hosted template for the code email. See Step 5B.
+SES_TEMPLATE_NAME=
+SES_TEMPLATE_VAR=code
+
 # Only for Step 4B. Leave both empty when using an IAM role.
 AWS_ACCESS_KEY_ID=
 AWS_SECRET_ACCESS_KEY=
@@ -156,6 +160,40 @@ Rules the server enforces at boot:
 - **Both or neither, again.** `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`
   must be set together, or both left empty.
 - `SES_FROM_EMAIL` must be a bare address. Display names go in `SES_FROM_NAME`.
+
+---
+
+## Step 5B — Using your own SES template (optional)
+
+By default the email is built in `server/src/email/templates.js` and sent inline.
+Set `SES_TEMPLATE_NAME` and it switches to a template **stored in SES** instead:
+the subject and both bodies come from AWS, and the server sends only the six
+digits. Editing the wording then needs no code change and no redeploy.
+
+The template must take **exactly one variable — the code**. Nothing else is ever
+passed to it: not the person's name, not their address, not anything about a
+goal. That is deliberate, and it is what keeps the code email impossible to turn
+into a channel for anything else.
+
+```env
+SES_TEMPLATE_NAME=comitra-verification-template
+SES_TEMPLATE_VAR=code
+```
+
+`SES_TEMPLATE_VAR` is the bare word between `{{` and `}}` in your template. If
+the template's HTML says `{{code}}`, leave it as `code`.
+
+> **Get this name right.** SES does not fail on an unknown variable — it renders
+> the template with an **empty box** where the code should be and reports a
+> successful send. To the person signing up that looks exactly like "the code
+> never arrived", and nothing in the server log will say otherwise. Open the
+> template in the SES console and copy the placeholder name character for
+> character.
+
+The code is still generated, hashed and checked by this server exactly as
+before — see `server/src/email/verify.js`. SES only renders it. Sending a
+template uses the same `ses:SendEmail` permission as an inline send, so no IAM
+change is needed.
 
 ---
 
@@ -217,7 +255,9 @@ step without touching the backend.
 | Server won't boot, "Amazon SES is half-configured" | One of a required pair is empty. The message names it. |
 | Sign-up never shows the code step | `VITE_API_BASE` is empty or wrong, or `/api/email/status` says `configured:false`. Check the boot line. |
 | `[email:verify-start] setup - ses send-email failed (MessageRejected…)` | The From address is not verified **in that region**, or the account is still in the sandbox and the recipient is not verified. |
-| `…(NotFoundException…)` | `SES_CONFIGURATION_SET` names a set that does not exist in this region. |
+| `…(NotFoundException…)` | `SES_CONFIGURATION_SET` or `SES_TEMPLATE_NAME` names something that does not exist **in this region**. |
+| The email arrives but the code box is **empty** | `SES_TEMPLATE_VAR` does not match the `{{placeholder}}` in the template. SES reports this send as successful, so only the email itself shows it. |
+| "We can't email you a confirmation code right now" on sign-up | Deliberate: the backend is unreachable or `/api/email/status` says `configured:false`, so no account is created. Check the boot line and `VITE_API_BASE`. |
 | `…(AccessDeniedException, status 403)` | The IAM role or key is missing `ses:SendEmail`. |
 | `@aws-sdk/client-sesv2 is not installed` in the log | Run `npm install` in `server/`. |
 | Codes arrive in spam | Domain verified but DKIM not published, or no custom MAIL FROM / SPF. Redo the DNS records in Step 1. |

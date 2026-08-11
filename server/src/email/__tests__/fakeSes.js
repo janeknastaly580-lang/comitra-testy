@@ -25,6 +25,10 @@ export function useTestEmailConfig(overrides = {}) {
     configurationSet: null,
     accessKeyId: null,
     secretAccessKey: null,
+    // No SES-hosted template by default, so tests exercise the inline copy in
+    // templates.js. Pass `{ templateName: '…' }` to take the template path.
+    templateName: null,
+    templateVar: 'code',
     ...overrides,
   });
   return emailConfig;
@@ -42,6 +46,8 @@ export function clearTestEmailConfig() {
     configurationSet: null,
     accessKeyId: null,
     secretAccessKey: null,
+    templateName: null,
+    templateVar: 'code',
   });
 }
 

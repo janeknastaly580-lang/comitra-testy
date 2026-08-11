@@ -52,14 +52,23 @@ export default function Register() {
     }
     setBusy(true);
     try {
-      // On a deployment with no Amazon SES settings there is no code to send, so
-      // the address is recorded unverified rather than blocking sign-up on an
-      // email that can never arrive.
-      if (await api.emailVerificationAvailable()) {
+      const mode = await api.emailVerificationMode();
+      if (mode === 'required') {
+        // The account is NOT created here. It is created in onVerify, once the
+        // code that was emailed to this address has been accepted.
         await api.startEmailVerification(email);
         setStep('verify');
-      } else {
+      } else if (mode === 'disabled') {
+        // Verification deliberately switched off for this build.
         await createAccount(false);
+      } else {
+        // Backend unreachable or SES not configured. Refuse rather than create
+        // an account on an address nobody has proved they can open.
+        setError(
+          "We can't email you a confirmation code right now, so your account wasn't created. " +
+            'This is nothing you did wrong — please try again in a few minutes.',
+        );
+        setErrorIsSetup(true);
       }
     } catch (err) {
       showError(err);

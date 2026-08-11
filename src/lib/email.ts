@@ -97,20 +97,35 @@ async function post<T>(path: string, payload: unknown, phase: string): Promise<T
 }
 
 /**
- * Whether this deployment can email a verification code, i.e. whether the
- * backend holds Amazon SES settings. Best-effort: any failure reports `false`,
- * so sign-up simply proceeds without the code step, exactly as it did before
- * SES was set up. Nothing breaks while the values are still blank.
+ * What the sign-up form should do about the code step.
+ *
+ * Three outcomes, not a boolean, because "we chose not to verify" and "we
+ * cannot verify right now" must lead to opposite behaviour:
+ *
+ *   • `required`    — SES answered and is configured. Send a code and make the
+ *     person type it. This is the normal path.
+ *   • `disabled`    — verification is deliberately switched off for this build
+ *     (`VITE_EMAIL_VERIFY=off`, or vitest). Create the account without a code.
+ *   • `unavailable` — the backend is unreachable, or it has no SES settings.
+ *     Sign-up must STOP: creating the account anyway would hand out an
+ *     unverified account, which is exactly what the code step exists to prevent.
+ *
+ * The old boolean collapsed the last two together and silently created
+ * unverified accounts whenever the backend was down.
  */
-export async function emailVerificationAvailable(): Promise<boolean> {
-  if (!apiEnabled()) return false;
+export type EmailVerifyMode = 'required' | 'disabled' | 'unavailable';
+
+export async function emailVerificationMode(): Promise<EmailVerifyMode> {
+  // Keep the test suite hermetic: never touch the network from vitest.
+  if (import.meta.env.MODE === 'test') return 'disabled';
+  if (!API_BASE) return 'unavailable';
   try {
     const res = await timedFetch('/api/email/status', { method: 'GET' }, 6000);
-    if (!res.ok) return false;
+    if (!res.ok) return 'unavailable';
     const data = (await res.json()) as { configured?: boolean };
-    return data?.configured === true;
+    return data?.configured === true ? 'required' : 'unavailable';
   } catch {
-    return false;
+    return 'unavailable';
   }
 }
 

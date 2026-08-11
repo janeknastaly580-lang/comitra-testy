@@ -115,6 +115,70 @@ describe('sending a code', () => {
   });
 });
 
+describe('sending through a SES-hosted template', () => {
+  const TEMPLATE = 'comitra-verification-template';
+
+  it('renders the template with the code as its only variable', async () => {
+    useTestEmailConfig({ templateName: TEMPLATE, templateVar: 'code' });
+    const fake = createFakeSesClient();
+    setSesClientForTests(fake);
+
+    await startEmailVerification({ email: EMAIL });
+
+    const [mail] = fake.calls.emails;
+    // The subject and both bodies come from AWS now, so nothing inline is sent.
+    expect(mail.Content.Simple).toBeUndefined();
+    expect(mail.Content.Template.TemplateName).toBe(TEMPLATE);
+
+    // TemplateData must be a JSON *string*; an object renders as an empty box.
+    expect(typeof mail.Content.Template.TemplateData).toBe('string');
+    const data = JSON.parse(mail.Content.Template.TemplateData);
+    expect(Object.keys(data)).toEqual(['code']);
+    expect(data.code).toMatch(/^\d{6}$/);
+
+    // Still exactly one recipient, still our own From identity.
+    expect(mail.Destination.ToAddresses).toEqual([EMAIL]);
+    expect(mail.FromEmailAddress).toBe(`Comitra <${TEST_FROM}>`);
+  });
+
+  it('uses the placeholder name the template actually declares', async () => {
+    useTestEmailConfig({ templateName: TEMPLATE, templateVar: 'verification_code' });
+    const fake = createFakeSesClient();
+    setSesClientForTests(fake);
+
+    await startEmailVerification({ email: EMAIL });
+
+    const data = JSON.parse(fake.calls.emails[0].Content.Template.TemplateData);
+    expect(Object.keys(data)).toEqual(['verification_code']);
+  });
+
+  it('checks a code that was sent through the template', async () => {
+    useTestEmailConfig({ templateName: TEMPLATE, templateVar: 'code' });
+    const fake = createFakeSesClient();
+    setSesClientForTests(fake);
+
+    await startEmailVerification({ email: EMAIL });
+    const { code } = JSON.parse(fake.calls.emails[0].Content.Template.TemplateData);
+
+    await expect(checkEmailVerification({ email: EMAIL, code })).resolves.toEqual({ approved: true });
+  });
+
+  it('leaves no live code behind when SES does not have the template', async () => {
+    useTestEmailConfig({ templateName: 'does-not-exist', templateVar: 'code' });
+    const fake = createFakeSesClient({
+      onSend: () => {
+        throw new FakeSesException('NotFoundException', 404);
+      },
+    });
+    setSesClientForTests(fake);
+
+    await expect(startEmailVerification({ email: EMAIL })).rejects.toMatchObject({ code: 'setup' });
+    await expect(checkEmailVerification({ email: EMAIL, code: '000000' })).rejects.toMatchObject({
+      code: 'invalid-code',
+    });
+  });
+});
+
 describe('checking a code', () => {
   it('approves the right code exactly once', async () => {
     const fake = createFakeSesClient();
@@ -237,6 +301,37 @@ describe('configuration', () => {
     const parsed = parseEmailEnv({ SES_REGION: 'eu-central-1', SES_FROM_EMAIL: TEST_FROM });
     expect(parsed.configured).toBe(true);
     expect(parsed.accessKeyId).toBeNull();
+  });
+
+  it('defaults the template placeholder to "code" when no template is named', () => {
+    const parsed = parseEmailEnv({ SES_REGION: 'eu-central-1', SES_FROM_EMAIL: TEST_FROM });
+    expect(parsed.templateName).toBeNull();
+    expect(parsed.templateVar).toBe('code');
+  });
+
+  it('picks up a SES-hosted template and its placeholder', () => {
+    const parsed = parseEmailEnv({
+      SES_REGION: 'eu-north-1',
+      SES_FROM_EMAIL: TEST_FROM,
+      SES_TEMPLATE_NAME: 'comitra-verification-template',
+      SES_TEMPLATE_VAR: 'verification_code',
+    });
+    expect(parsed).toMatchObject({
+      configured: true,
+      templateName: 'comitra-verification-template',
+      templateVar: 'verification_code',
+    });
+  });
+
+  it('refuses a placeholder name SES could never substitute', () => {
+    const parsed = parseEmailEnv({
+      SES_REGION: 'eu-central-1',
+      SES_FROM_EMAIL: TEST_FROM,
+      SES_TEMPLATE_NAME: 'tpl',
+      SES_TEMPLATE_VAR: '{{code}}',
+    });
+    expect(parsed.configured).toBe(false);
+    expect(parsed.problems.join(' ')).toMatch(/SES_TEMPLATE_VAR/);
   });
 
   it('drops a display name that could break out of the From header', () => {
