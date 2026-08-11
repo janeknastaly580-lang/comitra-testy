@@ -770,6 +770,24 @@ describe('a judged goal is only ever ended by its judge', () => {
     expect(cancelled.status).toBe('cancelled');
   });
 
+  it('a judge deciding on their own phone leaves the message for the owner to send', async () => {
+    const { goal } = await activatedGoal();
+    // The judge's device holds the goal (it came from the shared store) but not
+    // the owner's recipient consents — names and numbers never leave the owner's
+    // phone. Marking the goal "notified" here would bury the message forever.
+    const consents = localStorage.getItem('fineline:recipientConsents')!;
+    localStorage.setItem('fineline:recipientConsents', '[]');
+    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    expect((await api.getGoal(goal.id))!.status).toBe('failed_pending_notification');
+    expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
+
+    // Back on the owner's device, pulling that decision sends it for real.
+    localStorage.setItem('fineline:recipientConsents', consents);
+    api.dispatchFailureNotifications(goal.id);
+    expect((await api.getGoal(goal.id))!.status).toBe('failed_notified');
+    expect((await api.listGoalNotifications(goal.id)).filter((n) => n.status === 'sent')).toHaveLength(1);
+  });
+
   it('a wrong token never records a request', async () => {
     const { goal } = await activatedGoal();
     await api.applyJudgeLinkRequest(goal.id, 'not-the-token', 'edit');

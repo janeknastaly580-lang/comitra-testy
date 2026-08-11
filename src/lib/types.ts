@@ -357,6 +357,12 @@ export interface Goal {
   completedAt?: string;
   failedAt?: string;
   cancelledAt?: string;
+  /**
+   * Last change to the part of this goal that is shared with its judge. Stamped
+   * on save and used to decide which side is newer when the owner's device and
+   * the judge's device both hold a copy. See `src/lib/goalShare.ts`.
+   */
+  updatedAt?: string;
 
   // ── DEPRECATED (money model, no longer used; kept so old records still load) ──
   /** @deprecated use deadlineAt */

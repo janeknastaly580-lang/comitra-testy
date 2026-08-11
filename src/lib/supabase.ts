@@ -262,6 +262,90 @@ export async function remoteListInvitedJudges(ownerUserId: string): Promise<Remo
   }
 }
 
+/* ─────────────────────────────────────────────── Goals (judge access) ── */
+
+/**
+ * A goal as it exists outside its owner's device.
+ *
+ * `data` is the ALLOW-LISTED projection built by `src/lib/goalShare.ts` — the
+ * goal's title and details are not in it and never reach this file. What is
+ * here is what a judge must see to do their job: which numbered goal, whose,
+ * by when, the proofs, and the judge's own state.
+ *
+ * Access is capability-based, never by owner: reads need `(id, token)`, and the
+ * token only exists in the link the owner chose to send. There is deliberately
+ * no "list an owner's goals" call — that would turn a leaked user id into a
+ * dump of everything that person is working on.
+ */
+export interface RemoteGoalRow {
+  data: unknown;
+  updated_at: string;
+}
+
+/** Push (insert or update) one goal's shared projection. Throws on failure. */
+export async function remotePutGoal(input: {
+  id: string;
+  ownerUserId: string;
+  judgeToken: string;
+  shareToken: string;
+  data: unknown;
+}): Promise<void> {
+  const base = restBase();
+  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Sync is not configured.');
+  let res: Response;
+  try {
+    res = await timedFetch(`${base}/rpc/comitra_put_goal`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({
+        p_id: input.id,
+        p_owner_user_id: input.ownerUserId,
+        p_judge_token: input.judgeToken,
+        p_share_token: input.shareToken,
+        p_data: input.data,
+      }),
+    });
+  } catch {
+    throw new SyncError('offline', "We couldn't reach the server, so your judge may not see this yet.");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err = classify(res.status, text);
+    console.error('[supabase] goal sync failed:', err.detail ?? text);
+    throw err;
+  }
+}
+
+/**
+ * Fetch one goal by its id and a token from the link. Returns null when the row
+ * isn't there or the token doesn't match, and throws only when the server could
+ * not be asked at all — the judge view needs to tell those two apart.
+ */
+export async function remoteGetGoal(id: string, token: string): Promise<RemoteGoalRow | null> {
+  const base = restBase();
+  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Sync is not configured.');
+  let res: Response;
+  try {
+    res = await timedFetch(`${base}/rpc/comitra_get_goal`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ p_id: id, p_token: token }),
+    });
+  } catch {
+    throw new SyncError('offline', "We couldn't reach the server.");
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    const err = classify(res.status, text);
+    console.error('[supabase] goal fetch failed:', err.detail ?? text);
+    throw err;
+  }
+  // PostgREST returns a table-returning function as an array of rows.
+  const rows = (await res.json()) as RemoteGoalRow[];
+  const row = Array.isArray(rows) ? rows[0] : undefined;
+  return row?.data ? row : null;
+}
+
 /* ───────────────────────────────────────── Phone (SMS) verification ── */
 
 /**

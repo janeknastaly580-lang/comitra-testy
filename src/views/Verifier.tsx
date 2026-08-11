@@ -77,15 +77,29 @@ export default function Verifier() {
     );
   }
 
-  if (access.state === 'not-found' || access.state === 'invalid-token') {
+  if (
+    access.state === 'not-found' ||
+    access.state === 'invalid-token' ||
+    access.state === 'sync-off' ||
+    access.state === 'sync-unavailable'
+  ) {
+    // Four very different problems, and only one of them is the judge's to act
+    // on. Saying "not found on this device" for all of them sent people looking
+    // for a fault on their own phone when the server was the problem.
+    const message =
+      access.state === 'invalid-token'
+        ? 'This judge link is incomplete. Ask for it again — links break when a chat cuts them in half.'
+        : access.state === 'sync-off'
+          ? "This copy of Comitra has no server set up, so a goal set on someone else's phone can't be opened here."
+          : access.state === 'sync-unavailable'
+            ? access.reason === 'setup'
+              ? "Comitra's server isn't finished setting up, so this goal can't be loaded yet. Tell the person who sent you the link."
+              : "We couldn't reach Comitra's server. Check your connection and open the link again."
+            : "This goal no longer exists, or the link was replaced by a newer one.";
     return (
       <Shell>
         <Card className="p-6 text-center">
-          <p className="text-sm text-danger">
-            {access.state === 'not-found'
-              ? "This goal couldn't be found on this device."
-              : 'This judge link is malformed.'}
-          </p>
+          <p className="text-sm text-danger">{message}</p>
           <Link to="/login" className="mt-3 inline-block text-sm text-accent hover:underline">
             Go to Comitra
           </Link>

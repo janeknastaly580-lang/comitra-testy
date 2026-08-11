@@ -25,14 +25,18 @@ import {
   outcomeOf,
 } from './teamChallenge';
 import {
+  remoteGetGoal,
   remoteListInvitedJudges,
+  remotePutGoal,
   remoteSyncHealth,
   remoteUpsertInvitedJudge,
   supabaseEnabled,
   SyncError,
   type RemoteInvitedJudge,
+  type SyncErrorKind,
   type SyncHealth,
 } from './supabase';
+import { isNewerThan, mergeSharedGoal, sharedFingerprint, toSharedGoal, type SharedGoal } from './goalShare';
 import {
   sendPhoneOtp,
   sendTransactionalSms,
@@ -91,8 +95,101 @@ function saveUsers(users: User[]) {
 function getGoals(): Goal[] {
   return read<Goal[]>(KEYS.goals, []);
 }
+
+/**
+ * Persist goals, and publish the ones a judge has to be able to open.
+ *
+ * A goal is created on its owner's phone; their judge opens the link on their
+ * own. Nothing but the shared store can bridge that, so every save stamps the
+ * goals whose shared part actually changed and pushes them. The push is
+ * best-effort — a dead network must never break setting a goal — so anything
+ * the judge needs to see NOW should `await flushGoalSync()` afterwards.
+ */
 function saveGoals(goals: Goal[]) {
+  const before = new Map(getGoals().map((g) => [g.id, sharedFingerprint(g)]));
+  const changed: Goal[] = [];
+  for (const goal of goals) {
+    if (before.get(goal.id) === sharedFingerprint(goal)) continue;
+    goal.updatedAt = new Date().toISOString();
+    changed.push(goal);
+  }
   write(KEYS.goals, goals);
+  for (const goal of changed) pushGoal(goal);
+}
+
+/* ────────────────────────────────────────────── shared goal store (sync) ── */
+
+/** In-flight pushes, so a caller can wait for them (see `flushGoalSync`). */
+const goalPushes = new Set<Promise<void>>();
+
+/**
+ * Publish one goal's shared projection. Solo goals are never pushed: nobody but
+ * their owner can act on them, so there is nothing to share and no reason for a
+ * copy to exist off the device.
+ */
+function pushGoal(goal: Goal): void {
+  if (!supabaseEnabled() || goal.noJudge) return;
+  const task = remotePutGoal({
+    id: goal.id,
+    ownerUserId: goal.userId,
+    judgeToken: goal.judge.acceptToken,
+    shareToken: goal.shareToken,
+    data: toSharedGoal(goal),
+  })
+    .catch((err) => {
+      console.error('[sync] could not publish goal', goal.id, err);
+    })
+    .finally(() => {
+      goalPushes.delete(task);
+    });
+  goalPushes.add(task);
+}
+
+/** Wait for every in-flight goal push to settle (never throws). */
+export async function flushGoalSync(): Promise<void> {
+  await Promise.allSettled([...goalPushes]);
+}
+
+/**
+ * Fold a shared copy from the store into local storage. Returns the merged goal,
+ * or the local one when the incoming copy is older.
+ *
+ * The owner keeps their title and details: `mergeSharedGoal` only ever takes the
+ * allow-listed fields, so pulling the judge's decision can't blank the content
+ * that was never uploaded in the first place.
+ */
+function absorbSharedGoal(shared: SharedGoal): Goal | null {
+  if (!shared?.id) return null;
+  const goals = getGoals();
+  const local = goals.find((g) => g.id === shared.id) ?? null;
+  if (!isNewerThan(shared, local)) return local;
+  const merged = mergeSharedGoal(local, shared);
+  const next = local ? goals.map((g) => (g.id === merged.id ? merged : g)) : [merged, ...goals];
+  // Straight to storage: saveGoals would see a change and push it back, and a
+  // pull is not a change.
+  write(KEYS.goals, next);
+  // A judge's "not completed" can only be delivered by the owner's device: the
+  // recipients' contacts live there and nowhere else.
+  if (merged.status === 'failed_pending_notification') dispatchFailureNotifications(merged.id);
+  return getGoals().find((g) => g.id === merged.id) ?? merged;
+}
+
+/**
+ * Pull one goal from the shared store using a token from its link. Best-effort
+ * by default; `strict` lets the judge view tell "no such goal" apart from "the
+ * server never answered", which are very different things to show someone.
+ */
+async function pullGoal(id: string, token: string, strict = false): Promise<Goal | null> {
+  if (!supabaseEnabled() || !id || !token) return null;
+  try {
+    const row = await remoteGetGoal(id, token);
+    if (!row) return null;
+    return absorbSharedGoal(row.data as SharedGoal);
+  } catch (err) {
+    if (strict) throw err;
+    console.error('[sync] could not fetch goal', id, err);
+    return null;
+  }
 }
 function getConsents(): RecipientConsent[] {
   return read<RecipientConsent[]>(KEYS.recipientConsents, []);
@@ -474,14 +571,54 @@ export async function updateUser(user: User): Promise<User> {
 export async function listGoals(userId: string): Promise<Goal[]> {
   await delay(80);
   resolveExpired();
+  await pullRunningGoals(userId);
+  resolveExpired();
   return getGoals()
     .filter((g) => g.userId === userId)
     .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
 }
 
+/**
+ * Refresh the owner's running judged goals from the shared store, so a decision
+ * their judge made on another phone shows up here.
+ *
+ * Each goal is fetched by its own id + token: there is no "list this owner's
+ * goals" call anywhere, by design. A user id travels inside invite links, and a
+ * lookup keyed on it would turn one leaked link into a list of everything that
+ * person is working on.
+ */
+async function pullRunningGoals(userId: string): Promise<void> {
+  if (!supabaseEnabled()) return;
+  const goals = getGoals();
+  const mine = goals.filter(
+    (g) => g.userId === userId && !g.noJudge && !TERMINAL_STATUSES.includes(g.status),
+  );
+
+  // Goals set before this device ever had a shared store were never published,
+  // so their judge links would open nothing. Publish them once, here, rather
+  // than making the owner re-create goals they already committed to.
+  const unpublished = mine.filter((g) => !g.updatedAt);
+  if (unpublished.length > 0) {
+    for (const goal of unpublished) {
+      goal.updatedAt = new Date().toISOString();
+      pushGoal(goal);
+    }
+    write(KEYS.goals, goals);
+    await flushGoalSync();
+  }
+
+  // Bounded: a dashboard load must not fan out to dozens of requests.
+  await Promise.all(mine.slice(0, 12).map((g) => pullGoal(g.id, g.judge.acceptToken)));
+}
+
 export async function getGoal(id: string): Promise<Goal | null> {
   resolveExpired();
-  return getGoals().find((g) => g.id === id) ?? null;
+  const local = getGoals().find((g) => g.id === id) ?? null;
+  if (local && !local.noJudge && !TERMINAL_STATUSES.includes(local.status)) {
+    await pullGoal(id, local.judge.acceptToken);
+    resolveExpired();
+  }
+  return getGoals().find((g) => g.id === id) ?? local;
 }
 
 export async function getGoalByToken(token: string): Promise<Goal | null> {
@@ -846,6 +983,9 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     logLegalAcceptance({ type: 'goal_notify_ack', userId: input.userId, goalId: goal.id });
   }
   logAudit({ actorId: input.userId, actionType: 'goal_created', entityType: 'goal', entityId: goal.id, metadata: { tone: goal.messageTone, recipients: consents.length } });
+  // The judge link is offered on the very next screen, so the goal has to be in
+  // the shared store before the owner can send it anywhere.
+  await flushGoalSync();
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -1089,6 +1229,7 @@ export async function updateGoalDeadline(goalId: string, userId: string, deadlin
   }
   saveGoals(goals);
   logAudit({ actorId: userId, actionType: 'goal_deadline_changed', entityType: 'goal', entityId: goal.id });
+  await flushGoalSync(); // the judge's copy shows the new deadline
   return goal;
 }
 
@@ -1636,6 +1777,10 @@ export async function listInvitedJudges(ownerUserId: string): Promise<InvitedJud
 export type JudgeAccess =
   | { state: 'not-found' }
   | { state: 'invalid-token' }
+  /** The shared store isn't configured, so a link can only open on the owner's own device. */
+  | { state: 'sync-off' }
+  /** The shared store exists but couldn't be asked (offline, dead address, missing SQL). */
+  | { state: 'sync-unavailable'; reason: SyncErrorKind }
   | { state: 'creator-blocked'; goal: Goal }
   | { state: 'pending-acceptance'; goal: Goal }
   | { state: 'declined'; goal: Goal }
@@ -1646,8 +1791,21 @@ export type JudgeAccess =
 export async function getJudgeAccess(goalId: string, token: string): Promise<JudgeAccess> {
   await delay(80);
   resolveExpired();
+  // The judge is on their own phone, where this goal has never existed: fetch it
+  // from the shared store with the token out of the link. Refreshed even when a
+  // copy is already here, so a deadline the owner moved is the one shown.
+  if (supabaseEnabled()) {
+    try {
+      await pullGoal(goalId, token, true);
+    } catch (err) {
+      const kind = err instanceof SyncError ? err.kind : 'unknown';
+      // Only fatal when there's nothing local to fall back on.
+      if (!getGoals().some((g) => g.id === goalId)) return { state: 'sync-unavailable', reason: kind };
+    }
+  }
+  resolveExpired();
   const goal = getGoals().find((g) => g.id === goalId);
-  if (!goal) return { state: 'not-found' };
+  if (!goal) return { state: supabaseEnabled() ? 'not-found' : 'sync-off' };
   if (goal.judge.acceptToken !== token && goal.shareToken !== token) return { state: 'invalid-token' };
   // Device isolation: the creator can never act as their own judge.
   if (getDeviceId() === goal.creatorDeviceId) return { state: 'creator-blocked', goal };
@@ -1699,6 +1857,7 @@ export async function applyJudgeLinkRequest(
     entityType: 'goal',
     entityId: goal.id,
   });
+  await flushGoalSync();
 }
 
 function authorizeJudge(goalId: string, token: string): { goals: Goal[]; goal: Goal } {
@@ -1733,6 +1892,9 @@ export async function acceptJudge(goalId: string, token: string, code: string): 
   logLegalAcceptance({ type: 'judge_role_ack', contact: goal.judge.judgeContact, goalId: goal.id });
   logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_accepted', entityType: 'goal', entityId: goal.id });
   reevaluateGoals((g) => g.id === goal.id);
+  // The owner is not in the room: wait for the acceptance to reach the store, so
+  // "they accepted" is a fact on the server before this screen says so.
+  await flushGoalSync();
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -1752,6 +1914,7 @@ export async function declineJudge(goalId: string, token: string): Promise<Goal>
   goal.cancelledAt = new Date().toISOString();
   saveGoals(goals);
   logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_declined', entityType: 'goal', entityId: goal.id });
+  await flushGoalSync();
   return goal;
 }
 
@@ -1775,6 +1938,8 @@ export async function judgeDecision(
     throw new Error('You can decide after the deadline, or once the user asks you to decide early.');
   }
   applyJudgeDecision(goals, goal, decision, comment, { actorContact: goal.judge.judgeContact });
+  // A decision the owner never receives is worse than no decision at all.
+  await flushGoalSync();
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -1795,6 +1960,7 @@ export async function judgeCancelGoal(goalId: string, token: string): Promise<Go
   saveGoals(goals);
   cancelAppBlock(penaltyBlockId(goal.id)); // cancelled → no penalty
   logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_cancelled_goal', entityType: 'goal', entityId: goal.id });
+  await flushGoalSync();
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -2178,6 +2344,13 @@ export function dispatchFailureNotifications(goalId: string): void {
 
   const owner = getUsers().find((u) => u.id === goal.userId);
   const consents = getConsents();
+  // Recipients' names and numbers live on the OWNER's device only — they are not
+  // part of what a judge's phone receives. So when the judge decides on their own
+  // device, this must do nothing and leave the goal pending: the owner's device
+  // dispatches it the moment it pulls the decision (see `absorbSharedGoal`).
+  // Marking it "notified" here would silently bury the message forever.
+  const missingConsents = goal.recipients.some((r) => !consents.some((c) => c.id === r.consentId));
+  if (missingConsents) return;
   const notifications = getNotifications();
   const body = failureMessageForGoal(goal);
   const now = new Date().toISOString();

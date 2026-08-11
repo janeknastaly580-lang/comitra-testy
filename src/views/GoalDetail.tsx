@@ -5,6 +5,7 @@ import * as api from '../lib/api';
 import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { countdown, countdownClock, dateTime, shortDate, timeOfDay, toLocalInputValue } from '../lib/format';
 import { deadlineElapsedRatio, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
+import { downscaleImage } from '../lib/image';
 import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
 import { judgeLink, recipientLink } from '../lib/share';
@@ -113,17 +114,18 @@ export default function GoalDetail() {
     setEvOpen(true);
   }
 
-  function onPhoto(file?: File) {
+  /**
+   * Shrink before storing. A phone photo is a 5-10 MB data URL, which blows the
+   * LocalStorage quota, and it has to travel to the judge's device as part of
+   * the shared goal. 1024px keeps a photo readable as proof at ~150 KB.
+   */
+  async function onPhoto(file?: File) {
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      // `reader.result` is typed string | ArrayBuffer | null; only a data URL
-      // is usable as an <img> src, so anything else is dropped rather than
-      // stored as the string "[object ArrayBuffer]".
-      const result = reader.result;
-      if (typeof result === 'string') setEvPhoto(result);
-    };
-    reader.readAsDataURL(file);
+    try {
+      setEvPhoto(await downscaleImage(file, 1024, 0.8));
+    } catch {
+      setNotice("That image couldn't be read. Try another one.");
+    }
   }
 
   async function removeEvidence(evId: string) {
@@ -505,7 +507,7 @@ export default function GoalDetail() {
           <Input value={evLink} onChange={(e) => setEvLink(e.target.value)} placeholder="https://… (e.g. a screenshot from another app)" className="mb-2" />
 
           <Label>Photo (optional)</Label>
-          <input type="file" accept="image/*" onChange={(e) => onPhoto(e.target.files?.[0])} className="mb-2 block w-full text-sm text-muted" />
+          <input type="file" accept="image/*" onChange={(e) => void onPhoto(e.target.files?.[0])} className="mb-2 block w-full text-sm text-muted" />
           {evPhoto && <img src={evPhoto} alt="preview" className="mb-2 max-h-40 rounded-lg" />}
 
           <Button className="w-full" onClick={submitEvidence} disabled={!evPhoto && !evLink.trim() && !evNote.trim()}>
