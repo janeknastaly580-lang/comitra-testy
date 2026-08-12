@@ -61,6 +61,19 @@ function fallbackFor(kind: SyncErrorKind): string {
   return FALLBACK[kind] ?? FALLBACK.unknown;
 }
 
+/**
+ * Supabase puts a JWT gate in front of every Edge Function, so the backend is
+ * reached with the project's PUBLISHABLE key. It is the same key the browser
+ * already ships for the shared store, and it authorises nothing on its own —
+ * the tables behind these routes are locked to it. Sending it only satisfies
+ * the platform gate, which keeps unauthenticated scanning off the function.
+ */
+const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
+
+function authHeaders(): Record<string, string> {
+  return ANON_KEY ? { Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY } : {};
+}
+
 /** fetch with a timeout, so a dead network never hangs the sign-up form. */
 async function timedFetch(path: string, init: RequestInit, ms = 12000): Promise<Response> {
   const ctrl = new AbortController();
@@ -69,7 +82,7 @@ async function timedFetch(path: string, init: RequestInit, ms = 12000): Promise<
     return await fetch(`${API_BASE}${path}`, {
       ...init,
       signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init.headers ?? {}) },
     });
   } finally {
     clearTimeout(t);
