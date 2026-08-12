@@ -26,18 +26,25 @@ import { verificationCodeMessage } from './templates.js';
  *     copy of the store cannot be brute-forced without it.
  *   • **The phone number is not a key either** — entries are filed under a
  *     keyed hash of the number, for the same reason.
- *   • **Five minutes, five attempts.** An expired or exhausted entry is deleted,
+ *   • **Seven minutes, five attempts.** An expired or exhausted entry is deleted,
  *     not just refused, so a code can never be checked twice after it dies.
  *   • **Single use.** A correct code deletes its entry, so it cannot be replayed
- *     even inside the five minutes.
+ *     even inside the seven minutes.
  *
  * In-memory on purpose, matching throttle.js: this backend is a single process.
  * A restart therefore invalidates every pending code — the person asks for a new
  * one, which is the same experience as a code expiring.
  */
 
-/** How long a code stays valid. */
-export const CODE_TTL_MS = 5 * 60_000;
+/**
+ * How long a code stays valid, counted from the moment it is generated. The
+ * entry is filed under a keyed hash of the E.164 number, so a code is bound to
+ * exactly one phone and cannot be presented for another.
+ *
+ * Mirrored in templates.js and in src/components/CodeVerify.tsx — change all
+ * three together.
+ */
+export const CODE_TTL_MS = 7 * 60_000;
 /** Wrong guesses allowed before the code is destroyed and a new one is needed. */
 export const MAX_ATTEMPTS = 5;
 /** Digits in a code. The UI's input is sized for exactly this. */

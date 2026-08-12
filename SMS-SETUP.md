@@ -9,7 +9,7 @@ That is no longer how it works. SMS now runs through the app's own backend
 the sender for everything:
 
 - **verification codes** — issued, hashed and checked by
-  `server/src/twilio/verify.js` (5 minutes, 5 attempts); no Twilio Verify
+  `server/src/twilio/verify.js` (7 minutes, 5 attempts); no Twilio Verify
   Service is involved, so `.env` needs no `VA…` SID,
 - **the ordinary texts** — judge review requests, "X failed their goal #N",
   invite links,

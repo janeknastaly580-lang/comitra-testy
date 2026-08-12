@@ -145,7 +145,7 @@ describe('POST /api/sms/send', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ status: 'queued', duplicate: false });
-    expect(fake.calls.messages[0].body).toContain('goal #2');
+    expect(fake.calls.messages[0].body).toContain('goal no. 2');
   });
 
   it('will not send a body the caller wrote', async () => {

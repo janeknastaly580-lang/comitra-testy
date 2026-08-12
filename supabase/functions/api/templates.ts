@@ -13,7 +13,7 @@
 /** Mirrors EMAIL_CODE_TTL_MS in otp.ts. Only used by the inline fallback copy. */
 const EMAIL_TTL_MINUTES = 7;
 /** Mirrors SMS_CODE_TTL_MS. */
-const SMS_TTL_MINUTES = 5;
+const SMS_TTL_MINUTES = 7;
 
 /** Longest a rendered SMS body may be. Two segments; longer is a template bug. */
 const MAX_BODY_CHARS = 300;
@@ -71,6 +71,18 @@ function goalRef(raw: unknown): string {
 }
 
 /**
+ * The failure notice spells the number out as "goal no. 3" rather than
+ * "goal #3", and must stay byte-identical to `buildFailureMessage` in
+ * src/lib/messages.ts: the owner approves a preview of that exact sentence
+ * before the goal is created, so a mismatch would text a recipient wording the
+ * owner never saw.
+ */
+function goalNo(raw: unknown): string {
+  const n = Number.parseInt(String(raw), 10);
+  return Number.isFinite(n) && n > 0 ? `goal no. ${n}` : 'a goal';
+}
+
+/**
  * A link this function is willing to put in a text. Only https, and only a URL —
  * this is what stops a caller smuggling arbitrary text in through `link`.
  */
@@ -123,9 +135,13 @@ export const TEMPLATES: Record<string, (p: Params) => string | null> = {
     );
   },
 
-  /** Someone did not complete a goal, sent to a recipient who has consented. */
+  /**
+   * Someone did not complete a goal, sent to the ONE recipient they chose, and
+   * only if that recipient accepted. Wording is fixed and mirrors
+   * src/lib/messages.ts so the text matches the preview the owner approved.
+   */
   goal_not_completed: ({ ownerName, goalNumber, tone }) =>
-    `Comitra: ${cleanName(ownerName)} failed their ${goalRef(goalNumber)}.${toneSuffix(tone)}`,
+    `Comitra: User ${cleanName(ownerName)} did not complete ${goalNo(goalNumber)}.${toneSuffix(tone)}`,
 
   judge_invite: ({ ownerName, link }) => {
     const url = cleanLink(link);

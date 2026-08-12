@@ -10,7 +10,7 @@
  * opt-in that changes this, not even marking the goal public afterwards (that
  * only affects the owner's profile). The same rule applies to the judge.
  */
-import { goalRef } from './goal';
+import { goalNumberOf } from './goal';
 import type { Goal, MessageTone } from './types';
 
 /** Fields needed to render a preview before a goal is fully built. */
@@ -35,11 +35,20 @@ const TONE_SUFFIX: Record<MessageTone, string> = {
   firm: ' They asked to have you told if they did not keep their commitment.',
 };
 
-/** Compose the failure-notification message: who, which numbered goal, tone. */
+/**
+ * Compose the failure-notification message: who, which numbered goal, tone.
+ *
+ * The sentence is fixed wording — "User <name> did not complete goal no. <n>."
+ * — and is the ONE piece of text a recipient ever receives about someone else's
+ * goal. It states a fact and nothing more: no title, no description, no
+ * judgement. Kept identical in server/src/twilio/templates.js and
+ * supabase/functions/api/templates.ts so the text actually texted matches the
+ * preview the owner approved before creating the goal.
+ */
 export function buildFailureMessage(input: FailureMessageInput): string {
   const name = input.ownerName.trim() || 'Someone';
-  const ref = goalRef({ goalNumber: input.goalNumber });
-  return `${name} failed their ${ref}.${TONE_SUFFIX[input.tone] ?? TONE_SUFFIX.neutral}`;
+  const number = goalNumberOf({ goalNumber: input.goalNumber });
+  return `User ${name} did not complete goal no. ${number}.${TONE_SUFFIX[input.tone] ?? TONE_SUFFIX.neutral}`;
 }
 
 /** Build the failure message straight from a stored goal. */

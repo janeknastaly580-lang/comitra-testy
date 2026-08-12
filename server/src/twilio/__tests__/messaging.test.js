@@ -65,7 +65,7 @@ describe('sending through the Messaging Service', () => {
 
     const sent = fake.calls.messages[0].body;
     expect(sent).toContain('Ala');
-    expect(sent).toContain('goal #3');
+    expect(sent).toContain('goal no. 3');
     expect(sent).not.toContain('evil.example');
   });
 
@@ -148,7 +148,7 @@ describe('never sending the same message twice', () => {
 describe('message templates', () => {
   it('never reveals what a goal is, only its number', () => {
     const body = renderTemplate('goal_not_completed', { ownerName: 'Ala', goalNumber: 7 });
-    expect(body).toContain('goal #7');
+    expect(body).toContain('goal no. 7');
     expect(body).toContain('Ala');
     // The template takes no title/description parameter at all, and ignores one.
     const smuggled = renderTemplate('goal_not_completed', {
@@ -184,7 +184,7 @@ describe('message templates', () => {
   it('says who failed which numbered goal, whatever the tone', () => {
     for (const tone of ['neutral', 'supportive', 'firm']) {
       const body = renderTemplate('goal_not_completed', { ownerName: 'Ala', goalNumber: 4, tone });
-      expect(body).toContain('Ala failed their goal #4');
+      expect(body).toContain('User Ala did not complete goal no. 4');
     }
   });
 

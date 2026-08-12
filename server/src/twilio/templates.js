@@ -14,6 +14,9 @@
 /** Longest a rendered body may be. Two SMS segments; longer is a template bug. */
 const MAX_BODY_CHARS = 300;
 
+/** How long a code stays valid, in minutes. Mirrors verify.js's CODE_TTL_MS. */
+const TTL_MINUTES = 7;
+
 function cleanName(raw, fallback = 'Someone') {
   const name = String(raw ?? '').replace(/\s+/g, ' ').trim().slice(0, 40);
   return name || fallback;
@@ -22,6 +25,18 @@ function cleanName(raw, fallback = 'Someone') {
 function goalRef(raw) {
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) && n > 0 ? `goal #${n}` : 'goal';
+}
+
+/**
+ * The failure notice spells the number out as "goal no. 3" rather than
+ * "goal #3", and must stay byte-identical to `buildFailureMessage` in
+ * src/lib/messages.ts: the owner approves a preview of that exact sentence
+ * before the goal is created, so a mismatch would text a recipient wording the
+ * owner never saw.
+ */
+function goalNo(raw) {
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? `goal no. ${n}` : 'a goal';
 }
 
 /**
@@ -63,7 +78,7 @@ function toneSuffix(raw) {
  * `verify.js`, which generated the code, can reach this.
  */
 export function verificationCodeMessage(code) {
-  return `Comitra: ${code} is your verification code. It expires in 5 minutes. Never share it with anyone.`;
+  return `Comitra: ${code} is your verification code. It expires in ${TTL_MINUTES} minutes. Never share it with anyone.`;
 }
 
 export const TEMPLATES = {
@@ -86,7 +101,7 @@ export const TEMPLATES = {
    * chosen tone. An unknown or missing tone falls back to neutral.
    */
   goal_not_completed: ({ ownerName, goalNumber, tone }) =>
-    `Comitra: ${cleanName(ownerName)} failed their ${goalRef(goalNumber)}.${toneSuffix(tone)}`,
+    `Comitra: User ${cleanName(ownerName)} did not complete ${goalNo(goalNumber)}.${toneSuffix(tone)}`,
 
   /** Invite to become a judge. */
   judge_invite: ({ ownerName, link }) => {

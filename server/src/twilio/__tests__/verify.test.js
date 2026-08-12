@@ -207,7 +207,31 @@ describe('checking a code', () => {
     await expect(checkVerification({ phone: PHONE, code })).rejects.toMatchObject({ code: 'invalid-code' });
   });
 
-  it('expires a code after five minutes', async () => {
+  it('keeps a code alive for 7 minutes, bound to the number it was sent to', async () => {
+    vi.useFakeTimers();
+    const fake = createFakeTwilioClient();
+    setTwilioClientForTests(fake);
+
+    await startVerification({ phone: PHONE });
+    const code = codeFrom(fake);
+
+    // The stated contract, not "whatever CODE_TTL_MS happens to be": the text
+    // tells the person seven minutes, so this is what must be true.
+    expect(CODE_TTL_MS).toBe(7 * 60_000);
+    expect(fake.calls.messages[0].body).toContain('7 minutes');
+
+    // The same digits presented for a DIFFERENT number are refused: a code is
+    // filed under a keyed hash of the E.164 number, so it is not transferable.
+    await expect(checkVerification({ phone: '+48111111111', code })).rejects.toMatchObject({
+      code: 'invalid-code',
+    });
+
+    // A second before the deadline it still works for the number it belongs to.
+    vi.advanceTimersByTime(7 * 60_000 - 1000);
+    await expect(checkVerification({ phone: PHONE, code })).resolves.toEqual({ approved: true });
+  });
+
+  it('expires a code after its TTL', async () => {
     vi.useFakeTimers();
     const fake = createFakeTwilioClient();
     setTwilioClientForTests(fake);

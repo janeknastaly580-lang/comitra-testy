@@ -20,15 +20,16 @@ import { Button, Input, Label } from './ui';
 const RESEND_COOLDOWN = 60;
 
 /**
- * `expiresInMinutes` mirrors the server's own TTL per channel — email is
- * `CODE_TTL_MS` in server/src/email/verify.js, SMS the one in
- * server/src/twilio/verify.js. They are not the same number, so the wording
- * cannot be shared: promising five minutes on a code that lives seven (or the
- * reverse) is worse than saying nothing.
+ * `expiresInMinutes` mirrors the server's own TTL per channel — `CODE_TTL_MS` in
+ * server/src/email/verify.js and server/src/twilio/verify.js, and the two
+ * constants in supabase/functions/api/otp.ts. Both are seven minutes today, but
+ * they stay per-channel: promising five minutes on a code that lives seven (or
+ * the reverse) is worse than saying nothing, so the wording must never be
+ * shared by accident.
  */
 const CHANNEL = {
   email: { sent: 'We emailed a 6-digit code to', back: 'Change email', expiresInMinutes: 7 },
-  sms: { sent: 'We texted a 6-digit code to', back: 'Change number', expiresInMinutes: 5 },
+  sms: { sent: 'We texted a 6-digit code to', back: 'Change number', expiresInMinutes: 7 },
 } as const;
 
 export default function CodeVerify({

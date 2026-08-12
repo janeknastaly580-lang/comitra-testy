@@ -167,7 +167,7 @@ describe('goal content is never shared, only the goal number', () => {
     expect(body).not.toContain('Study 3 times');
     expect(body).not.toContain(goal.title);
     expect(body).not.toContain(goal.description);
-    expect(body).toContain(`goal #${goal.goalNumber}`);
+    expect(body).toContain(`goal no. ${goal.goalNumber}`);
   });
 
   it('every tone keeps the goal content out of the message', async () => {
@@ -177,7 +177,7 @@ describe('goal content is never shared, only the goal number', () => {
       const notes = await api.listGoalNotifications(goal.id);
       const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
       expect(body).not.toContain(goal.title);
-      expect(body).toContain(`goal #${goal.goalNumber}`);
+      expect(body).toContain(`goal no. ${goal.goalNumber}`);
     }
   });
 
@@ -268,7 +268,7 @@ describe('publishing one finished goal', () => {
 
     const body = (await api.listGoalNotifications(goal.id)).find((n) => n.recipientConsentId === alice.id)!.body;
     expect(body).not.toContain(goal.title);
-    expect(body).toContain(`goal #${goal.goalNumber}`);
+    expect(body).toContain(`goal no. ${goal.goalNumber}`);
     for (const m of await api.listOutbox(goal.id)) {
       expect(m.body).not.toContain(goal.title);
     }

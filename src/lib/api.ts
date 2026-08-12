@@ -1538,7 +1538,7 @@ export async function phoneVerificationAvailable(): Promise<boolean> {
 /**
  * Text a 6-digit verification code to a phone (E.164), to prove the number
  * belongs to the person entering it. The code is generated, hashed and checked
- * by our own backend (server/src/twilio/verify.js); it is valid for 5 minutes
+ * by our own backend (server/src/twilio/verify.js); it is valid for 7 minutes
  * and allows 5 attempts.
  */
 export async function startPhoneVerification(phone: string): Promise<void> {
@@ -1590,7 +1590,7 @@ export async function emailVerificationMode(): Promise<EmailVerifyMode> {
 /**
  * Email a 6-digit verification code to prove the address belongs to the person
  * entering it. The code is generated, hashed and checked by our own backend
- * (server/src/email/verify.js); it is valid for 5 minutes and allows 5 attempts.
+ * (server/src/email/verify.js); it is valid for 7 minutes and allows 5 attempts.
  */
 export async function startEmailVerification(email: string): Promise<void> {
   if (!emailLooksValid(email)) throw new Error('Enter a valid email address.');

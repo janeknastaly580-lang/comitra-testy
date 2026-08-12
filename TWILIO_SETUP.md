@@ -197,7 +197,7 @@ arrive within seconds.
 | *"That number can't receive text messages"* | Landline, or a number type your sender cannot reach. |
 | No text arrives, but the app reports success | Twilio accepted it and delivery failed later. **Console → Monitor → Logs → Messaging** shows the reason. Usual causes: trial account texting an unverified number, no credit, or a country your sender is not approved for. |
 | *"Too many attempts"* | The per-number cooldown (60s between codes), the hourly cap, or the 5 guesses one code allows. Real, deliberate, and it applies per number. |
-| *"That code has expired"* | Codes last 5 minutes. Also expected after a backend restart, which clears every pending code. |
+| *"That code has expired"* | Codes last 7 minutes. On the Express backend a restart also clears every pending code; the Supabase Edge Function keeps them in Postgres, so a redeploy does not. |
 
 Twilio's own error codes are searchable at
 <https://www.twilio.com/docs/api/errors> — the server logs the numeric code

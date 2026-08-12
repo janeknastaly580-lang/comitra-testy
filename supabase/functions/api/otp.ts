@@ -20,9 +20,14 @@ import { OTP_PEPPER } from './config.ts';
 import { ApiError } from './errors.ts';
 import { checkOtp, dropOtp, putOtp, type OtpOutcome } from './state.ts';
 
-/** How long a code stays valid, from the moment it is generated. */
+/**
+ * How long a code stays valid, from the moment it is generated. Both channels
+ * are seven minutes; the row is keyed by a hash of the destination, so a code is
+ * bound to exactly one address or one phone number and cannot be presented for
+ * another.
+ */
 export const EMAIL_CODE_TTL_MS = 7 * 60_000;
-export const SMS_CODE_TTL_MS = 5 * 60_000;
+export const SMS_CODE_TTL_MS = 7 * 60_000;
 /** Wrong guesses allowed before the code is destroyed. */
 export const MAX_ATTEMPTS = 5;
 /** Digits in a code. The app's input is sized for exactly this. */
