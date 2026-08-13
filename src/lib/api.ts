@@ -46,6 +46,8 @@ import {
 } from './sms';
 import {
   emailVerificationMode as emailOtpMode,
+  redeemPasswordResetToken,
+  requestPasswordReset,
   sendEmailOtp,
   verifyEmailOtp,
   type EmailVerifyMode,
@@ -450,6 +452,65 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
  * passes true after `verifyEmailCode` resolves). It is optional so the social
  * sign-in path, and a deployment with no Amazon SES settings, still work.
  */
+/**
+ * Whether an address can still be registered on this device.
+ *
+ * Exists to be checked BEFORE a verification code is sent. `register` refuses a
+ * duplicate too, but it only runs once the code has been typed back — so
+ * without this the person fills in the form, waits for an email, types six
+ * digits, and only THEN learns the address was taken. The send is wasted as
+ * well, which matters while SES is capped at 200 messages a day.
+ *
+ * A soft-deleted account does not hold its address: deleting an account has to
+ * free the email, or someone who deletes and changes their mind is locked out
+ * of their own address for good.
+ */
+export async function emailAvailable(email: string): Promise<boolean> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return false;
+  return !getUsers().some((u) => u.email === normalized && !u.deleted);
+}
+
+/* ─────────────────────────────────────────────── Password reset ── */
+
+/**
+ * Email a reset link. Resolves whether or not the address has an account here:
+ * the backend cannot know (accounts are local), and answering differently would
+ * turn this screen into a way of testing who is registered.
+ */
+export async function startPasswordReset(email: string): Promise<void> {
+  return requestPasswordReset(email);
+}
+
+/** Spend a reset token; returns the address the link was issued for. */
+export async function consumePasswordResetToken(token: string): Promise<string> {
+  return redeemPasswordResetToken(token);
+}
+
+/**
+ * Set a new password on the local account for an address.
+ *
+ * Only ever called after the backend confirmed a reset token, which is the
+ * proof that the person can open that mailbox. Accounts live in this device's
+ * storage, so if the account is not here there is nothing to change — the
+ * caller shows "open this link on the device where you use Comitra" rather than
+ * silently doing nothing.
+ */
+export async function setPasswordForEmail(email: string, password: string): Promise<void> {
+  await delay();
+  const normalized = email.trim().toLowerCase();
+  const users = getUsers();
+  const user = users.find((u) => u.email === normalized && !u.deleted);
+  if (!user) throw new Error('There is no Comitra account for that address on this device.');
+  saveUsers(users.map((u) => (u.id === user.id ? { ...u, password } : u)));
+  logAudit({ actorId: user.id, actionType: 'password_reset', entityType: 'user', entityId: user.id });
+}
+
+/** Whether this device holds a live account for an address. */
+export async function accountExistsForEmail(email: string): Promise<boolean> {
+  return !(await emailAvailable(email));
+}
+
 export async function register(
   name: string,
   email: string,

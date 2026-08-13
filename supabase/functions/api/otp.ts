@@ -136,11 +136,15 @@ export async function verifyCode(
 
   if (outcome === 'approved') return;
 
-  const source = kind === 'email' ? 'email' : 'text message';
+  const target = kind === 'email' ? 'address' : 'number';
+  // 'none' and 'expired' are DIFFERENT things and must not share wording. A
+  // missing row usually means the code was already used, or retired by a newer
+  // one — telling that person "expired" sends them off to wait for a clock that
+  // is not running.
   const failures: Record<Exclude<OtpOutcome, 'approved'>, ApiError> = {
     none: new ApiError(
       'invalid-code',
-      `That code has expired, or no code was requested. Check the ${source} or ask for a new one.`,
+      `No code is waiting for this ${target}. It was probably already used, or replaced by a newer one — ask for a new code.`,
       400,
       'no pending code',
     ),

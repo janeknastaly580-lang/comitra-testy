@@ -6,6 +6,8 @@ import type { ReactNode } from 'react';
 
 import Login from './views/Login';
 import Register from './views/Register';
+import ForgotPassword from './views/ForgotPassword';
+import ResetPassword from './views/ResetPassword';
 import Dashboard from './views/Dashboard';
 import CreateGoal from './views/CreateGoal';
 import GoalDetail from './views/GoalDetail';
@@ -55,6 +57,11 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<PublicOnly><Login /></PublicOnly>} />
         <Route path="/register" element={<PublicOnly><Register /></PublicOnly>} />
+        <Route path="/forgot-password" element={<PublicOnly><ForgotPassword /></PublicOnly>} />
+        {/* NOT PublicOnly: the reset link often lands while a stale session is
+            still signed in, and bouncing that person to /goals would make the
+            emailed link look broken. */}
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Public judge view: clean URLs: /verify/:challengeId/:token */}
         <Route path="/verify/:challengeId/:token" element={<Verifier />} />

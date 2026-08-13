@@ -58,6 +58,43 @@ export function verificationCodeEmail(code: string): { subject: string; text: st
   };
 }
 
+/**
+ * The inline password-reset email, used until a SES-hosted template named in
+ * SES_RESET_TEMPLATE_NAME exists.
+ *
+ * Unlike the code email this one HAS to carry a link, so it is written to make
+ * the link inspectable: the URL is shown in full in the text part rather than
+ * hidden behind a word, and the message says plainly that it can be ignored.
+ */
+export function passwordResetEmail(link: string): { subject: string; text: string; html: string } {
+  const safe = esc(link);
+  return {
+    subject: 'Reset your Comitra password',
+    text: [
+      'You asked to reset your Comitra password.',
+      '',
+      'Open this link to choose a new one. It works once and expires in 30 minutes:',
+      link,
+      '',
+      'Open it on the device where you use Comitra — your account is stored on that device.',
+      '',
+      "If you didn't ask for this, you can ignore this email. Your password has not changed.",
+    ].join('\n'),
+    html: [
+      '<div style="margin:0;padding:24px;background:#0b0f14;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6edf3">',
+      '<div style="max-width:460px;margin:0 auto;background:#111820;border:1px solid #1e2a36;border-radius:16px;padding:28px">',
+      '<p style="margin:0 0 20px;font-size:13px;letter-spacing:.25em;font-weight:700;color:#16a34a">COMITRA</p>',
+      '<h1 style="margin:0 0 8px;font-size:19px;line-height:1.35;color:#e6edf3">Reset your password</h1>',
+      '<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#8b98a5">Choose a new password with the link below. It works once and expires in 30 minutes.</p>',
+      `<p style="margin:0 0 20px"><a href="${safe}" style="display:block;padding:14px;text-align:center;font-size:15px;font-weight:700;background:#16a34a;border-radius:12px;color:#0b0f14;text-decoration:none">Choose a new password</a></p>`,
+      `<p style="margin:0 0 20px;font-size:11px;line-height:1.6;color:#8b98a5;word-break:break-all">Or paste this into your browser:<br>${safe}</p>`,
+      '<p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#8b98a5">Open it on the device where you use Comitra — your account is stored on that device.</p>',
+      "<p style=\"margin:0;font-size:12px;line-height:1.6;color:#8b98a5\">If you didn't ask for this, you can ignore this email. Your password has not changed.</p>",
+      '</div></div>',
+    ].join(''),
+  };
+}
+
 /* ───────────────────────────────────────────────────────────────── sms ──── */
 
 function cleanName(raw: unknown, fallback = 'Someone'): string {

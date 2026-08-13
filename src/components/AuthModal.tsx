@@ -80,6 +80,12 @@ export default function AuthModal({
       if (mode === 'login') {
         await login(email, password);
       } else {
+        // Refuse a duplicate before spending an email on it — `register` checks
+        // too, but only after the code has been typed back.
+        if (!(await api.emailAvailable(email))) {
+          setError('An account with this email already exists. Log in instead, or use a different address.');
+          return;
+        }
         const verify = await api.emailVerificationMode();
         if (verify === 'required') {
           // A code is on its way; the account is created on the verify step.

@@ -180,6 +180,26 @@ export const ALLOWED_ORIGINS = (clean('CLIENT_ORIGIN') ?? '')
   .map((o) => o.trim().replace(/\/+$/, ''))
   .filter(Boolean);
 
+/**
+ * Where password-reset links point.
+ *
+ * Deliberately NOT taken from the request's Origin header: that is attacker
+ * controlled, and a reset link is the one email where sending someone to the
+ * wrong host hands over their account. Falls back to the first configured
+ * CLIENT_ORIGIN, and when neither is set the reset routes report themselves as
+ * not configured rather than mailing a broken link.
+ */
+export const APP_URL = (clean('APP_URL') ?? ALLOWED_ORIGINS[0] ?? '').replace(/\/+$/, '') || null;
+
+/**
+ * The SES-hosted template for the reset email. Left blank by default so the
+ * feature works before the template exists — set it to `comitra-password-reset`
+ * once that template is created in SES, and the inline copy stops being used.
+ */
+export const RESET_TEMPLATE_NAME = clean('SES_RESET_TEMPLATE_NAME');
+/** The `{{placeholder}}` the reset template uses for the link. */
+export const RESET_TEMPLATE_VAR = clean('SES_RESET_TEMPLATE_VAR') ?? 'RESET_LINK';
+
 export const sesConfig = readSes();
 export const twilioConfig = readTwilio();
 

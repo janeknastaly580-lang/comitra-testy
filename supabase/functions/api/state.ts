@@ -142,6 +142,28 @@ export function releaseSend(key: string): Promise<null> {
   return rpc<null>('comitra_send_release', { p_key: key });
 }
 
+/* ─────────────────────────────────────────────────── password resets ────── */
+
+/** Store a reset token's digest, retiring any earlier one for the address. */
+export function putReset(tokenKey: string, email: string, ttlMs: number): Promise<null> {
+  return rpc<null>('comitra_reset_put', { p_token_key: tokenKey, p_email: email, p_ttl_ms: ttlMs });
+}
+
+/**
+ * Spend a reset token: verify, return the address it belongs to, and destroy it
+ * in the same transaction so the link cannot be used twice.
+ */
+export async function consumeReset(
+  tokenKey: string,
+): Promise<{ outcome: 'ok' | 'none' | 'expired'; email: string | null }> {
+  const rows = await rpc<Array<{ outcome: 'ok' | 'none' | 'expired'; email: string | null }>>(
+    'comitra_reset_consume',
+    { p_token_key: tokenKey },
+  );
+  const row = rows?.[0];
+  return { outcome: row?.outcome ?? 'none', email: row?.email ?? null };
+}
+
 /**
  * Drop expired rows. Called opportunistically — there is no cron on the free
  * plan, and none is needed while every write path also prunes.

@@ -20,7 +20,14 @@
  */
 
 import { maskEmail, maskPhone, normalizeE164, normalizeEmail } from './address.ts';
-import { ALLOWED_ORIGINS, sesConfig, twilioConfig } from './config.ts';
+import {
+  ALLOWED_ORIGINS,
+  RESET_TEMPLATE_NAME,
+  RESET_TEMPLATE_VAR,
+  sesConfig,
+  twilioConfig,
+} from './config.ts';
+import { issueResetLink, redeemResetToken } from './reset.ts';
 import { ApiError, failureBody } from './errors.ts';
 import {
   abandonCode,
@@ -33,7 +40,13 @@ import {
 } from './otp.ts';
 import { sendEmail } from './ses.ts';
 import { sendSmsBody } from './twilio.ts';
-import { renderTemplate, TEMPLATE_IDS, verificationCodeEmail, verificationCodeMessage } from './templates.ts';
+import {
+  passwordResetEmail,
+  renderTemplate,
+  TEMPLATE_IDS,
+  verificationCodeEmail,
+  verificationCodeMessage,
+} from './templates.ts';
 import { claimSend, rememberSend, releaseSend, sweep, takeSlot } from './state.ts';
 
 /** The per-destination limits, unchanged from server/src/twilio/throttle.js. */
@@ -139,7 +152,11 @@ async function emailVerifyStart(req: Request): Promise<unknown> {
     if (sesConfig.templateName) {
       // The email lives in SES. The ONLY thing handed to the template is the six
       // digits — no name, no address, nothing about a goal.
-      await sendEmail({ to, templateData: { [sesConfig.templateVar]: code } });
+      await sendEmail({
+        to,
+        templateName: sesConfig.templateName,
+        templateData: { [sesConfig.templateVar]: code },
+      });
     } else {
       const { subject, text, html } = verificationCodeEmail(code);
       await sendEmail({ to, subject, text, html });
@@ -168,6 +185,60 @@ async function emailVerifyCheck(req: Request): Promise<unknown> {
   await verifyCode('email', to, String(body.code).trim());
   console.info('[email:verify-check] approved for', maskEmail(to));
   return { approved: true };
+}
+
+/**
+ * Email a password-reset link.
+ *
+ * Answers the same way whether or not an account exists — and not as a
+ * pretence: accounts live in the browser's own storage, so this server
+ * genuinely cannot tell. The endpoint therefore cannot be used to discover who
+ * is registered.
+ *
+ * Tighter limits than the sign-up code: 3 links an hour per address. A reset
+ * mail is more alarming to receive unexpectedly, so it should be harder to use
+ * as a way of pestering someone.
+ */
+async function emailResetStart(req: Request): Promise<unknown> {
+  await limitByIp(req, 'ip-email-reset', 10, 10 * 60_000);
+  const body = await readJson(req);
+
+  const to = normalizeEmail(body.email);
+  if (!to) {
+    throw new ApiError('bad-email', "That email address doesn't look right. Check it and try again.", 400, 'address failed validation');
+  }
+
+  const slot = await takeSlot('email-reset-send', await hashKey('email', to), {
+    max: 3,
+    windowMs: 3600_000,
+    cooldownMs: LIMITS.otpResendCooldownMs,
+  });
+  if (!slot.allowed) throw throttleError(slot, 'address');
+
+  const { link } = await issueResetLink(to);
+
+  if (RESET_TEMPLATE_NAME) {
+    await sendEmail({ to, templateName: RESET_TEMPLATE_NAME, templateData: { [RESET_TEMPLATE_VAR]: link } });
+  } else {
+    const { subject, text, html } = passwordResetEmail(link);
+    await sendEmail({ to, subject, text, html });
+  }
+
+  console.info('[email:reset-start] link sent to', maskEmail(to));
+  return { status: 'sent', to: maskEmail(to) };
+}
+
+/**
+ * Spend a reset token and return the address it belongs to, so the app can find
+ * the matching local account. The token dies here, whether or not the person
+ * goes on to choose a new password.
+ */
+async function emailResetConsume(req: Request): Promise<unknown> {
+  await limitByIp(req, 'ip-email-reset', 10, 10 * 60_000);
+  const body = await readJson(req);
+  const email = await redeemResetToken(body.token);
+  console.info('[email:reset-consume] token spent for', maskEmail(email));
+  return { email };
 }
 
 async function smsVerifyStart(req: Request): Promise<unknown> {
@@ -283,6 +354,8 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
 
   'POST /api/email/verify/start': { method: 'POST', route: 'email:verify-start', handler: emailVerifyStart },
   'POST /api/email/verify/check': { method: 'POST', route: 'email:verify-check', handler: emailVerifyCheck },
+  'POST /api/email/reset/start': { method: 'POST', route: 'email:reset-start', handler: emailResetStart },
+  'POST /api/email/reset/consume': { method: 'POST', route: 'email:reset-consume', handler: emailResetConsume },
   'POST /api/sms/verify/start': { method: 'POST', route: 'sms:verify-start', handler: smsVerifyStart },
   'POST /api/sms/verify/check': { method: 'POST', route: 'sms:verify-check', handler: smsVerifyCheck },
   'POST /api/sms/send': { method: 'POST', route: 'sms:send', handler: smsSend },

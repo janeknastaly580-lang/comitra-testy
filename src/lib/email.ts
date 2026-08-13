@@ -40,6 +40,9 @@ function kindFor(code: string | undefined): SyncErrorKind {
     case 'rate-limited':
       return 'rate-limited';
     case 'invalid-code':
+    // A dead reset link and a dead code are the same kind of problem to the
+    // person holding one, and the server already words each precisely.
+    case 'invalid-token':
       return 'invalid-code';
     default:
       return 'unknown';
@@ -159,4 +162,30 @@ export async function sendEmailOtp(email: string): Promise<void> {
 export async function verifyEmailOtp(email: string, code: string): Promise<void> {
   if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
   await post('/api/email/verify/check', { email, code }, 'verify-check');
+}
+
+/**
+ * Ask the backend to email a password-reset link.
+ *
+ * Resolves the same way whether or not an account exists — the backend has no
+ * user table to check against, because accounts live on the device. So this
+ * cannot be used to find out who is registered, and the UI must not pretend it
+ * knows either.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
+  await post('/api/email/reset/start', { email }, 'reset-start');
+}
+
+/**
+ * Spend a reset token and learn which address it was issued for, so the app can
+ * find the matching local account. The token is destroyed server-side by this
+ * call, so it must only be made when the person is actually on the reset
+ * screen ready to choose a password.
+ */
+export async function redeemPasswordResetToken(token: string): Promise<string> {
+  if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
+  const data = await post<{ email?: string }>('/api/email/reset/consume', { token }, 'reset-consume');
+  if (!data?.email) throw new SyncError('unknown', fallbackFor('unknown'), 'reset-consume returned no address');
+  return data.email;
 }

@@ -187,14 +187,19 @@ export async function checkEmailVerification({ email, code }) {
 
   const key = digest('email', to).toString('hex');
   const entry = pending.get(key);
-  if (!entry || entry.expiresAt <= now) {
-    pending.delete(key);
+  // "Nothing here" and "it died of old age" are different things, and saying
+  // "expired" for both sends someone who just used their code off to wait.
+  if (!entry) {
     throw new EmailError(
       'invalid-code',
-      'That code has expired, or no code was requested for this address. Ask for a new one.',
+      'No code is waiting for this address. It was probably already used, or replaced by a newer one — ask for a new code.',
       400,
-      entry ? 'code expired' : 'no pending code for this address',
+      'no pending code for this address',
     );
+  }
+  if (entry.expiresAt <= now) {
+    pending.delete(key);
+    throw new EmailError('invalid-code', 'That code has expired. Ask for a new one.', 400, 'code expired');
   }
 
   const candidate = digest('code', `${to}:${typed}`);

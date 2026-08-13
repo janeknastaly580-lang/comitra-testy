@@ -52,6 +52,14 @@ export default function Register() {
     }
     setBusy(true);
     try {
+      // Refuse a duplicate HERE, not after the code round-trip: `register` also
+      // checks, but it runs only once the six digits are typed back, so the
+      // person would wait for an email just to be told the address was taken —
+      // and the send would be wasted.
+      if (!(await api.emailAvailable(email))) {
+        setError('An account with this email already exists. Log in instead, or use a different address.');
+        return;
+      }
       const mode = await api.emailVerificationMode();
       if (mode === 'required') {
         // The account is NOT created here. It is created in onVerify, once the

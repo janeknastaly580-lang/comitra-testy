@@ -93,6 +93,11 @@ export default function Login() {
         <Button type="submit" disabled={busy} className="w-full">
           {busy ? 'Authenticating…' : 'Log in'}
         </Button>
+        <p className="text-center text-[13px]">
+          <Link to="/forgot-password" className="text-accent hover:underline">
+            Forgot password?
+          </Link>
+        </p>
       </form>
 
       <SocialAuthButtons />

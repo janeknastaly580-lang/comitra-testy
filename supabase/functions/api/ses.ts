@@ -30,12 +30,13 @@ function contentFor(input: {
   subject?: string;
   text?: string;
   html?: string;
+  templateName?: string | null;
   templateData?: Record<string, string>;
 }): Record<string, unknown> {
-  if (sesConfig.templateName) {
+  if (input.templateName) {
     return {
       Template: {
-        TemplateName: sesConfig.templateName,
+        TemplateName: input.templateName,
         TemplateData: JSON.stringify(input.templateData ?? {}),
       },
     };
@@ -108,6 +109,8 @@ export async function sendEmail(input: {
   subject?: string;
   text?: string;
   html?: string;
+  /** A SES-hosted template to render. Omit to send the inline subject/bodies. */
+  templateName?: string | null;
   templateData?: Record<string, string>;
 }): Promise<{ messageId: string | null }> {
   if (!sesConfig.configured) {

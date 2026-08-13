@@ -60,11 +60,20 @@ export default function CodeVerify({
   onBack: () => void;
   backLabel?: string;
 }) {
+  const copy = CHANNEL[channel];
   const [otp, setOtp] = useState('');
   // Starts running: reaching this step means a code has just been sent.
   const [resendIn, setResendIn] = useState(RESEND_COOLDOWN);
+  /**
+   * Seconds until the code itself dies. TWO SEPARATE CLOCKS ON PURPOSE: the
+   * resend cooldown (60s) only says when a NEW code may be asked for, while
+   * this one says how long the code already in someone's inbox still works.
+   * Showing only the first made people think a code that was still valid for
+   * six more minutes had expired the moment the button re-enabled.
+   */
+  const [expiresIn, setExpiresIn] = useState(copy.expiresInMinutes * 60);
 
-  // The dependency is the boolean, not `resendIn` itself: depending on the
+  // The dependencies are booleans, not the numbers themselves: depending on a
   // number would tear down and recreate the interval on every tick, so the
   // remaining second would restart each time and the countdown would crawl.
   const cooldownRunning = resendIn > 0;
@@ -74,13 +83,25 @@ export default function CodeVerify({
     return () => clearInterval(id);
   }, [cooldownRunning]);
 
+  const codeAlive = expiresIn > 0;
+  useEffect(() => {
+    if (!codeAlive) return;
+    const id = setInterval(() => setExpiresIn((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(id);
+  }, [codeAlive]);
+
   async function resend() {
     if (resendIn > 0 || busy) return;
-    if (await onResend()) setResendIn(RESEND_COOLDOWN);
+    // Both clocks restart, and only when a code genuinely went out.
+    if (await onResend()) {
+      setResendIn(RESEND_COOLDOWN);
+      setExpiresIn(copy.expiresInMinutes * 60);
+      setOtp('');
+    }
   }
 
-  const copy = CHANNEL[channel];
   const ready = otp.length === 6;
+  const mmss = `${Math.floor(expiresIn / 60)}:${String(expiresIn % 60).padStart(2, '0')}`;
 
   return (
     <div>
@@ -95,8 +116,16 @@ export default function CodeVerify({
         className="text-center text-lg tracking-[0.4em]"
       />
       <p className="mt-1.5 text-[11px] text-muted">
-        {copy.sent} <span className="font-semibold text-ink">{destination}</span>. It expires in{' '}
-        {copy.expiresInMinutes} minutes.
+        {copy.sent} <span className="font-semibold text-ink">{destination}</span>.{' '}
+        {codeAlive ? (
+          <>
+            It expires in <span className="font-semibold text-ink">{mmss}</span>.
+          </>
+        ) : (
+          <span className="font-semibold text-danger">
+            This code has expired — ask for a new one.
+          </span>
+        )}
       </p>
       {channel === 'email' && (
         <p className="mt-1 text-[11px] text-muted">Not there? Check your spam folder.</p>
