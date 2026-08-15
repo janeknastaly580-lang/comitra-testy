@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
+import { MIN_PASSWORD_LENGTH } from '../lib/constants';
 import { SyncError } from '../lib/supabase';
 import CodeVerify from '../components/CodeVerify';
 import { Button, Input, Label, PasswordInput } from '../components/ui';
@@ -29,17 +30,21 @@ export default function Register() {
     setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
   }
 
-  /** Create the account, recording whether the address was proved by a code. */
-  async function createAccount(emailVerified: boolean) {
-    await register(name, email, password, 'standard', emailVerified);
+  /**
+   * Create the account. `ticket` is the backend's receipt for the emailed code;
+   * the server refuses a sign-up without one wherever verification is on, so an
+   * address cannot be claimed by someone who never opened its inbox.
+   */
+  async function createAccount(ticket?: string) {
+    await register(name, email, password, 'standard', ticket);
   }
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
     setErrorIsSetup(false);
-    if (password.length < 4) {
-      setError('Password must be at least 4 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (!emailValid) {
@@ -68,7 +73,7 @@ export default function Register() {
         setStep('verify');
       } else if (mode === 'disabled') {
         // Verification deliberately switched off for this build.
-        await createAccount(false);
+        await createAccount();
       } else {
         // Backend unreachable or SES not configured. Refuse rather than create
         // an account on an address nobody has proved they can open.
@@ -90,8 +95,7 @@ export default function Register() {
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyEmailCode(email, code);
-      await createAccount(true);
+      await createAccount(await api.verifyEmailCode(email, code));
     } catch (err) {
       showError(err);
     } finally {
@@ -156,7 +160,9 @@ export default function Register() {
         <>
           <div className="mb-8">
             <h1 className="text-2xl font-bold tracking-tight">Create account</h1>
-            <p className="mt-1 text-sm text-muted">Your data lives locally on this device.</p>
+            <p className="mt-1 text-sm text-muted">
+              Your goals are saved to your account, so you can log in from any device.
+            </p>
           </div>
 
           <form onSubmit={onSubmit} className="space-y-4">

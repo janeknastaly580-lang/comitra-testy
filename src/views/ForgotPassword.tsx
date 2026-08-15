@@ -56,8 +56,8 @@ export default function ForgotPassword() {
           is on its way. It works once and expires in 30 minutes.
         </p>
         <p className="mt-3 text-[13px] text-muted">
-          Open the link <span className="font-semibold text-ink">on this device</span> — your
-          account is stored here, not on our server.
+          Open it wherever it's easiest — the link works on any device, and choosing a new password
+          logs you in there.
         </p>
         <p className="mt-2 text-[13px] text-muted">Nothing arrived? Check your spam folder.</p>
 

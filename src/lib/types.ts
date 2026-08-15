@@ -417,7 +417,14 @@ export interface User {
   id: string;
   name: string;
   email: string;
-  password: string; // plain text. MVP / mock only
+  /**
+   * Always empty for a real account: the password is verified by the server and
+   * only its PBKDF2 hash is stored, there (supabase/comitra_accounts.sql). Kept
+   * on the type because the no-backend fallback in api.ts still needs somewhere
+   * to hold one, and because old rows saved before the move may still carry a
+   * value — `adoptAccount` blanks those on the next sign-in.
+   */
+  password: string;
 
   /**
    * When they proved they can open `email`, by typing back the code sent there

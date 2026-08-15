@@ -8,6 +8,17 @@ export const SUBSCRIPTION_PRICE_MONTHLY = 4.99;
 export const TRIAL_DAYS = 7;
 export const TRIAL_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
 
+/* ────────────────────────────────────────────────────────── Accounts ── */
+
+/**
+ * Shortest password an account may have.
+ *
+ * MUST match `MIN_PASSWORD_LENGTH` in supabase/functions/api/accounts.ts: the
+ * server is what actually enforces it, so a lower number here only produces a
+ * form that submits and is then refused.
+ */
+export const MIN_PASSWORD_LENGTH = 8;
+
 /* ───────────────────────────────────────────────────────── Recipients ── */
 
 /** A goal notifies a single recipient at most, never a mass broadcast. */

@@ -11,17 +11,8 @@
  * keeps only a hash of them, and reports just "pending" or "approved".
  */
 
+import { API_BASE, backendEnabled as apiEnabled, timedFetch } from './backend';
 import { SyncError, type SyncErrorKind } from './supabase';
-
-/** Base URL of the backend, e.g. `https://api.comitra.app`. Empty = email off. */
-const API_BASE = import.meta.env.VITE_API_BASE?.trim().replace(/\/+$/, '') ?? '';
-
-/** Whether a backend is configured at all (and we are not inside vitest). */
-function apiEnabled(): boolean {
-  // Keep the test suite hermetic: never touch the network from vitest.
-  if (import.meta.env.MODE === 'test') return false;
-  return API_BASE.length > 0;
-}
 
 /** The shape every email endpoint uses for a failure. */
 interface ApiError {
@@ -39,9 +30,9 @@ function kindFor(code: string | undefined): SyncErrorKind {
       return 'bad-email';
     case 'rate-limited':
       return 'rate-limited';
-    case 'invalid-code':
     // A dead reset link and a dead code are the same kind of problem to the
     // person holding one, and the server already words each precisely.
+    case 'invalid-code':
     case 'invalid-token':
       return 'invalid-code';
     default:
@@ -62,34 +53,6 @@ const FALLBACK: Partial<Record<SyncErrorKind, string>> & { unknown: string } = {
 
 function fallbackFor(kind: SyncErrorKind): string {
   return FALLBACK[kind] ?? FALLBACK.unknown;
-}
-
-/**
- * Supabase puts a JWT gate in front of every Edge Function, so the backend is
- * reached with the project's PUBLISHABLE key. It is the same key the browser
- * already ships for the shared store, and it authorises nothing on its own —
- * the tables behind these routes are locked to it. Sending it only satisfies
- * the platform gate, which keeps unauthenticated scanning off the function.
- */
-const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ?? '';
-
-function authHeaders(): Record<string, string> {
-  return ANON_KEY ? { Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY } : {};
-}
-
-/** fetch with a timeout, so a dead network never hangs the sign-up form. */
-async function timedFetch(path: string, init: RequestInit, ms = 12000): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  try {
-    return await fetch(`${API_BASE}${path}`, {
-      ...init,
-      signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json', ...authHeaders(), ...(init.headers ?? {}) },
-    });
-  } finally {
-    clearTimeout(t);
-  }
 }
 
 /** POST JSON and turn a non-2xx into a `SyncError` the sign-up form can act on. */
@@ -158,34 +121,25 @@ export async function sendEmailOtp(email: string): Promise<void> {
  * Check the code the person typed. Resolves only when the backend approves it,
  * so a success genuinely proves they can open that mailbox; throws
  * `SyncError('invalid-code')` when it is wrong or expired.
+ *
+ * Returns the backend's RECEIPT for that check. Sign-up hands it back when it
+ * creates the account, which is how the server knows a code really was typed —
+ * without it, the browser's own "yes, they verified" would be enough to open a
+ * permanent account on somebody else's address.
  */
-export async function verifyEmailOtp(email: string, code: string): Promise<void> {
+export async function verifyEmailOtp(email: string, code: string): Promise<string | undefined> {
   if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
-  await post('/api/email/verify/check', { email, code }, 'verify-check');
+  const data = await post<{ ticket?: string }>('/api/email/verify/check', { email, code }, 'verify-check');
+  return data?.ticket;
 }
 
 /**
  * Ask the backend to email a password-reset link.
  *
- * Resolves the same way whether or not an account exists — the backend has no
- * user table to check against, because accounts live on the device. So this
- * cannot be used to find out who is registered, and the UI must not pretend it
- * knows either.
+ * Resolves the same way whether or not an account exists, so this cannot be used
+ * to find out who is registered, and the UI must not pretend it knows either.
  */
 export async function requestPasswordReset(email: string): Promise<void> {
   if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
   await post('/api/email/reset/start', { email }, 'reset-start');
-}
-
-/**
- * Spend a reset token and learn which address it was issued for, so the app can
- * find the matching local account. The token is destroyed server-side by this
- * call, so it must only be made when the person is actually on the reset
- * screen ready to choose a password.
- */
-export async function redeemPasswordResetToken(token: string): Promise<string> {
-  if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
-  const data = await post<{ email?: string }>('/api/email/reset/consume', { token }, 'reset-consume');
-  if (!data?.email) throw new SyncError('unknown', fallbackFor('unknown'), 'reset-consume returned no address');
-  return data.email;
 }

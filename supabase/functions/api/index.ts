@@ -241,10 +241,11 @@ async function emailVerifyCheck(req: Request): Promise<unknown> {
 /**
  * Email a password-reset link.
  *
- * Answers the same way whether or not an account exists — and not as a
- * pretence: accounts live in the browser's own storage, so this server
- * genuinely cannot tell. The endpoint therefore cannot be used to discover who
- * is registered.
+ * Answers the same way whether or not an account exists. The server now KNOWS
+ * (accounts live here), which is exactly why the sameness has to be deliberate:
+ * a different answer for an unknown address would turn this form into a way of
+ * discovering who is registered. The link is issued either way and simply finds
+ * nothing to reset.
  *
  * Tighter limits than the sign-up code: 3 links an hour per address. A reset
  * mail is more alarming to receive unexpectedly, so it should be harder to use
@@ -313,9 +314,16 @@ async function emailResetApply(req: Request): Promise<unknown> {
   // Every other session was just dropped by `setAccountPassword`, so this device
   // needs a fresh one.
   const token = await createSession(userId);
+  const account = await accountByEmail(email);
   const state = await getState(userId);
   console.info('[email:reset-apply] password set for', maskEmail(email));
-  return { token, user: { id: userId, email, name: '', accountType: 'standard', emailVerifiedAt: null }, state };
+  return {
+    token,
+    user: account
+      ? publicAccount(account)
+      : { id: userId, email, name: '', accountType: 'standard', emailVerifiedAt: null },
+    state,
+  };
 }
 
 /* ────────────────────────────────────────────────────────────────── accounts ── */

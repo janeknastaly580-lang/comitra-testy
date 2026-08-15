@@ -1,65 +1,43 @@
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import * as api from '../lib/api';
+import { useApp } from '../context/AppContext';
+import { MIN_PASSWORD_LENGTH } from '../lib/constants';
 import { Button, Label, PasswordInput } from '../components/ui';
 import BrandMark from '../components/BrandMark';
 
 /**
  * "Forgot password?" — step two: the screen the emailed link opens.
  *
- * THE ONE THING TO UNDERSTAND HERE: accounts live in this browser's storage,
- * not on a server. The link proves the person can open that mailbox, but the
- * password it changes is the one on THIS device. Opening the link on a phone
- * when the account was made on a laptop cannot work, and the honest thing is to
- * say so plainly rather than appear to succeed and change nothing.
+ * This used to be the sharpest edge of the device-local design: the link proved
+ * the person could open the mailbox, but the password it changed lived in ONE
+ * browser's storage, so opening the mail on a phone when the account was made on
+ * a laptop could not work. The account is on the server now, so the link works
+ * from anywhere, and succeeding signs this device straight in.
+ *
+ * The token is spent by the SAME request that sets the password. Checking it
+ * first and saving second would burn the single-use link before anything had
+ * been typed, and leave anyone who fumbled the form holding a dead link.
  */
-type Stage = 'checking' | 'ready' | 'no-account' | 'bad-token' | 'done';
+type Stage = 'form' | 'done';
 
 export default function ResetPassword() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { refresh } = useApp();
   const token = params.get('token') ?? '';
 
-  const [stage, setStage] = useState<Stage>('checking');
-  const [email, setEmail] = useState('');
+  const [stage, setStage] = useState<Stage>('form');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
-  /**
-   * Spending the token destroys it server-side, so it must happen exactly once.
-   * React 18 mounts effects twice in development, which without this guard
-   * would burn the link before the person ever saw the form.
-   */
-  const spent = useRef(false);
-
-  useEffect(() => {
-    if (spent.current) return;
-    spent.current = true;
-
-    (async () => {
-      if (!token) {
-        setError('This link is missing its token. Ask for a new reset link.');
-        setStage('bad-token');
-        return;
-      }
-      try {
-        const address = await api.consumePasswordResetToken(token);
-        setEmail(address);
-        setStage((await api.accountExistsForEmail(address)) ? 'ready' : 'no-account');
-      } catch (err) {
-        setError((err as Error).message);
-        setStage('bad-token');
-      }
-    })();
-  }, [token]);
-
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
-    if (password.length < 4) {
-      setError('Password must be at least 4 characters.');
+    if (password.length < MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
       return;
     }
     if (password !== confirm) {
@@ -68,7 +46,9 @@ export default function ResetPassword() {
     }
     setBusy(true);
     try {
-      await api.setPasswordForEmail(email, password);
+      await api.applyPasswordReset(token, password);
+      // The account and its data are loaded now; pick them up for the UI.
+      await refresh();
       setStage('done');
     } catch (err) {
       setError((err as Error).message);
@@ -84,47 +64,16 @@ export default function ResetPassword() {
     </div>
   );
 
-  if (stage === 'checking') {
-    return (
-      <div className="flex h-full flex-col justify-center px-6 pt-10">
-        {header}
-        <p className="text-sm text-muted">Checking your link…</p>
-      </div>
-    );
-  }
-
-  if (stage === 'bad-token') {
+  if (!token) {
     return (
       <div className="flex h-full flex-col justify-center px-6 pt-10">
         {header}
         <h1 className="text-2xl font-bold tracking-tight">This link doesn't work</h1>
-        <p className="mt-2 text-sm text-muted">{error}</p>
+        <p className="mt-2 text-sm text-muted">
+          It's missing its token, so we can't tell which account it's for. Ask for a new reset link.
+        </p>
         <Button className="mt-6 w-full" onClick={() => navigate('/forgot-password')}>
           Get a new link
-        </Button>
-      </div>
-    );
-  }
-
-  if (stage === 'no-account') {
-    return (
-      <div className="flex h-full flex-col justify-center px-6 pt-10">
-        {header}
-        <h1 className="text-2xl font-bold tracking-tight">Open this on your own device</h1>
-        <p className="mt-2 text-sm text-muted">
-          The link is valid, but there's no Comitra account for{' '}
-          <span className="font-semibold text-ink">{email}</span> on this device.
-        </p>
-        <p className="mt-3 text-[13px] text-muted">
-          Comitra keeps your account on the device you created it on, so a password can only be
-          changed there. Open the same email on that phone or computer and use the link again.
-        </p>
-        <p className="mt-3 text-[13px] text-muted">
-          The link you just opened has now been used up — ask for a fresh one on the device you use
-          Comitra on.
-        </p>
-        <Button className="mt-6 w-full" onClick={() => navigate('/login')}>
-          Back to log in
         </Button>
       </div>
     );
@@ -136,11 +85,11 @@ export default function ResetPassword() {
         {header}
         <h1 className="text-2xl font-bold tracking-tight">Password changed</h1>
         <p className="mt-2 text-sm text-muted">
-          You can log in as <span className="font-semibold text-ink">{email}</span> with your new
-          password.
+          You're logged in on this device, and your goals are here. Anywhere else you were logged in
+          has been signed out.
         </p>
-        <Button className="mt-6 w-full" onClick={() => navigate('/login')}>
-          Log in
+        <Button className="mt-6 w-full" onClick={() => navigate('/goals')}>
+          Go to my goals
         </Button>
       </div>
     );
@@ -151,7 +100,7 @@ export default function ResetPassword() {
       {header}
       <h1 className="text-2xl font-bold tracking-tight">Choose a new password</h1>
       <p className="mt-1 text-sm text-muted">
-        For <span className="font-semibold text-ink">{email}</span>.
+        Setting it signs you in here and signs out every other device.
       </p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">

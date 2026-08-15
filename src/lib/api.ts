@@ -69,7 +69,6 @@ import {
 } from './sms';
 import {
   emailVerificationMode as emailOtpMode,
-  redeemPasswordResetToken,
   requestPasswordReset,
   sendEmailOtp,
   verifyEmailOtp,
@@ -468,15 +467,7 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
 }
 
 /**
- * Create an account.
- *
- * Sign-up asks for an email and nothing else contactable — no phone number.
- * `emailVerified` records that the emailed code was accepted first (the UI only
- * passes true after `verifyEmailCode` resolves). It is optional so the social
- * sign-in path, and a deployment with no Amazon SES settings, still work.
- */
-/**
- * Whether an address can still be registered on this device.
+ * Whether an address can still be registered.
  *
  * Exists to be checked BEFORE a verification code is sent. `register` refuses a
  * duplicate too, but it only runs once the code has been typed back — so
@@ -484,40 +475,165 @@ function blankUser(over: Partial<User> & Pick<User, 'id' | 'name' | 'email'>): U
  * digits, and only THEN learns the address was taken. The send is wasted as
  * well, which matters while SES is capped at 200 messages a day.
  *
- * A soft-deleted account does not hold its address: deleting an account has to
- * free the email, or someone who deletes and changes their mind is locked out
- * of their own address for good.
+ * A deleted account does not hold its address: deleting has to free the email,
+ * or someone who deletes and changes their mind is locked out of their own
+ * address for good.
  */
 export async function emailAvailable(email: string): Promise<boolean> {
   const normalized = email.trim().toLowerCase();
   if (!normalized) return false;
+  if (backendEnabled()) return remoteEmailAvailable(normalized);
   return !getUsers().some((u) => u.email === normalized && !u.deleted);
+}
+
+/* ─────────────────────────────────────── Adopting a server account ── */
+
+/**
+ * Work this device did before it was signed in, so signing in does not throw it
+ * away.
+ *
+ * The obvious case is a guest who set a goal to try the app and then created an
+ * account. The other one matters just as much: someone who used Comitra while
+ * accounts were device-local, and is now logging in for the first time. Both are
+ * "there are goals here that belong to the person now signing in".
+ */
+interface Carry {
+  goals: Goal[];
+  consents: RecipientConsent[];
+}
+
+function captureCarry(): Carry | null {
+  // Already syncing means these rows came FROM the account and are not orphans.
+  if (signedInRemotely()) return null;
+  const id = read<string | null>(KEYS.session, null);
+  if (!id) return null;
+  const goals = getGoals().filter((g) => g.userId === id);
+  const consents = getConsents().filter((c) => c.ownerUserId === id);
+  return goals.length || consents.length ? { goals, consents } : null;
+}
+
+/**
+ * Re-home carried work onto the account. Matching ids are left alone, so doing
+ * this twice cannot duplicate anything.
+ */
+function absorbCarry(carry: Carry, owner: User): void {
+  const goals = getGoals();
+  const seen = new Set(goals.map((g) => g.id));
+  for (const goal of carry.goals) {
+    if (seen.has(goal.id)) continue;
+    goals.unshift({
+      ...goal,
+      userId: owner.id,
+      creatorName: owner.name,
+      creatorAvatar: owner.avatar,
+      // Renumbered into the account's own sequence: keeping the guest's numbers
+      // would give the account two "goal #1"s, and a judge is asked about a
+      // number. Recomputed per goal because each one added changes the next.
+      goalNumber: nextGoalNumber(owner.id, goals),
+    });
+  }
+  if (goals.length) saveGoals(goals);
+
+  const consents = getConsents();
+  const known = new Set(consents.map((c) => c.id));
+  let added = false;
+  for (const consent of carry.consents) {
+    if (known.has(consent.id)) continue;
+    consents.push({ ...consent, ownerUserId: owner.id });
+    added = true;
+  }
+  if (added) saveConsents(consents);
+  ensureGoalNumbers();
+}
+
+/**
+ * Take on the account the server just described: replace this device's cache
+ * with the account's document, make sure a local `User` row matches it, and
+ * start syncing from there.
+ *
+ * The `User` row is part of the document, so on a second device it usually
+ * arrives with everything else — name, avatar, theme, who they follow. It is
+ * only built here when the document has no row for the account, which is a
+ * brand-new sign-up or an account whose document was never written.
+ */
+function adoptAccount(
+  result: AuthResult,
+  carry: Carry | null,
+  fallback?: { name?: string; accountType?: 'standard' | 'trainer' },
+): User {
+  cloud.start(result.state);
+
+  const users = getUsers();
+  const existing = users.find((u) => u.id === result.account.id);
+  const user: User =
+    existing ??
+    blankUser({
+      id: result.account.id,
+      name: result.account.name || fallback?.name || 'Friend',
+      email: result.account.email,
+      accountType: result.account.accountType || fallback?.accountType || 'standard',
+    });
+
+  // Fields the SERVER owns, refreshed either way: the address is what was logged
+  // in with, and the verification stamp is the server's to grant.
+  user.email = result.account.email || user.email;
+  user.password = '';
+  user.isGuest = false;
+  user.deleted = false;
+  if (result.account.emailVerifiedAt) user.emailVerifiedAt = result.account.emailVerifiedAt;
+
+  saveUsers(existing ? users.map((u) => (u.id === user.id ? user : u)) : [...users, user]);
+  write(KEYS.session, user.id);
+
+  if (carry) absorbCarry(carry, user);
+  seedSocial(user.id);
+  return normalizeUser(getUsers().find((u) => u.id === user.id) ?? user);
+}
+
+/**
+ * Forget the account's data on this device.
+ *
+ * Signing out of a real account should leave nothing behind — the data is on
+ * the server, so there is nothing to lose and someone else may use this phone
+ * next. Only done when there IS a server to have left it with.
+ */
+async function clearLocalAccountData(): Promise<void> {
+  await cloud.stop();
+  if (backendEnabled()) cloud.adopt({}, 0);
+  write(KEYS.session, null);
 }
 
 /* ─────────────────────────────────────────────── Password reset ── */
 
 /**
- * Email a reset link. Resolves whether or not the address has an account here:
- * the backend cannot know (accounts are local), and answering differently would
- * turn this screen into a way of testing who is registered.
+ * Email a reset link. Resolves whether or not the address has an account, so
+ * this screen cannot be used to test who is registered.
  */
 export async function startPasswordReset(email: string): Promise<void> {
   return requestPasswordReset(email);
 }
 
-/** Spend a reset token; returns the address the link was issued for. */
-export async function consumePasswordResetToken(token: string): Promise<string> {
-  return redeemPasswordResetToken(token);
+/**
+ * Spend a reset link and set the new password.
+ *
+ * One call, and it signs the device in on success: the person has just proved
+ * they can open the mailbox and chosen a password, so sending them to a login
+ * form to type it again proves nothing. The reset link now works from ANY
+ * device — it changes the password on the account, not on a phone.
+ */
+export async function applyPasswordReset(token: string, password: string): Promise<User> {
+  const carry = captureCarry();
+  const result = await remoteApplyPasswordReset(token, password);
+  const user = adoptAccount(result, carry);
+  logAudit({ actorId: user.id, actionType: 'password_reset', entityType: 'user', entityId: user.id });
+  return user;
 }
 
 /**
- * Set a new password on the local account for an address.
+ * Set a new password on the device-local account for an address.
  *
- * Only ever called after the backend confirmed a reset token, which is the
- * proof that the person can open that mailbox. Accounts live in this device's
- * storage, so if the account is not here there is nothing to change — the
- * caller shows "open this link on the device where you use Comitra" rather than
- * silently doing nothing.
+ * Only reachable in the no-backend fallback, where there is no server to hold
+ * the account and nothing to change if it isn't here.
  */
 export async function setPasswordForEmail(email: string, password: string): Promise<void> {
   await delay();
@@ -529,32 +645,50 @@ export async function setPasswordForEmail(email: string, password: string): Prom
   logAudit({ actorId: user.id, actionType: 'password_reset', entityType: 'user', entityId: user.id });
 }
 
-/** Whether this device holds a live account for an address. */
-export async function accountExistsForEmail(email: string): Promise<boolean> {
-  return !(await emailAvailable(email));
-}
-
+/**
+ * Create an account.
+ *
+ * Sign-up asks for an email and nothing else contactable — no phone number.
+ * `ticket` is the receipt `verifyEmailCode` hands back when the emailed code was
+ * accepted; the server insists on one whenever email verification is switched
+ * on, so an address cannot be registered by someone who never opened its inbox.
+ */
 export async function register(
   name: string,
   email: string,
   password: string,
   accountType: 'standard' | 'trainer' = 'standard',
-  emailVerified = false,
+  ticket?: string,
 ): Promise<User> {
+  const normalized = email.trim().toLowerCase();
+  const displayName = name.trim() || 'Friend';
+
+  if (backendEnabled()) {
+    const carry = captureCarry();
+    const result = await remoteRegister({
+      name: displayName,
+      email: normalized,
+      password,
+      accountType,
+      ticket,
+    });
+    const user = adoptAccount(result, carry, { name: displayName, accountType });
+    logAudit({ actorId: user.id, actionType: 'account_registered', entityType: 'user', entityId: user.id });
+    return user;
+  }
+
   await delay();
   const users = getUsers();
-  const normalized = email.trim().toLowerCase();
   if (users.some((u) => u.email === normalized && !u.deleted)) {
     throw new Error('An account with this email already exists.');
   }
-  const now = new Date().toISOString();
   const user = blankUser({
     id: uid('user'),
-    name: name.trim() || 'Friend',
+    name: displayName,
     email: normalized,
     password,
     accountType,
-    ...(emailVerified ? { emailVerifiedAt: now } : {}),
+    ...(ticket ? { emailVerifiedAt: new Date().toISOString() } : {}),
   });
   users.push(user);
   saveUsers(users);
@@ -565,9 +699,17 @@ export async function register(
 }
 
 export async function login(email: string, password: string): Promise<User> {
+  const normalized = email.trim().toLowerCase();
+
+  if (backendEnabled()) {
+    const carry = captureCarry();
+    const result = await remoteLogin(normalized, password);
+    return adoptAccount(result, carry);
+  }
+
   await delay();
   const users = getUsers();
-  const user = users.find((u) => u.email === email.trim().toLowerCase() && !u.deleted);
+  const user = users.find((u) => u.email === normalized && !u.deleted);
   if (!user || user.password !== password) throw new Error('Invalid email or password.');
   write(KEYS.session, user.id);
   seedSocial(user.id);
@@ -575,8 +717,10 @@ export async function login(email: string, password: string): Promise<User> {
 }
 
 export async function logout(): Promise<void> {
-  await delay(80);
-  write(KEYS.session, null);
+  // Push anything still unsaved BEFORE the session is given up, or the last
+  // thing the person did before signing out is the one thing that never syncs.
+  await clearLocalAccountData();
+  await remoteLogout();
 }
 
 export async function createGuest(): Promise<User> {
@@ -591,9 +735,17 @@ export async function createGuest(): Promise<User> {
 }
 
 export async function socialLogin(profile: { email: string; name: string; avatar?: string }): Promise<User> {
-  await delay(120);
   const email = profile.email.trim().toLowerCase();
   if (!email) throw new Error('No email address was returned by the provider.');
+  const name = profile.name.trim() || email.split('@')[0];
+
+  if (backendEnabled()) {
+    const carry = captureCarry();
+    const result = await remoteSocialLogin({ email, name });
+    return adoptAccount(result, carry, { name });
+  }
+
+  await delay(120);
   const users = getUsers();
   const existing = users.find((u) => u.email === email && !u.deleted);
   if (existing) {
@@ -603,7 +755,7 @@ export async function socialLogin(profile: { email: string; name: string; avatar
   }
   const user = blankUser({
     id: uid('user'),
-    name: profile.name.trim() || email.split('@')[0],
+    name,
     email,
     avatar: profile.avatar || 'preset-1',
   });
@@ -614,7 +766,15 @@ export async function socialLogin(profile: { email: string; name: string; avatar
   return normalizeUser(getUsers().find((u) => u.id === user.id) ?? user);
 }
 
-/** Fold a guest's goals into a real account after auth. */
+/**
+ * Fold a guest's goals into a real account after auth.
+ *
+ * Signing in normally handles this itself (see `captureCarry`), because it has
+ * to: adopting the account's document replaces this device's cache, so the
+ * guest's rows have to be picked up BEFORE that happens rather than afterwards.
+ * This remains for the device-local fallback, and is a no-op once the guest is
+ * already gone.
+ */
 export async function migrateGuest(guestId: string, targetId: string): Promise<void> {
   await delay(60);
   if (guestId === targetId) return;
@@ -637,10 +797,21 @@ export async function migrateGuest(guestId: string, targetId: string): Promise<v
 }
 
 export async function deleteAccount(userId: string): Promise<void> {
+  logAudit({ actorId: userId, actionType: 'account_deleted', entityType: 'user', entityId: userId });
+
+  if (backendEnabled() && signedInRemotely()) {
+    // Stop syncing WITHOUT a final push: the account is about to stop existing,
+    // and a push racing the delete would just 401.
+    await cloud.stop({ push: false });
+    await remoteDeleteAccount();
+    cloud.adopt({}, 0);
+    write(KEYS.session, null);
+    return;
+  }
+
   await delay();
   saveUsers(getUsers().map((u) => (u.id === userId ? { ...u, deleted: true } : u)));
   write(KEYS.session, null);
-  logAudit({ actorId: userId, actionType: 'account_deleted', entityType: 'user', entityId: userId });
 }
 
 export async function getSessionUser(): Promise<User | null> {
@@ -650,9 +821,78 @@ export async function getSessionUser(): Promise<User | null> {
   return user ? normalizeUser(user) : null;
 }
 
+/**
+ * Who this device is signed in as, according to the SERVER. The cold-start call.
+ *
+ * Three outcomes, and the difference matters:
+ *   • an account — its document is pulled and adopted, which is what makes a
+ *     fresh install of the app show everything the person already has;
+ *   • nobody — the session token is gone or was revoked, so any account left
+ *     over in the local cache is signed out rather than silently trusted;
+ *   • the server could not be asked — keep working with what is on the device.
+ *     Signing someone out because their train went into a tunnel would be a far
+ *     worse bug than showing them data that is a few minutes stale.
+ */
+export async function bootstrapSession(): Promise<User | null> {
+  if (!backendEnabled()) return getSessionUser();
+
+  let result: AuthResult | null;
+  try {
+    result = await remoteSession();
+  } catch (err) {
+    console.warn('[api] could not reach the server on startup, using this device\'s copy:', err);
+    return getSessionUser();
+  }
+
+  if (result) return adoptAccount(result, captureCarry());
+
+  // No server session. A guest is fine to keep — it never had one. A real
+  // account without one is a leftover (revoked, or created before accounts
+  // moved to the server), and must not look signed in.
+  const local = await getSessionUser();
+  if (local && !local.isGuest) {
+    write(KEYS.session, null);
+    return null;
+  }
+  return local;
+}
+
+/* ──────────────────────────────────── Losing the session while open ── */
+
+const signedOutListeners = new Set<() => void>();
+
+/**
+ * Told when the server stops accepting this device's session — a password reset
+ * done elsewhere, an account deleted from another device, an expired token.
+ *
+ * The app has to react rather than carry on: without this it would keep letting
+ * someone edit goals that no longer have anywhere to be saved.
+ */
+export function onSignedOut(fn: () => void): () => void {
+  signedOutListeners.add(fn);
+  return () => signedOutListeners.delete(fn);
+}
+
+cloud.onSessionLost(() => {
+  cloud.adopt({}, 0);
+  write(KEYS.session, null);
+  for (const fn of signedOutListeners) {
+    try {
+      fn();
+    } catch (err) {
+      console.warn('[api] sign-out listener failed:', err);
+    }
+  }
+});
+
 export async function updateUser(user: User): Promise<User> {
   await delay(80);
-  return normalizeUser(persistUser(user));
+  const before = getUsers().find((u) => u.id === user.id);
+  const saved = normalizeUser(persistUser(user));
+  // The account row carries its own copy of the display name, used as the
+  // fallback when a device has the account but not yet its document.
+  if (before && before.name !== saved.name && !saved.isGuest) void remoteRename(saved.name);
+  return saved;
 }
 
 /* ───────────────────────────────────────────────────── Goal lifecycle ── */
@@ -1681,11 +1921,16 @@ export async function startEmailVerification(email: string): Promise<void> {
   await sendEmailOtp(normalizeEmail(email));
 }
 
-/** Check the 6-digit code that was emailed. Throws if it's wrong or expired. */
-export async function verifyEmailCode(email: string, code: string): Promise<void> {
+/**
+ * Check the 6-digit code that was emailed. Throws if it's wrong or expired.
+ *
+ * Returns the backend's receipt for the check, which `register` must present.
+ * Undefined only where there is no backend to have issued one.
+ */
+export async function verifyEmailCode(email: string, code: string): Promise<string | undefined> {
   const digits = (code ?? '').replace(/\D/g, '');
   if (digits.length < 4) throw new Error('Enter the code from the email.');
-  await verifyEmailOtp(normalizeEmail(email), digits);
+  return verifyEmailOtp(normalizeEmail(email), digits);
 }
 
 /**

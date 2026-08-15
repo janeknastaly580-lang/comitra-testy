@@ -21,8 +21,8 @@ interface AppContextValue {
     email: string,
     password: string,
     accountType?: 'standard' | 'trainer',
-    /** True once the code emailed to `email` was accepted. */
-    emailVerified?: boolean,
+    /** The receipt `api.verifyEmailCode` returned for the emailed code. */
+    ticket?: string,
   ) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
@@ -50,12 +50,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (bootstrapped.current) return;
     bootstrapped.current = true;
     (async () => {
-      const u = (await api.getSessionUser()) ?? (await api.createGuest());
+      // Ask the SERVER who this device is signed in as, and take on that
+      // account's data. This is what makes opening the app on a new phone show
+      // everything the person already has, instead of an empty start.
+      const u = (await api.bootstrapSession()) ?? (await api.createGuest());
       setUser(u);
       applyTheme(u.theme);
       setLoading(false);
     })();
   }, []);
+
+  // The session can be revoked while the app is open — a password reset done
+  // elsewhere, or the account deleted from another device. Fall back to a guest
+  // rather than leaving a signed-in shell whose edits go nowhere.
+  useEffect(
+    () =>
+      api.onSignedOut(() => {
+        void (async () => {
+          const g = await api.createGuest();
+          setUser(g);
+          applyTheme(g.theme);
+        })();
+      }),
+    [],
+  );
 
   const claimGuestInto = useCallback(async (prev: User | null, next: User) => {
     if (prev?.isGuest && prev.id !== next.id) {
@@ -87,10 +105,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       email: string,
       password: string,
       accountType: 'standard' | 'trainer' = 'standard',
-      emailVerified?: boolean,
+      ticket?: string,
     ) => {
       const prev = await api.getSessionUser();
-      const u = await api.register(name, email, password, accountType, emailVerified);
+      const u = await api.register(name, email, password, accountType, ticket);
       await claimGuestInto(prev, u);
     },
     [claimGuestInto],

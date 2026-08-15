@@ -198,15 +198,19 @@ export function start(state: RemoteState): void {
 }
 
 /**
- * Stop syncing (sign-out, or a build with no backend). Any pending change is
- * pushed first — the caller awaits this before dropping the session.
+ * Stop syncing (sign-out, or a build with no backend).
+ *
+ * Any pending change is pushed first, so the last thing someone did before
+ * signing out is not the one thing that never reached the server. Pass
+ * `{ push: false }` when the account is being deleted — there is nothing to save
+ * it to, and the attempt would only race the delete.
  */
-export async function stop(): Promise<void> {
+export async function stop({ push: pushFirst = true }: { push?: boolean } = {}): Promise<void> {
   if (timer) {
     clearTimeout(timer);
     timer = null;
   }
-  if (running && pending) await push();
+  if (running && pending && pushFirst) await push();
   running = false;
   watch(null);
   known = 0;

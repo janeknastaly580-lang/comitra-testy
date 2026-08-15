@@ -40,10 +40,10 @@ function generateToken(): string {
 /**
  * Issue a link for an address.
  *
- * Note this says nothing about whether an account exists: accounts live in the
- * browser's own storage, so the server genuinely cannot know. That turns out to
- * be a privacy feature — this endpoint cannot leak whether someone is
- * registered, because it has no idea either.
+ * Deliberately says nothing about whether an account exists. A link is minted
+ * for any valid address and simply finds nothing to reset when there is no
+ * account, so the "forgot password" form cannot be used to discover who is
+ * registered.
  */
 export async function issueResetLink(email: string): Promise<{ link: string; token: string }> {
   if (!APP_URL) {

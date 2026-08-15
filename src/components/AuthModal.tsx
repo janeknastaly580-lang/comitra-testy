@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
+import { MIN_PASSWORD_LENGTH } from '../lib/constants';
 import { SyncError } from '../lib/supabase';
 import { Button, Input, Label, PasswordInput } from './ui';
 import BrandMark from './BrandMark';
@@ -62,8 +63,8 @@ export default function AuthModal({
     setError('');
     setErrorIsSetup(false);
     if (mode === 'register') {
-      if (password.length < 4) {
-        setError('Password must be at least 4 characters.');
+      if (password.length < MIN_PASSWORD_LENGTH) {
+        setError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
         return;
       }
       if (!emailValid) {
@@ -103,7 +104,7 @@ export default function AuthModal({
           return;
         }
         // Verification deliberately switched off for this build.
-        await register(name, email, password, 'standard', false);
+        await register(name, email, password, 'standard');
       }
       onClose?.();
     } catch (err) {
@@ -118,8 +119,8 @@ export default function AuthModal({
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyEmailCode(email, code);
-      await register(name, email, password, 'standard', true);
+      const ticket = await api.verifyEmailCode(email, code);
+      await register(name, email, password, 'standard', ticket);
       onClose?.();
     } catch (err) {
       showError(err);
