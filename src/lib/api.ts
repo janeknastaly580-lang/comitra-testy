@@ -1,14 +1,37 @@
 /**
- * Mock API layer backed by LocalStorage, the MVP "database".
+ * The app's data layer.
  *
  * This is the SOCIAL-COMMITMENT / SUBSCRIPTION model. There is no money,
  * deposit, stake, pot, token, wallet or reward anywhere. The only consequence
  * of a missed goal is an optional message to pre-approved recipients.
  *
- * Every function returns a Promise so the surface already looks like a real
- * async backend. To go live, re-implement this module against your server and
- * leave the React layer untouched.
+ * WHERE THE DATA IS. Accounts and everything in them live on the server (see
+ * `src/lib/account.ts` and supabase/comitra_accounts.sql). LocalStorage is the
+ * cache this module reads and writes synchronously — that is why every function
+ * below still works on plain arrays — and `src/lib/cloud.ts` keeps that cache
+ * and the server in step. Signing in on another device pulls the same account
+ * document, so the goals, judges and settings are simply there.
+ *
+ * WITHOUT A BACKEND (no VITE_API_BASE, or inside vitest) every path below falls
+ * back to what it used to do: a device-local account that works, but only here.
+ * The fallback exists so the app is never bricked by a missing deployment, not
+ * because it is a supported way to run it.
  */
+import {
+  remoteApplyPasswordReset,
+  remoteDeleteAccount,
+  remoteEmailAvailable,
+  remoteLogin,
+  remoteLogout,
+  remoteRegister,
+  remoteRename,
+  remoteSession,
+  remoteSocialLogin,
+  signedInRemotely,
+  type AuthResult,
+} from './account';
+import { backendEnabled } from './backend';
+import * as cloud from './cloud';
 import { cancelAppBlock, commitmentBlockId, penaltyBlockId, scheduleAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
 import { goalRef } from './goal';

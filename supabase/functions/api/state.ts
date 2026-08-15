@@ -21,7 +21,12 @@
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
+/**
+ * Exported because `accounts.ts` speaks to the same database the same way. There
+ * is exactly one PostgREST client in this function, on purpose: a second one
+ * would be a second place for the service-role key to be read and mis-sent.
+ */
+export async function rpc<T>(fn: string, args: Record<string, unknown>): Promise<T> {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
     method: 'POST',
     headers: {
