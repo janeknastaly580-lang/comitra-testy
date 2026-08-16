@@ -33,10 +33,10 @@ export function verificationCodeEmail(code: string): { subject: string; text: st
     text: [
       `${code} is your Comitra verification code.`,
       '',
-      `Type it into the app to finish creating your account. It expires in ${EMAIL_TTL_MINUTES} minutes.`,
+      `Type it into the app to confirm this address. It expires in ${EMAIL_TTL_MINUTES} minutes.`,
       '',
       'Never share this code with anyone. Comitra will never ask you for it.',
-      "If you didn't try to create a Comitra account, you can ignore this email — nothing was created.",
+      "If you weren't expecting this, you can ignore this email — nothing was created.",
     ].join('\n'),
     html: [
       '<div style="margin:0;padding:24px;background:#0b0f14;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6edf3">',
