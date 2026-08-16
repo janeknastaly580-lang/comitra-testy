@@ -47,8 +47,8 @@ app.use(
 /**
  * Refuse every payment route when no PayPal app is configured, in a way the
  * frontend can tell apart from a failure. Payments are optional here: a
- * deployment may run only sign-up emails and SMS (see config.js), and those
- * must not be held hostage by a missing checkout credential.
+ * deployment may run only the sign-up emails (see config.js), and those must
+ * not be held hostage by a missing checkout credential.
  */
 function requirePaypalConfigured(_req, res, next) {
   if (!config.paypal.configured) {

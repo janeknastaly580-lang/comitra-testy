@@ -67,7 +67,7 @@ import {
   type EmailVerifyMode,
   type OtpPurpose,
 } from './email';
-import { sendPush, type PushOutcome } from './push';
+import { sendPush, type PushMessage, type PushOutcome } from './push';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -1069,6 +1069,9 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
     payload: {
       ownerName,
       consentToken: consent.inviteToken,
+      // The id is what the friend's answer comes back quoting: their device
+      // never holds the consent row itself, only this reference to it.
+      consentId: consent.id,
       body: recipientInviteMessage(ownerName),
     },
   });
@@ -2766,6 +2769,80 @@ export async function revokeRecipientConsent(token: string): Promise<RecipientCo
   saveConsents(consents);
   logAudit({ actorContact: consent.recipientContact, actionType: 'recipient_consent_revoked', entityType: 'recipient_consent', entityId: consent.id });
   return consent;
+}
+
+/**
+ * The friend answers a request that reached them in the app.
+ *
+ * Their device has no consent record to change — consents belong to the person
+ * who asked — so this sends the decision back over the same channel the request
+ * arrived on. The owner's app applies it the next time it syncs; until then
+ * their goal simply stays "waiting for the recipient", which is the truth.
+ */
+export async function answerRecipientRequest(input: {
+  message: PushMessage;
+  answeringUserId: string;
+  accepted: boolean;
+}): Promise<void> {
+  const { consentId } = input.message.payload;
+  const ownerId = input.message.fromUserId;
+  if (!consentId || !ownerId) {
+    throw new Error("This request is missing who it came from, so it can't be answered. Ask them to add you again.");
+  }
+  const ok = await sendPush({
+    // Derived from the request's own id, so answering twice cannot queue two
+    // answers, and a retry after a dropped connection is free.
+    id: `${input.message.id}:answer`,
+    toUserId: ownerId,
+    fromUserId: input.answeringUserId,
+    kind: 'recipient_consent_answer',
+    payload: { consentId, accepted: input.accepted },
+  });
+  if (ok === 'failed') {
+    throw new Error("We couldn't reach the server. Check your connection and try again.");
+  }
+}
+
+/**
+ * Apply any answers waiting in this account's inbox, and say which were used.
+ *
+ * Called on every sync. The consent moves to accepted or revoked, and goals of
+ * this owner that were waiting on that person are re-evaluated — which is what
+ * finally starts a goal whose recipient has just said yes.
+ */
+export function absorbConsentAnswers(ownerUserId: string, messages: PushMessage[]): string[] {
+  const answers = messages.filter((m) => m.kind === 'recipient_consent_answer');
+  if (answers.length === 0) return [];
+
+  const consents = getConsents();
+  const consumed: string[] = [];
+  let changed = false;
+
+  for (const message of answers) {
+    consumed.push(message.id);
+    const { consentId, accepted } = message.payload;
+    const consent = consents.find((c) => c.id === consentId && c.ownerUserId === ownerUserId);
+    // An answer to a consent this device has never heard of is still consumed:
+    // leaving it unread would make it come back on every single sync.
+    if (!consent || consent.consentStatus === 'revoked') continue;
+    consent.consentStatus = accepted ? 'accepted' : 'revoked';
+    if (accepted) consent.acceptedAt = message.createdAt;
+    else consent.revokedAt = message.createdAt;
+    changed = true;
+    logAudit({
+      actorId: message.fromUserId ?? undefined,
+      actionType: accepted ? 'recipient_consent_accepted' : 'recipient_consent_revoked',
+      entityType: 'recipient_consent',
+      entityId: consent.id,
+    });
+  }
+
+  if (changed) {
+    saveConsents(consents);
+    // A goal held up by "waiting for the recipient" can start now.
+    reevaluateGoals((g) => g.userId === ownerUserId);
+  }
+  return consumed;
 }
 
 /** Consents a given owner has (for the "Recipients" management view). */

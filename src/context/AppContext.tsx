@@ -94,7 +94,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const tick = async () => {
       await registerDevice(id);
       const messages = await syncInbox(id);
-      if (!stopped) setInbox(messages);
+      // A friend's yes/no is machinery, not news: apply it to this account's
+      // consents (which may start a goal that was waiting on them) and clear it,
+      // so it never sits in the list as something to read.
+      const consumed = api.absorbConsentAnswers(id, messages);
+      for (const messageId of consumed) await markRead(messageId, id);
+      if (!stopped) setInbox(listInbox());
     };
 
     void tick();

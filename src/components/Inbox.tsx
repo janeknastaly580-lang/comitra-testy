@@ -1,6 +1,7 @@
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { pushBody, type PushMessage } from '../lib/push';
+import * as api from '../lib/api';
+import { isVisible, pushBody, type PushMessage } from '../lib/push';
 import { shortDate, timeOfDay } from '../lib/format';
 import { Badge, Button, Card } from './ui';
 import { Bell } from 'lucide-react';
@@ -12,30 +13,34 @@ import { Bell } from 'lucide-react';
  * arrives as a system notification, but that banner is a courtesy — it can be
  * swiped away, refused at the permission prompt, or never shown because the app
  * was closed when it was sent. THIS list is the guarantee: a message stays here
- * until it is read, however long that takes.
+ * until it is answered, however long that takes.
  *
- * Only unread messages are shown. A consent request stays until it is answered
- * on the accept screen; a failure notice clears as soon as it is acknowledged,
- * because there is nothing to do about it but read it.
+ * A consent request is ANSWERED here rather than on a link, because the consent
+ * record itself lives in the asker's data — this device has nothing to open. The
+ * yes or no travels back over the same channel (see `answerRecipientRequest`).
  */
 export default function Inbox() {
-  const { inbox, readMessage } = useApp();
-  const navigate = useNavigate();
+  const { user, inbox, readMessage } = useApp();
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
 
-  const unread = inbox.filter((m) => !m.readAt);
+  const unread = inbox.filter((m) => !m.readAt && isVisible(m));
   if (unread.length === 0) return null;
 
-  /** Consent requests open the accept screen; everything else is just read. */
-  function open(message: PushMessage) {
-    const token = message.payload.consentToken;
-    if (message.kind === 'recipient_consent_request' && token) {
-      // Deliberately NOT marked read here: the request is answered on that
-      // screen, and dismissing it on the way there would lose it for someone
-      // who backs out. `acceptRecipientConsent` is what settles it.
-      navigate(`/recipient/${token}`);
-      return;
+  async function answer(message: PushMessage, accepted: boolean) {
+    if (!user) return;
+    setBusy(message.id);
+    setError('');
+    try {
+      await api.answerRecipientRequest({ message, answeringUserId: user.id, accepted });
+      // Only now: an unread request is the only record that this is still open,
+      // so it must not be cleared before the answer is safely on its way.
+      await readMessage(message.id);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy('');
     }
-    void readMessage(message.id);
   }
 
   return (
@@ -52,16 +57,35 @@ export default function Inbox() {
             <p className="mt-1 font-mono text-[10px] uppercase tracking-widest text-muted">
               {shortDate(message.createdAt)} · {timeOfDay(message.createdAt)}
             </p>
-            <Button
-              variant={message.kind === 'recipient_consent_request' ? 'primary' : 'outline'}
-              className="mt-3 w-full"
-              onClick={() => open(message)}
-            >
-              {message.kind === 'recipient_consent_request' ? 'See what they’re asking' : 'Got it'}
-            </Button>
+
+            {message.kind === 'recipient_consent_request' ? (
+              <>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                  If you agree, you'll be told in the app when one of their goals is not completed — never
+                  what the goal is, only its number. You can say no, and you can stop later.
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={busy === message.id}
+                    onClick={() => answer(message, false)}
+                  >
+                    No thanks
+                  </Button>
+                  <Button disabled={busy === message.id} onClick={() => answer(message, true)}>
+                    {busy === message.id ? 'Sending…' : 'I agree'}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <Button variant="outline" className="mt-3 w-full" onClick={() => void readMessage(message.id)}>
+                Got it
+              </Button>
+            )}
           </Card>
         ))}
       </div>
+      {error && <p className="mt-2 font-mono text-xs text-danger">{error}</p>}
     </div>
   );
 }

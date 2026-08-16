@@ -27,9 +27,8 @@ import { LIMITS, takeSlot } from './throttle.js';
  *   • **Single use.** A correct code deletes its entry, so it cannot be replayed
  *     inside the seven minutes.
  *
- * The per-address cooldown and hourly quota come from the same throttle store
- * the SMS side uses, under their own bucket names, so codes to one address are
- * capped no matter how many IPs ask for them.
+ * The per-address cooldown and hourly quota come from the throttle store next
+ * door, so codes to one address are capped no matter how many IPs ask for them.
  *
  * In-memory on purpose: this backend is a single process. A restart invalidates
  * every pending code, which for the person is the same as a code expiring.

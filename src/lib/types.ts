@@ -72,7 +72,6 @@ export interface PlannedAction {
   updatedAt: string;
 }
 
-/** How a judge or recipient is reached. Limited to channels the app supports. */
 /**
  * How Comitra reaches someone.
  *
@@ -164,9 +163,10 @@ export interface JudgeCredential {
 
 /**
  * A friend the user invited (via their reusable invite link) to be a possible
- * judge. The friend submitted their phone, set their secret code (stored as a
- * `JudgeCredential`), and agreed to receive Comitra messages about this owner's
- * goals. These are the only phone numbers the owner can pick as a judge.
+ * judge. The friend gave an email address and confirmed it with a code, set
+ * their secret password (stored as a `JudgeCredential`), and agreed to receive
+ * Comitra messages about this owner's goals. These are the only people the owner
+ * can pick as a judge.
  */
 export interface InvitedJudge {
   id: string;
@@ -522,10 +522,10 @@ export interface NotificationLog {
 }
 
 /**
- * A message the system intends to deliver (the "notification system"). On the
- * MVP these are recorded here and shown in-app / shared via link; a real backend
- * would deliver them by push/SMS/email. Recipients must have consented before a
- * `recipient_message` is ever queued for them.
+ * A message the system intends to deliver (the "notification system"). The
+ * outbox is the RECORD: a judge message is a link its owner sends by hand, and a
+ * recipient message is delivered to their account by `src/lib/push.ts`.
+ * Recipients must have consented before one is ever queued for them.
  */
 export type OutboxKind =
   | 'recipient_consent_request'

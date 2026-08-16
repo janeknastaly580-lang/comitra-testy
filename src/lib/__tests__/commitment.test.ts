@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as api from '../api';
 import { KEYS, write } from '../storage';
 import type { CreateGoalInput } from '../api';
+import type { PushMessage } from '../push';
 import { buildGoalReport, goalDone, goalRequired } from '../goal';
 import { checkGoalContent } from '../messages';
 
@@ -615,6 +616,76 @@ describe('trainer role', () => {
     await api.acceptJudgeByUser(goal.id, trainer.id);
     const decided = await api.judgeDecisionByUser(goal.id, trainer.id, 'completed');
     expect(decided.status).toBe('completed');
+  });
+});
+
+describe('a recipient is a friend, and answers in the app', () => {
+  /**
+   * The consent record lives in the OWNER's data, so the friend has nothing
+   * local to accept: their answer arrives as a message and is applied here.
+   * Without this the goal would wait for a recipient for ever.
+   */
+  it("a friend's answer, arriving in the inbox, accepts the consent and starts the goal", async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id));
+    setDevice('judge-device');
+    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    setDevice('creator-device');
+
+    const consent = (await api.listOwnerConsents(owner.id))[0];
+    expect(consent.consentStatus).toBe('pending');
+    expect(consent.recipientUserId).toBe('friend-alice');
+    // Nothing may be sent, and the goal may not start, until they say yes.
+    expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_recipients_acceptance');
+
+    const answer: PushMessage = {
+      id: 'msg-1',
+      kind: 'recipient_consent_answer',
+      fromUserId: 'friend-alice',
+      payload: { consentId: consent.id, accepted: true },
+      createdAt: new Date().toISOString(),
+    };
+    expect(api.absorbConsentAnswers(owner.id, [answer])).toEqual(['msg-1']);
+
+    expect((await api.listOwnerConsents(owner.id))[0].consentStatus).toBe('accepted');
+    expect((await api.getGoal(goal.id))!.status).toBe('active');
+  });
+
+  it('a no keeps the recipient out, and is not asked again', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(goalInput(owner.id));
+    const consent = (await api.listOwnerConsents(owner.id))[0];
+
+    const refusal: PushMessage = {
+      id: 'msg-2',
+      kind: 'recipient_consent_answer',
+      fromUserId: 'friend-alice',
+      payload: { consentId: consent.id, accepted: false },
+      createdAt: new Date().toISOString(),
+    };
+    api.absorbConsentAnswers(owner.id, [refusal]);
+    expect((await api.listOwnerConsents(owner.id))[0].consentStatus).toBe('revoked');
+
+    // A later yes cannot undo a refusal: opting out has to be final.
+    api.absorbConsentAnswers(owner.id, [{ ...refusal, id: 'msg-3', payload: { consentId: consent.id, accepted: true } }]);
+    expect((await api.listOwnerConsents(owner.id))[0].consentStatus).toBe('revoked');
+    expect((await api.getGoal(goal.id))!.status).not.toBe('active');
+  });
+
+  it("an answer about a consent this device never had is still consumed", async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const stray: PushMessage = {
+      id: 'msg-4',
+      kind: 'recipient_consent_answer',
+      fromUserId: 'friend-alice',
+      payload: { consentId: 'rc_nonexistent', accepted: true },
+      createdAt: new Date().toISOString(),
+    };
+    // Consumed, or it would come back on every single sync for ever.
+    expect(api.absorbConsentAnswers(owner.id, [stray])).toEqual(['msg-4']);
   });
 });
 

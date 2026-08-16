@@ -29,8 +29,8 @@ function isBlank(name) {
  *
  *   • all three set   → payments are live;
  *   • none set        → payments are OFF. `/api/paypal/*` answers 503 and the
- *     server boots. This is what lets a deployment run sign-up emails or SMS
- *     without having a PayPal app at all — they are unrelated features, and
+ *     server boots. This is what lets a deployment run sign-up emails without
+ *     having a PayPal app at all — they are unrelated features, and
  *     requiring a payment credential to send a verification email would be an
  *     absurd coupling;
  *   • partially set   → refuse to boot, naming what is missing. A half-wired

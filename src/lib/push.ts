@@ -47,8 +47,16 @@ import {
  */
 export const REACHABLE_DAYS = 14;
 
-/** The kinds of message an account can be sent. */
-export type PushKind = 'recipient_consent_request' | 'goal_not_completed';
+/**
+ * The kinds of message an account can be sent.
+ *
+ * `recipient_consent_answer` is the only one that travels back UP, from the
+ * friend to the person who asked. It has to: a consent record lives in the
+ * OWNER's data, so the friend's yes or no is useless until it reaches them.
+ * It is machinery rather than news, so the inbox never shows it — the owner's
+ * app applies it and drops it (see `absorbConsentAnswers` in api.ts).
+ */
+export type PushKind = 'recipient_consent_request' | 'recipient_consent_answer' | 'goal_not_completed';
 
 /** What a message carries. Never a goal's title or description. */
 export interface PushPayload {
@@ -60,6 +68,10 @@ export interface PushPayload {
   tone?: string;
   /** Consent-request only: the token the accept screen is opened with. */
   consentToken?: string;
+  /** Consent request/answer: which consent record this is about. */
+  consentId?: string;
+  /** Consent answer only: whether the friend agreed. */
+  accepted?: boolean;
   /** The already-composed sentence, so the app shows exactly what was sent. */
   body?: string;
 }
@@ -162,6 +174,11 @@ function toMessage(row: RemotePushRow): PushMessage {
   };
 }
 
+/** Whether a message is for a person to read, or only for the app to act on. */
+export function isVisible(message: PushMessage): boolean {
+  return message.kind !== 'recipient_consent_answer';
+}
+
 /** The one-line banner a message becomes. */
 export function pushTitle(kind: PushKind): string {
   return kind === 'recipient_consent_request' ? 'Comitra · a friend asked you something' : 'Comitra';
@@ -199,7 +216,7 @@ export async function syncInbox(userId: string): Promise<PushMessage[]> {
   saveCache(merged);
 
   for (const message of fresh) {
-    if (known.has(message.id)) continue;
+    if (known.has(message.id) || !isVisible(message)) continue;
     // Fire and forget: a banner is a nicety, the list above is the record.
     void postNotification({ id: message.id, title: pushTitle(message.kind), body: pushBody(message) });
   }
