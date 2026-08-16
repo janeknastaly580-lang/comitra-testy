@@ -48,8 +48,8 @@ export default function InviteFriends() {
   const [token, setToken] = useState('');
   const [friends, setFriends] = useState<InvitedJudge[] | null>(null);
   const [health, setHealth] = useState<SyncHealth | null>(null);
-  // Whether a friend will be asked to confirm their number with a texted code.
-  const [smsOn, setSmsOn] = useState<boolean | null>(null);
+  // Whether a friend will be asked to confirm their address with an emailed code.
+  const [codeOn, setCodeOn] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -59,7 +59,7 @@ export default function InviteFriends() {
         setToken(invite.inviteToken);
         setFriends(await api.listInvitedJudges(user.id));
         setHealth(await api.getJudgeSyncHealth());
-        setSmsOn(await api.phoneVerificationAvailable());
+        setCodeOn(await api.judgeEmailVerificationAvailable());
       } catch (err) {
         // Without this the whole panel would sit blank on any failure, with
         // only an unhandled rejection to explain it. `offline` is the honest
@@ -67,7 +67,7 @@ export default function InviteFriends() {
         console.error('[invite-friends] could not load invite state:', err);
         setHealth(navigator.onLine ? 'no-server' : 'unreachable');
         setFriends([]);
-        setSmsOn(false);
+        setCodeOn(false);
       }
     })();
   }, [user]);
@@ -80,8 +80,8 @@ export default function InviteFriends() {
 
       <p className="mb-4 text-[13px] text-muted">
         Send this link to a friend. On <span className="font-semibold text-ink">their own device</span> they'll
-        pick a name, set a judge password, and agree to receive goal messages from Comitra. Once they've done
-        that, you can pick them as a judge when you set a goal.
+        pick a name, give an email address, set a judge password, and agree to receive goal messages from
+        Comitra. Once they've done that, you can pick them as a judge when you set a goal.
       </p>
 
       {health && (
@@ -93,15 +93,15 @@ export default function InviteFriends() {
         </div>
       )}
 
-      {smsOn !== null && (
+      {codeOn !== null && (
         <div className="mb-4 rounded-xl border border-line bg-elevated px-3.5 py-2.5">
-          <p className={`font-mono text-[10px] uppercase tracking-widest ${smsOn ? 'text-accent' : 'text-warn'}`}>
-            {smsOn ? 'Phone check · on' : 'Phone check · off'}
+          <p className={`font-mono text-[10px] uppercase tracking-widest ${codeOn ? 'text-accent' : 'text-warn'}`}>
+            {codeOn ? 'Email check · on' : 'Email check · off'}
           </p>
           <p className="mt-1 text-[12px] text-muted">
-            {smsOn
-              ? 'Your friend gets a 6-digit code by text and has to enter it, so the number is proven to be theirs.'
-              : 'Text-message verification is not switched on yet, so a friend can register any number without proving it. See TWILIO_SETUP.md.'}
+            {codeOn
+              ? 'Your friend gets a 6-digit code by email and has to enter it, so the address is proven to be theirs.'
+              : 'Email verification is not switched on yet, so a friend can register any address without proving it. See SES_SETUP.md.'}
           </p>
         </div>
       )}
@@ -129,7 +129,7 @@ export default function InviteFriends() {
             <Card key={f.id} className="flex items-center justify-between p-3.5">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-ink">{f.name}</p>
-                <p className="truncate font-mono text-[11px] text-muted">{f.phone}</p>
+                <p className="truncate font-mono text-[11px] text-muted">{f.email}</p>
               </div>
               <span className="font-mono text-[10px] uppercase tracking-widest text-accent">Ready</span>
             </Card>

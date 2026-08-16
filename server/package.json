@@ -1,7 +1,7 @@
 {
   "name": "fineline-payments-server",
   "version": "1.0.0",
-  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Twilio SMS (OTP + notifications via a Messaging Service).",
+  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Amazon SES verification codes.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -22,7 +22,6 @@
     "express-rate-limit": "^7.4.0",
     "express-validator": "^7.2.0",
     "helmet": "^8.0.0",
-    "twilio": "^6.0.2",
     "uuid": "^10.0.0"
   }
 }

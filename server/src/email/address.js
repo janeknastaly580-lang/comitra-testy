@@ -1,5 +1,5 @@
 /**
- * Email address handling, the counterpart of twilio/phone.js.
+ * Email address handling.
  *
  * Two jobs, and they must not be confused:
  *   • `normalizeEmail` produces the address a message is SENT to. It only

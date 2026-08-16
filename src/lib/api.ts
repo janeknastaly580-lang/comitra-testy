@@ -35,7 +35,6 @@ import * as cloud from './cloud';
 import { cancelAppBlock, commitmentBlockId, penaltyBlockId, scheduleAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
 import { goalRef } from './goal';
-import { judgeLink, recipientLink } from './share';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
 import {
@@ -61,19 +60,14 @@ import {
 } from './supabase';
 import { isNewerThan, mergeSharedGoal, sharedFingerprint, toSharedGoal, type SharedGoal } from './goalShare';
 import {
-  sendPhoneOtp,
-  sendTransactionalSms,
-  smsVerificationAvailable,
-  verifyPhoneOtp,
-  type SmsTemplate,
-} from './sms';
-import {
   emailVerificationMode as emailOtpMode,
   requestPasswordReset,
   sendEmailOtp,
   verifyEmailOtp,
   type EmailVerifyMode,
+  type OtpPurpose,
 } from './email';
+import { sendPush, type PushOutcome } from './push';
 import type {
   AbuseReport,
   AppBlockPenalty,
@@ -243,44 +237,16 @@ function saveOutbox(list: OutboxMessage[]) {
 }
 
 /**
- * What the backend should text, when the message goes to a phone. The BODY is
- * not sent: the backend owns the wording (server/src/twilio/templates.js), so a
- * tampered client can't push arbitrary text out through Comitra's sender.
- */
-interface SmsDelivery {
-  template: SmsTemplate;
-  params?: Record<string, string | number | undefined>;
-}
-
-/**
- * Actually text a queued message, when it is addressed to a phone number and a
- * Twilio-backed API is configured.
+ * Queue a message the system intends to deliver.
  *
- * Deliberately fire-and-forget: the outbox entry is the record of intent, and a
- * texting failure must never break the flow that produced it (activating a
- * goal, asking a judge to decide). The outbox id doubles as the idempotency
- * key, so a repeat call for the same entry never puts a second text on the
- * phone.
- */
-function deliverOutboxBySms(entry: OutboxMessage, sms?: SmsDelivery): void {
-  if (!sms || entry.channel !== 'phone' || !entry.contact) return;
-  void sendTransactionalSms({
-    to: entry.contact,
-    template: sms.template,
-    params: sms.params,
-    idempotencyKey: entry.id,
-  });
-}
-
-/**
- * Queue a message the system intends to deliver. It is recorded here (and
- * surfaced in-app / via a share link); when it is addressed to a phone number
- * and the SMS backend is configured, it is also texted through Twilio.
- * Recipients must have consented before any `recipient_message`.
+ * The outbox is the RECORD of intent, shown on the goal screen so the owner can
+ * see exactly what Comitra says on their behalf. Delivery itself is separate:
+ * a judge message is a link the owner sends by hand (Comitra never contacts a
+ * judge on its own), and a recipient message goes to their account through
+ * `src/lib/push.ts`. Recipients must have consented before any message.
  */
 function queueOutbox(
   msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'> & { status?: OutboxMessage['status'] },
-  sms?: SmsDelivery,
 ): OutboxMessage {
   const list = getOutbox();
   const entry: OutboxMessage = {
@@ -291,7 +257,6 @@ function queueOutbox(
   };
   list.unshift(entry);
   saveOutbox(list);
-  deliverOutboxBySms(entry, sms);
   return entry;
 }
 
@@ -955,11 +920,17 @@ export async function getGoalByToken(token: string): Promise<Goal | null> {
   return getGoals().find((g) => g.shareToken === token || g.judge.acceptToken === token) ?? null;
 }
 
+/**
+ * A recipient is a FRIEND — someone the owner follows who follows them back —
+ * and nothing else. There is no contact field any more: the message goes to
+ * their account (see `src/lib/push.ts`), so Comitra never holds a number or an
+ * address for the person who might be told about a missed goal.
+ */
 export interface RecipientInput {
+  /** The friend's account id. Required: this is who the message is addressed to. */
+  recipientUserId: string;
+  /** Their display name, copied so the owner's own screens read normally. */
   name: string;
-  channel: Channel;
-  contact?: string; // email / phone
-  recipientUserId?: string; // internal profile
 }
 
 export interface CreateGoalInput {
@@ -1030,15 +1001,14 @@ function buildPlannedActions(input: CreateGoalInput): PlannedAction[] {
   }));
 }
 
-function normalizeContact(channel: Channel, raw?: string): string | undefined {
+/**
+ * The stored form of a contact. Only email addresses reach this now — a judge's
+ * address — and lower-casing is what makes "Kasia@x.com" and "kasia@x.com" the
+ * same judge rather than two.
+ */
+function normalizeContact(_channel: Channel, raw?: string): string | undefined {
   if (!raw) return undefined;
-  return channel === 'phone' ? normalizePhone(raw) : raw.trim().toLowerCase();
-}
-
-export function normalizePhone(raw: string): string {
-  const trimmed = raw.trim();
-  const hasPlus = trimmed.startsWith('+');
-  return (hasPlus ? '+' : '') + trimmed.replace(/\D/g, '');
+  return raw.trim().toLowerCase();
 }
 
 /** How many recipient invites this owner has sent in the last 24h. */
@@ -1055,14 +1025,9 @@ function invitesSentToday(ownerUserId: string): number {
  * who already accepted for this owner does not need to re-accept.
  */
 function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent {
-  const contact = normalizeContact(r.channel, r.contact);
   const consents = getConsents();
   const existing = consents.find(
-    (c) =>
-      c.ownerUserId === ownerUserId &&
-      c.channel === r.channel &&
-      ((contact && c.recipientContact === contact) ||
-        (r.recipientUserId && c.recipientUserId === r.recipientUserId)),
+    (c) => c.ownerUserId === ownerUserId && c.recipientUserId === r.recipientUserId,
   );
   if (existing) {
     // Reactivate a lapsed record's name; do NOT silently un-revoke consent.
@@ -1076,8 +1041,8 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
     id: uid('rc'),
     ownerUserId,
     name: r.name.trim() || 'Recipient',
-    channel: r.channel,
-    recipientContact: contact,
+    // Always internal now: a recipient is an account, never a number.
+    channel: 'internal',
     recipientUserId: r.recipientUserId,
     consentStatus: 'pending',
     inviteToken: uuid(),
@@ -1086,18 +1051,27 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
   consents.push(consent);
   saveConsents(consents);
   logAudit({ actorId: ownerUserId, actionType: 'recipient_invited', entityType: 'recipient_consent', entityId: consent.id, metadata: { channel: consent.channel } });
-  // Notification #1: ask the recipient to consent BEFORE any message is ever sent.
+  // Notification #1: ask the recipient to consent BEFORE any message is ever
+  // sent. It reaches their app, carrying the token their accept screen opens.
   const owner = getUsers().find((u) => u.id === ownerUserId);
-  queueOutbox(
-    {
-      kind: 'recipient_consent_request',
-      to: 'recipient',
-      channel: consent.channel,
-      contact: consent.recipientContact,
-      body: recipientInviteMessage(owner?.name ?? 'A Comitra user'),
+  const ownerName = owner?.name ?? 'A Comitra user';
+  const entry = queueOutbox({
+    kind: 'recipient_consent_request',
+    to: 'recipient',
+    channel: 'internal',
+    body: recipientInviteMessage(ownerName),
+  });
+  void sendPush({
+    id: entry.id,
+    toUserId: r.recipientUserId,
+    fromUserId: ownerUserId,
+    kind: 'recipient_consent_request',
+    payload: {
+      ownerName,
+      consentToken: consent.inviteToken,
+      body: recipientInviteMessage(ownerName),
     },
-    { template: 'recipient_invite', params: { ownerName: owner?.name, link: recipientLink(consent.inviteToken) } },
-  );
+  });
   return consent;
 }
 
@@ -1195,7 +1169,7 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
       'Answer the two questions about your missed goal before you set a new one.',
     );
   }
-  const recips = input.recipients.filter((r) => r.name.trim() || r.contact || r.recipientUserId);
+  const recips = input.recipients.filter((r) => !!r.recipientUserId);
   // Recipients are optional now: but if there are any, the notify consent is required.
   if (recips.length > 0 && !input.ackNotifyConsent) {
     throw new Error('You must acknowledge that recipients may be messaged on failure.');
@@ -1208,15 +1182,9 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     );
   }
   // Anti-spam: count how many of these are brand-new invites.
-  const newInvites = recips.filter((r) => {
-    const contact = normalizeContact(r.channel, r.contact);
-    return !getConsents().some(
-      (c) =>
-        c.ownerUserId === input.userId &&
-        ((contact && c.recipientContact === contact) ||
-          (r.recipientUserId && c.recipientUserId === r.recipientUserId)),
-    );
-  }).length;
+  const newInvites = recips.filter(
+    (r) => !getConsents().some((c) => c.ownerUserId === input.userId && c.recipientUserId === r.recipientUserId),
+  ).length;
   if (invitesSentToday(input.userId) + newInvites > MAX_INVITES_PER_DAY) {
     throw new Error(`Daily invite limit reached (${MAX_INVITES_PER_DAY}/day). Try again tomorrow.`);
   }
@@ -1292,20 +1260,17 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   // Notification #2: ask the chosen judge to accept the role (unless pre-accepted).
   // Carries the goal NUMBER only: never the title or the details.
   if (input.judge && judge.status !== 'accepted') {
-    queueOutbox(
-      {
-        goalId: goal.id,
-        kind: 'judge_invite',
-        to: 'judge',
-        channel: judge.channel,
-        contact: judge.judgeContact,
-        body:
-          `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
-          `link to accept the role, set your secret code, and later say whether they completed it. ` +
-          `Comitra does not show you what the goal is. ${goal.creatorName} tells you that themselves.`,
-      },
-      { template: 'judge_invite', params: { ownerName: goal.creatorName, link: judgeLink(goal) } },
-    );
+    queueOutbox({
+      goalId: goal.id,
+      kind: 'judge_invite',
+      to: 'judge',
+      channel: judge.channel,
+      contact: judge.judgeContact,
+      body:
+        `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
+        `link to accept the role, set your secret code, and later say whether they completed it. ` +
+        `Comitra does not show you what the goal is. ${goal.creatorName} tells you that themselves.`,
+    });
   }
 
   if (recips.length > 0) {
@@ -1841,45 +1806,7 @@ function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: 
   return { ownerUserId: invite.ownerUserId, inviterDeviceId: invite.inviterDeviceId };
 }
 
-/* ─────────────────────────────── Phone (SMS) verification ── */
-
-/**
- * Whether a phone number can be confirmed with an SMS code — used by both the
- * sign-up form and the judge-invite page. True only when the backend actually
- * holds Twilio credentials, so:
- *  • the app keeps working before Twilio is set up (falls back to no SMS step),
- *  • tests stay hermetic (`smsVerificationAvailable()` is false under MODE==='test').
- *
- * `VITE_SMS_VERIFY=off` switches the step off. There is deliberately no way to
- * force it *on*: showing a "we texted you a code" screen that no backend can
- * follow through on would strand everyone at a code that never arrives.
- */
-export async function phoneVerificationAvailable(): Promise<boolean> {
-  if (import.meta.env.VITE_SMS_VERIFY?.trim().toLowerCase() === 'off') return false;
-  return smsVerificationAvailable();
-}
-
-/**
- * Text a 6-digit verification code to a phone (E.164), to prove the number
- * belongs to the person entering it. The code is generated, hashed and checked
- * by our own backend (server/src/twilio/verify.js); it is valid for 7 minutes
- * and allows 5 attempts.
- */
-export async function startPhoneVerification(phone: string): Promise<void> {
-  const normalized = normalizePhone(phone);
-  if (normalized.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
-  await sendPhoneOtp(normalized);
-}
-
-/** Check the 6-digit code that was texted. Throws if it's wrong or expired. */
-export async function verifyPhoneCode(phone: string, code: string): Promise<void> {
-  const normalized = normalizePhone(phone);
-  const digits = (code ?? '').replace(/\D/g, '');
-  if (digits.length < 4) throw new Error('Enter the code from the text message.');
-  await verifyPhoneOtp(normalized, digits);
-}
-
-/* ────────────────────────────────── Email verification (sign-up) ── */
+/* ────────────────────────────────── Email verification ── */
 
 /** Loose on purpose: the authority on whether an address works is the mailbox. */
 const EMAIL_SHAPE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
@@ -1904,7 +1831,7 @@ export function emailLooksValid(email: string): boolean {
  * "the backend happens to be down". Without it, a misconfigured SES would lock
  * every new person out of the app with no way back in.
  */
-export type { EmailVerifyMode };
+export type { EmailVerifyMode, OtpPurpose };
 
 export async function emailVerificationMode(): Promise<EmailVerifyMode> {
   if (import.meta.env.VITE_EMAIL_VERIFY?.trim().toLowerCase() === 'off') return 'disabled';
@@ -1913,37 +1840,60 @@ export async function emailVerificationMode(): Promise<EmailVerifyMode> {
 
 /**
  * Email a 6-digit verification code to prove the address belongs to the person
- * entering it. The code is generated, hashed and checked by our own backend
- * (server/src/email/verify.js); it is valid for 7 minutes and allows 5 attempts.
+ * entering it. The code is generated, hashed and checked by our own backend; it
+ * is valid for 7 minutes, allows 5 attempts, and can be re-sent after 30s.
+ *
+ * `purpose` says which flow is asking. The email is identical either way — the
+ * same template, the same six digits — but the codes are separate, so accepting
+ * a judge invite never eats the code someone is mid-way through typing into the
+ * sign-up form on the same address.
  */
-export async function startEmailVerification(email: string): Promise<void> {
+export async function startEmailVerification(email: string, purpose: OtpPurpose = 'signup'): Promise<void> {
   if (!emailLooksValid(email)) throw new Error('Enter a valid email address.');
-  await sendEmailOtp(normalizeEmail(email));
+  await sendEmailOtp(normalizeEmail(email), purpose);
 }
 
 /**
  * Check the 6-digit code that was emailed. Throws if it's wrong or expired.
  *
  * Returns the backend's receipt for the check, which `register` must present.
- * Undefined only where there is no backend to have issued one.
+ * Undefined for a judge invite (which creates no account) and wherever there is
+ * no backend to have issued one.
  */
-export async function verifyEmailCode(email: string, code: string): Promise<string | undefined> {
+export async function verifyEmailCode(
+  email: string,
+  code: string,
+  purpose: OtpPurpose = 'signup',
+): Promise<string | undefined> {
   const digits = (code ?? '').replace(/\D/g, '');
   if (digits.length < 4) throw new Error('Enter the code from the email.');
-  return verifyEmailOtp(normalizeEmail(email), digits);
+  return verifyEmailOtp(normalizeEmail(email), digits, purpose);
 }
 
 /**
- * The friend submits the invite form: their name, phone and judge password, and
+ * Whether a judge's address gets confirmed with an emailed code.
+ *
+ * Same answer as the sign-up form's: it is on exactly when the backend can send
+ * email at all. There is deliberately no way to force it on — showing a "we
+ * emailed you a code" screen no backend can follow through on would strand
+ * every judge at a code that never arrives.
+ */
+export async function judgeEmailVerificationAvailable(): Promise<boolean> {
+  return (await emailVerificationMode()) === 'required';
+}
+
+/**
+ * The friend submits the invite form: their name, email and judge password, and
  * consents to Comitra messages about this owner's goals. This registers them as
  * a pickable judge for that owner and stores their standing acceptance + password.
  * The name must be unique among this owner's judges, and the link must be opened
- * on a different device than the one that created it. `phoneVerified` records that
- * they passed the SMS check (the UI only sets it after `verifyPhoneCode` succeeds).
+ * on a different device than the one that created it. `emailVerified` records
+ * that they passed the code check (the UI only sets it after `verifyEmailCode`
+ * succeeds).
  */
 export async function submitJudgeInvite(
   token: string,
-  input: { name: string; phone: string; code: string; phoneVerified?: boolean },
+  input: { name: string; email: string; code: string; emailVerified?: boolean },
 ): Promise<InvitedJudge> {
   await delay();
   const invite = resolveInvite(token);
@@ -1957,8 +1907,8 @@ export async function submitJudgeInvite(
   if (sessionId && sessionId === invite.ownerUserId) {
     throw new Error('You are signed in as the person who created this invite. A judge has to be someone else.');
   }
-  const phone = normalizePhone(input.phone);
-  if (phone.replace(/\D/g, '').length < 7) throw new Error('Enter a valid phone number.');
+  const email = normalizeEmail(input.email);
+  if (!emailLooksValid(email)) throw new Error('Enter a valid email address.');
   const code = (input.code ?? '').trim();
   if (code.length < JUDGE_CODE_MIN) throw new Error(`Set a judge password of at least ${JUDGE_CODE_MIN} characters.`);
   const name = input.name.trim();
@@ -1970,25 +1920,25 @@ export async function submitJudgeInvite(
   // reuse a name already taken for this owner).
   const nameKey = name.toLowerCase();
   const nameTaken = list.some(
-    (j) => j.ownerUserId === invite.ownerUserId && j.name.trim().toLowerCase() === nameKey && j.phone !== phone,
+    (j) => j.ownerUserId === invite.ownerUserId && j.name.trim().toLowerCase() === nameKey && j.email !== email,
   );
   if (nameTaken) {
     throw new Error('That name is already used by one of this person’s judges. Please choose a different name.');
   }
 
-  let record = list.find((j) => j.ownerUserId === invite.ownerUserId && j.phone === phone);
+  let record = list.find((j) => j.ownerUserId === invite.ownerUserId && j.email === email);
   if (record) {
     record.name = name;
     record.consentedAt = now;
-    if (input.phoneVerified) record.phoneVerifiedAt = now;
+    if (input.emailVerified) record.emailVerifiedAt = now;
   } else {
     record = {
       id: uid('ij'),
       ownerUserId: invite.ownerUserId,
       name,
-      phone,
+      email,
       consentedAt: now,
-      phoneVerifiedAt: input.phoneVerified ? now : undefined,
+      emailVerifiedAt: input.emailVerified ? now : undefined,
       createdAt: now,
     };
     list.push(record);
@@ -1997,9 +1947,9 @@ export async function submitJudgeInvite(
 
   // Store the standing acceptance + judge password for this owner+judge.
   const codeHash = hashCode(code);
-  upsertJudgeCredentialHash(invite.ownerUserId, judgeKeyFor({ judgeContact: phone }), codeHash);
-  logLegalAcceptance({ type: 'judge_role_ack', contact: phone, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
-  logAudit({ actorContact: phone, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });
+  upsertJudgeCredentialHash(invite.ownerUserId, judgeKeyFor({ judgeContact: email }), codeHash);
+  logLegalAcceptance({ type: 'judge_role_ack', contact: email, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
+  logAudit({ actorContact: email, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });
 
   // Publish to the shared store so the inviter sees this judge on THEIR device.
   // This is the whole point of the invite: without it, the registration would
@@ -2016,7 +1966,7 @@ export async function submitJudgeInvite(
         id: record.id,
         owner_user_id: record.ownerUserId,
         name: record.name,
-        phone: record.phone,
+        email: record.email,
         judge_account_user_id: null,
         consented_at: record.consentedAt ?? now,
         created_at: record.createdAt,
@@ -2050,7 +2000,7 @@ function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudg
   let changed = false;
   for (const r of remote) {
     if (r.owner_user_id !== ownerUserId) continue;
-    const existing = local.find((j) => j.ownerUserId === ownerUserId && j.phone === r.phone);
+    const existing = local.find((j) => j.ownerUserId === ownerUserId && j.email === r.email);
     if (existing) {
       if (existing.name !== r.name) {
         existing.name = r.name;
@@ -2061,7 +2011,7 @@ function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudg
         id: r.id,
         ownerUserId,
         name: r.name,
-        phone: r.phone,
+        email: r.email,
         consentedAt: r.consented_at ?? r.created_at,
         createdAt: r.created_at,
       });
@@ -2071,11 +2021,11 @@ function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudg
     // waiting-for-judge. We only have a sentinel (never the real password hash),
     // which is all the owner needs: they can't verify a code themselves anyway.
     // Don't clobber a real local hash if one somehow already exists.
-    const existingCred = findJudgeCredential(ownerUserId, judgeKeyFor({ judgeContact: r.phone }));
+    const existingCred = findJudgeCredential(ownerUserId, judgeKeyFor({ judgeContact: r.email }));
     if (!existingCred) {
       upsertJudgeCredentialHash(
         ownerUserId,
-        judgeKeyFor({ judgeContact: r.phone }),
+        judgeKeyFor({ judgeContact: r.email }),
         SYNCED_CODE_SENTINEL,
         r.judge_account_user_id ?? undefined,
       );
@@ -2665,6 +2615,24 @@ export async function listMyTrainers(clientUserId: string): Promise<{ id: string
 }
 
 /**
+ * Write back what actually happened to a message once the store has answered.
+ *
+ * The log row is created optimistically (the dispatch itself is synchronous), so
+ * this is what turns "sent" into the truth: `no_device` when nobody has opened
+ * the app on that account for a fortnight — the closest thing there is to "they
+ * uninstalled Comitra" — or `failed` when the store could not be reached. The
+ * message is queued either way and is delivered whenever they come back.
+ */
+function recordDeliveryOutcome(logId: string, outcome: PushOutcome): void {
+  if (outcome === 'sent') return;
+  const notifications = getNotifications();
+  const log = notifications.find((n) => n.id === logId);
+  if (!log) return;
+  log.reason = outcome === 'no_device' ? 'no_device' : 'delivery_failed';
+  saveNotifications(notifications);
+}
+
+/**
  * The single, guarded place that sends failure messages. For each recipient it
  * verifies EVERY condition before sending, logs each send or suppression, and
  * never messages a recipient who has not accepted or who has revoked consent.
@@ -2725,16 +2693,20 @@ export function dispatchFailureNotifications(goalId: string): void {
 
     if (status === 'sent' && consent) {
       consent.lastNotifiedAt = now;
-      // Text a consented recipient for real. Best-effort and idempotent on the
-      // log id, so re-running dispatch can never double-message anyone.
-      if (consent.channel === 'phone' && consent.recipientContact) {
-        void sendTransactionalSms({
-          to: consent.recipientContact,
-          template: 'goal_not_completed',
+      // Deliver to the recipient's account. Best-effort and idempotent on the
+      // log id, so re-running dispatch can never double-message anyone. The
+      // outcome comes back asynchronously and is written onto the log, so the
+      // owner's screen can say "they may not have the app any more" rather than
+      // claiming a delivery nobody can stand behind.
+      if (consent.recipientUserId) {
+        void sendPush({
+          id: logId,
+          toUserId: consent.recipientUserId,
+          fromUserId: goal.userId,
+          kind: 'goal_not_completed',
           // Who + which numbered goal + the owner's chosen tone. Never the title.
-          params: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, tone: goal.messageTone },
-          idempotencyKey: logId,
-        });
+          payload: { ownerName: goal.creatorName, goalNumber: goal.goalNumber, tone: goal.messageTone, body },
+        }).then((outcome) => recordDeliveryOutcome(logId, outcome));
       }
       return { ...r, notifiedAt: now, suppressed: false };
     }

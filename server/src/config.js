@@ -1,5 +1,4 @@
 import './env.js';
-import { twilioConfig } from './twilio/config.js';
 
 /**
  * Centralized, validated configuration.
@@ -26,7 +25,7 @@ function isBlank(name) {
 }
 
 /**
- * PayPal, on the same all-or-nothing terms as Twilio and Amazon SES:
+ * PayPal, on the same all-or-nothing terms as Amazon SES:
  *
  *   • all three set   → payments are live;
  *   • none set        → payments are OFF. `/api/paypal/*` answers 503 and the
@@ -69,11 +68,4 @@ export const config = {
         ? 'https://api-m.paypal.com'
         : 'https://api-m.sandbox.paypal.com',
   },
-
-  /**
-   * Twilio (SMS codes + transactional texts). Validated in ./twilio/config.js:
-   * all values or none — a half-filled Twilio block refuses to boot, an empty
-   * one simply leaves SMS switched off.
-   */
-  twilio: twilioConfig,
 };

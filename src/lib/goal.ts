@@ -3,6 +3,7 @@
  * No storage, no async: safe to use directly in components.
  */
 import type { Goal, PlannedAction } from './types';
+import { TERMINAL } from './status';
 
 /** Total steps/actions required to complete the goal. */
 export function goalRequired(g: Goal): number {
@@ -34,15 +35,33 @@ export function goalStart(g: Goal): string {
 }
 
 /**
+ * The instant the goal stopped running, or null while it is still going. Once a
+ * goal is over its clock is frozen here, so the progress bar stays where the
+ * goal ended instead of creeping on toward a deadline that no longer matters.
+ */
+export function goalEndedAt(g: Goal): number | null {
+  const stamped = g.completedAt ?? g.failedAt ?? g.cancelledAt;
+  if (stamped) {
+    const t = +new Date(stamped);
+    if (Number.isFinite(t)) return t;
+  }
+  // Finished with no stamp (expired goals, older records): stop at the deadline.
+  return TERMINAL.includes(g.status) ? +new Date(g.deadlineAt) : null;
+}
+
+/**
  * Percent of the goal period (start → deadline) that has already elapsed, NOT
  * rounded. Used for the width of the progress bar so it creeps forward smoothly
- * every second instead of jumping a whole percent at a time.
+ * every second instead of jumping a whole percent at a time — and stops dead
+ * once the goal is finished.
  */
 export function deadlineElapsedRatio(g: Goal, now = Date.now()): number {
   const start = +new Date(goalStart(g));
   const end = +new Date(g.deadlineAt);
-  if (!(end > start)) return now >= end ? 100 : 0;
-  return Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
+  const ended = goalEndedAt(g);
+  const at = ended === null ? now : Math.min(now, ended);
+  if (!(end > start)) return at >= end ? 100 : 0;
+  return Math.min(100, Math.max(0, ((at - start) / (end - start)) * 100));
 }
 
 /** Percent of the goal period that has elapsed, rounded for display. */

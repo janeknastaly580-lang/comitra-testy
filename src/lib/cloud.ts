@@ -35,11 +35,18 @@ import { KEYS, keys as allKeys, read, remove, suppress, watch, write } from './s
 /**
  * The keys that belong to the account and travel with it.
  *
- * Everything except the three that are device-local by nature: which session
- * this browser holds, which user it is acting as, and the device id the
- * anti-cheat check relies on being DIFFERENT per device.
+ * Everything except the ones that are device-local by nature: which session this
+ * browser holds, which user it is acting as, the device id the anti-cheat check
+ * relies on being DIFFERENT per device — and the pulled-message cache, which has
+ * its own server-side copy and would otherwise be uploaded back and forth.
  */
-const DEVICE_LOCAL: string[] = [KEYS.session, KEYS.sessionToken, KEYS.stateRevision, KEYS.deviceId];
+const DEVICE_LOCAL: string[] = [
+  KEYS.session,
+  KEYS.sessionToken,
+  KEYS.stateRevision,
+  KEYS.deviceId,
+  KEYS.pushInbox,
+];
 
 function isSynced(key: string): boolean {
   return !DEVICE_LOCAL.includes(key);

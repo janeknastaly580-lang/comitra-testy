@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { Button, Input, Label } from './ui';
 
 /**
- * The "enter the code we sent you" step, shared by every place that confirms a
- * contact: sign-up (Register, AuthModal), which sends the code by EMAIL, and
- * the judge invite, which still sends it by TEXT.
+ * The "enter the code we sent you" step, shared by every place that confirms an
+ * address: sign-up (Register, AuthModal) and the judge invite. Both email the
+ * same six digits from the same template; only what happens next differs.
  *
  * It owns the two things that are identical everywhere — the six-digit input and
  * the resend cooldown — so those are not re-implemented per screen. Everything
@@ -16,20 +16,21 @@ import { Button, Input, Label } from './ui';
  * state.
  */
 
-/** Seconds before another code may be requested. Matches the server's cooldown. */
-const RESEND_COOLDOWN = 60;
+/**
+ * Seconds before another code may be requested. MUST match the server's
+ * cooldown (`LIMITS.otpResendCooldownMs` in supabase/functions/api/index.ts):
+ * a shorter one here just re-enables the button so the server can refuse it.
+ */
+const RESEND_COOLDOWN = 30;
 
 /**
- * `expiresInMinutes` mirrors the server's own TTL per channel — `CODE_TTL_MS` in
- * server/src/email/verify.js and server/src/twilio/verify.js, and the two
- * constants in supabase/functions/api/otp.ts. Both are seven minutes today, but
- * they stay per-channel: promising five minutes on a code that lives seven (or
- * the reverse) is worse than saying nothing, so the wording must never be
- * shared by accident.
+ * `expiresInMinutes` mirrors the server's own TTL — `EMAIL_CODE_TTL_MS` in
+ * supabase/functions/api/otp.ts. Promising five minutes on a code that lives
+ * seven (or the reverse) is worse than saying nothing, so if that constant
+ * changes, this one has to change with it.
  */
 const CHANNEL = {
   email: { sent: 'We emailed a 6-digit code to', back: 'Change email', expiresInMinutes: 7 },
-  sms: { sent: 'We texted a 6-digit code to', back: 'Change number', expiresInMinutes: 7 },
 } as const;
 
 export default function CodeVerify({

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { setSesClientForTests } from '../client.js';
-import { resetThrottleForTests } from '../../twilio/throttle.js';
+import { resetThrottleForTests } from '../throttle.js';
 import {
   checkEmailVerification,
   CODE_TTL_MS,

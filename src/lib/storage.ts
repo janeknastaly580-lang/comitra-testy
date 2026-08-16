@@ -163,4 +163,10 @@ export const KEYS = {
   teamChallenges: 'teamChallenges',
   // "Why did it fail / what next" answers owed after a missed goal
   goalReflections: 'goalReflections',
+  /**
+   * Messages pulled from the shared inbox (see `src/lib/push.ts`). A cache, not
+   * a record: the server holds the authoritative copy until it is read, so this
+   * key can be cleared at any time without losing anything.
+   */
+  pushInbox: 'pushInbox',
 } as const;

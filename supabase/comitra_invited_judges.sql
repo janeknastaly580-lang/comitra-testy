@@ -3,6 +3,11 @@
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
 --
+-- 2026-08-16: judges are identified by EMAIL, not by a phone number. SMS is gone
+-- from the app entirely; a friend accepting an invite now confirms an emailed
+-- code instead. The `phone` column is kept, nullable, so rows written by the old
+-- version still load — nothing reads it any more.
+--
 -- WHY THE OLD APPROACH FAILED (error 42501 no matter how often you ran it):
 --   The app used to write with a direct `INSERT ... ON CONFLICT DO UPDATE` upsert.
 --   Under row-level security that operation ALSO needs a SELECT policy — but a
@@ -24,17 +29,22 @@ create table if not exists public.comitra_invited_judges (
   id                    text primary key,
   owner_user_id         text not null,
   name                  text not null,
-  phone                 text not null,
+  email                 text,
+  phone                 text,
   judge_account_user_id text,
   consented_at          timestamptz,
-  created_at            timestamptz not null default now(),
-  unique (owner_user_id, phone)
+  created_at            timestamptz not null default now()
 );
 
 -- Self-heal a table created by hand with only some columns / a legacy password col.
 alter table public.comitra_invited_judges add column if not exists owner_user_id         text;
 alter table public.comitra_invited_judges add column if not exists name                  text;
+alter table public.comitra_invited_judges add column if not exists email                 text;
 alter table public.comitra_invited_judges add column if not exists phone                 text;
+-- Judges used to be keyed by phone, which was therefore NOT NULL. Email rows
+-- carry no number at all, so the old constraint has to go before the first one
+-- can be written.
+alter table public.comitra_invited_judges alter column phone drop not null;
 alter table public.comitra_invited_judges add column if not exists judge_account_user_id text;
 alter table public.comitra_invited_judges add column if not exists consented_at          timestamptz;
 alter table public.comitra_invited_judges add column if not exists created_at            timestamptz not null default now();
@@ -43,7 +53,12 @@ alter table public.comitra_invited_judges drop  column if exists code_hash;
 create index if not exists comitra_invited_judges_owner_idx
   on public.comitra_invited_judges (owner_user_id);
 
--- The upsert conflict target needs a unique key on exactly (owner_user_id, phone).
+-- The upsert conflict target is now (owner_user_id, email). The old
+-- (owner_user_id, phone) key must go: with phone nullable, every email row would
+-- carry a NULL there, and one owner could then accumulate duplicate judges.
+alter table public.comitra_invited_judges
+  drop constraint if exists comitra_invited_judges_owner_phone_key;
+
 do $$
 begin
   if not exists (
@@ -55,10 +70,10 @@ begin
              select array_agg(a.attname::text order by a.attname)
              from   unnest(i.indkey::smallint[]) k
              join   pg_attribute a on a.attrelid = i.indrelid and a.attnum = k
-           ) = array['owner_user_id', 'phone']
+           ) = array['email', 'owner_user_id']
   ) then
     alter table public.comitra_invited_judges
-      add constraint comitra_invited_judges_owner_phone_key unique (owner_user_id, phone);
+      add constraint comitra_invited_judges_owner_email_key unique (owner_user_id, email);
   end if;
 end $$;
 
@@ -72,11 +87,16 @@ drop policy if exists comitra_ij_update on public.comitra_invited_judges;
 drop policy if exists comitra_ij_select on public.comitra_invited_judges;
 
 -- ── 3. Write path (the ONLY way to write) ───────────────────────────────────
+-- The phone-keyed signature is gone. PostgREST resolves an RPC by ARGUMENT
+-- NAMES, so leaving it in place would let an old bundle keep writing rows this
+-- version cannot see.
+drop function if exists public.comitra_register_invited_judge(text,text,text,text,text,timestamptz,timestamptz);
+
 create or replace function public.comitra_register_invited_judge(
   p_id                    text,
   p_owner_user_id         text,
   p_name                  text,
-  p_phone                 text,
+  p_email                 text,
   p_judge_account_user_id text,
   p_consented_at          timestamptz,
   p_created_at            timestamptz
@@ -86,10 +106,10 @@ security definer
 set search_path = public
 as $$
   insert into public.comitra_invited_judges
-    (id, owner_user_id, name, phone, judge_account_user_id, consented_at, created_at)
+    (id, owner_user_id, name, email, judge_account_user_id, consented_at, created_at)
   values
-    (p_id, p_owner_user_id, p_name, p_phone, p_judge_account_user_id, p_consented_at, coalesce(p_created_at, now()))
-  on conflict (owner_user_id, phone) do update
+    (p_id, p_owner_user_id, p_name, lower(trim(p_email)), p_judge_account_user_id, p_consented_at, coalesce(p_created_at, now()))
+  on conflict (owner_user_id, email) do update
     set name                  = excluded.name,
         judge_account_user_id = coalesce(excluded.judge_account_user_id, public.comitra_invited_judges.judge_account_user_id),
         consented_at          = excluded.consented_at;
@@ -143,3 +163,5 @@ order  by proname;
 
 -- Done. Reload the app; invite → “Become a judge” → the judge shows up in the
 -- inviter's judge picker on their own device.
+--
+-- Recipients live in supabase/comitra_push.sql — run that one too.

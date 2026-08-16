@@ -179,32 +179,40 @@ npx cap sync
 npx cap open android
 ```
 
-## SMS (phone verification + notifications)
+## Reaching people (no SMS)
 
-Text messages go through **Twilio**, entirely from the backend in `server/`:
-Twilio **Verify** for the 6-digit codes, a Twilio **Messaging Service** for
-ordinary texts, and a signature-checked delivery webhook. No Twilio credential
-is shipped in the web bundle or the Android APK.
+Comitra sends no text messages and asks nobody for a phone number.
 
-Leave the `TWILIO_*` values in `.env` empty and SMS is simply off — judges
-register without a code step, nothing breaks. Fill them in and it turns on with
-no code change. Setup steps: **[TWILIO_SETUP.md](TWILIO_SETUP.md)**; check the
-state with `npm run sms:status`.
+**Judges** are confirmed by **email**: accepting an invite emails a 6-digit code
+(Amazon SES, same template as sign-up, valid 7 minutes, re-sendable after 30s).
+Setup steps: **[SES_SETUP.md](SES_SETUP.md)**. Leave the `SES_*` values empty and
+the code step is simply skipped — a judge registers without it, nothing breaks.
+
+**Recipients** are friends — someone you follow who follows you back — and are
+told inside the app itself (`src/lib/push.ts`, tables in
+`supabase/comitra_push.sql`). A message is stored against their account until
+they read it, so uninstalling the app delays it rather than losing it, and the
+sender is told plainly when a friend has not opened Comitra recently. On Android
+each message also becomes a real notification, posted by the app when it syncs
+(`ComitraNotify`). There is no push service, so nothing arrives while the app is
+closed — it is delivered the next time they open it.
 
 ## Project structure
 
 ```
 src/
-  components/   PhoneFrame, AppLayout, BottomNav, GoalCard, ui primitives…
-  context/      AppContext (auth, user, theme, premium)
-  lib/          types, constants, storage, mock api, payout, formatters
-                sms (client for our own /api/sms/*)
+  components/   PhoneFrame, AppLayout, BottomNav, GoalCard, Inbox, ui primitives…
+  context/      AppContext (auth, user, theme, premium, message inbox)
+  lib/          types, constants, storage, mock api, formatters,
+                email (client for our own /api/email/*),
+                push (in-app messages to a friend's account),
+                localNotify (Android notification bridge)
   views/        Login, Register, Dashboard, CreateGoal, GoalDetail,
-                Wallet, Wearables, Profile, Premium, Teams, Analytics,
-                Themes, Verifier
+                Profile, Subscription, Analytics, Themes, Verifier
+supabase/
+  functions/api The backend: email codes, accounts, the state document
+  *.sql         One-time installs: judges, goals, in-app push
 server/
-  src/twilio/   config (env validation), phone (E.164), client (official SDK),
-                verify (OTP), messaging (Messaging Service), templates,
-                throttle (per-number limits + send-once), webhook (signatures)
-  src/routes/   sms (public API), twilioWebhook (status callback)
+  src/email/    config (env validation), address, client (SES), verify (OTP),
+                templates, throttle (per-address limits)
 ```

@@ -1,5 +1,5 @@
 /**
- * Client for the app's own email API (`server/src/routes/email.js`).
+ * Client for the app's own email API (`/api/email/*` on the backend).
  *
  * Everything Amazon SES lives on that backend. This file knows one URL and
  * nothing else: no AWS key, no region, no sender identity, no message bodies.
@@ -109,12 +109,26 @@ export async function emailVerificationMode(): Promise<EmailVerifyMode> {
 }
 
 /**
+ * What a code is being asked to prove.
+ *
+ *  • `signup` — this address belongs to the person creating an account.
+ *  • `judge`  — this address belongs to the friend accepting a judge invite.
+ *
+ * The email is the same either way (same template, same six digits); the purpose
+ * only keeps the two codes from being the same code. Without it, a judge invite
+ * accepted on an address that is also mid-sign-up would retire the sign-up code,
+ * and the person typing it would be told, truthfully but bafflingly, that no
+ * code is waiting for them.
+ */
+export type OtpPurpose = 'signup' | 'judge';
+
+/**
  * Ask the backend to email a one-time code to this address. The code is
  * generated there and never travels to this device.
  */
-export async function sendEmailOtp(email: string): Promise<void> {
+export async function sendEmailOtp(email: string, purpose: OtpPurpose = 'signup'): Promise<void> {
   if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
-  await post('/api/email/verify/start', { email }, 'verify-start');
+  await post('/api/email/verify/start', { email, purpose }, 'verify-start');
 }
 
 /**
@@ -127,9 +141,13 @@ export async function sendEmailOtp(email: string): Promise<void> {
  * without it, the browser's own "yes, they verified" would be enough to open a
  * permanent account on somebody else's address.
  */
-export async function verifyEmailOtp(email: string, code: string): Promise<string | undefined> {
+export async function verifyEmailOtp(
+  email: string,
+  code: string,
+  purpose: OtpPurpose = 'signup',
+): Promise<string | undefined> {
   if (!apiEnabled()) throw new SyncError('not-configured', fallbackFor('not-configured'));
-  const data = await post<{ ticket?: string }>('/api/email/verify/check', { email, code }, 'verify-check');
+  const data = await post<{ ticket?: string }>('/api/email/verify/check', { email, code, purpose }, 'verify-check');
   return data?.ticket;
 }
 

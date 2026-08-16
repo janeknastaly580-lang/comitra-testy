@@ -10,7 +10,18 @@ import {
 } from 'react';
 import * as api from '../lib/api';
 import * as googleAuth from '../lib/google';
+import { clearInbox, listInbox, markRead, registerDevice, syncInbox, type PushMessage } from '../lib/push';
 import type { ThemeId, User } from '../lib/types';
+
+/**
+ * How often the app checks for messages while it is open.
+ *
+ * There is no push service to be woken by, so this poll IS the delivery. Two
+ * minutes is a compromise: often enough that a friend's answer feels immediate,
+ * rare enough to cost a phone almost nothing. Every open also syncs once, which
+ * is what actually catches anything that arrived while the app was closed.
+ */
+const INBOX_POLL_MS = 120_000;
 
 interface AppContextValue {
   user: User | null;
@@ -29,6 +40,10 @@ interface AppContextValue {
   deleteAccount: () => Promise<void>;
   refresh: () => Promise<void>;
   patchUser: (patch: Partial<User>) => Promise<void>;
+  /** Messages waiting for this account (see `src/lib/push.ts`), newest first. */
+  inbox: PushMessage[];
+  /** Mark one message read, here and on the server. */
+  readMessage: (id: string) => Promise<void>;
   /** Activate the $4.99/mo subscription (placeholder payment). */
   subscribe: () => Promise<void>;
   cancelSubscription: () => Promise<void>;
@@ -44,6 +59,7 @@ function applyTheme(theme: ThemeId) {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inbox, setInbox] = useState<PushMessage[]>(() => listInbox());
   const bootstrapped = useRef(false);
 
   useEffect(() => {
@@ -59,6 +75,50 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     })();
   }, []);
+
+  /**
+   * Say "this account has the app here", then pull anything waiting for it.
+   *
+   * Guests are skipped: a guest is device-local, so nobody can address a message
+   * to one, and registering a device for it would only tell the store about an
+   * account that will never be a recipient.
+   */
+  useEffect(() => {
+    if (!user || user.isGuest) {
+      setInbox([]);
+      return;
+    }
+    const id = user.id;
+    let stopped = false;
+
+    const tick = async () => {
+      await registerDevice(id);
+      const messages = await syncInbox(id);
+      if (!stopped) setInbox(messages);
+    };
+
+    void tick();
+    const timer = setInterval(() => void tick(), INBOX_POLL_MS);
+    // Coming back to the app is the moment something is most likely waiting.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void tick();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user]);
+
+  const readMessage = useCallback(
+    async (id: string) => {
+      if (!user) return;
+      await markRead(id, user.id);
+      setInbox(listInbox());
+    },
+    [user],
+  );
 
   // The session can be revoked while the app is open — a password reset done
   // elsewhere, or the account deleted from another device. Fall back to a guest
@@ -123,6 +183,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     await api.logout();
+    // The pulled messages belong to the account that is leaving, not to the
+    // device: whoever signs in next must not find them sitting there.
+    clearInbox();
+    setInbox([]);
     const g = await api.createGuest();
     setUser(g);
     applyTheme(g.theme);
@@ -166,8 +230,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme }),
-    [user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme],
+    () => ({ user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage }),
+    [user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

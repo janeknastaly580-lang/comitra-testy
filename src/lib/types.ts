@@ -73,6 +73,16 @@ export interface PlannedAction {
 }
 
 /** How a judge or recipient is reached. Limited to channels the app supports. */
+/**
+ * How Comitra reaches someone.
+ *
+ *  • `email`    — a judge's address (the only thing it ever emails a person about
+ *    is confirming that address).
+ *  • `internal` — an account, reached in the app itself. Every recipient message
+ *    goes this way now; see `src/lib/push.ts`.
+ *  • `phone`    — @deprecated. SMS is gone; the member survives only so records
+ *    written before it was removed still load.
+ */
 export type Channel = 'email' | 'phone' | 'internal';
 
 /* ─────────────────────────────────────────────────────────── Evidence ── */
@@ -162,11 +172,15 @@ export interface InvitedJudge {
   id: string;
   ownerUserId: string;
   name: string;
-  /** Normalized phone (with country code). */
-  phone: string;
+  /** Lower-cased email address. This is what identifies a judge for one owner. */
+  email: string;
   /** They agreed to receive goal-related messages from Comitra. */
   consentedAt: string;
-  /** When they proved they own this phone via an SMS code (undefined = not verified). */
+  /** When they proved they own this address with an emailed code (undefined = not verified). */
+  emailVerifiedAt?: string;
+  /** @deprecated judges registered before SMS was removed. Never read. */
+  phone?: string;
+  /** @deprecated see `emailVerifiedAt`. */
   phoneVerifiedAt?: string;
   createdAt: string;
 }
@@ -206,8 +220,11 @@ export interface RecipientConsent {
   ownerUserId: string;
   /** Display name shown to the owner. */
   name: string;
+  /** Always `internal` for anything created now: recipients are app accounts. */
   channel: Channel;
+  /** @deprecated a phone number or address from before recipients were friends. */
   recipientContact?: string;
+  /** The friend's account id — who the message is actually delivered to. */
   recipientUserId?: string;
   consentStatus: ConsentStatus;
   acceptedAt?: string;
@@ -435,16 +452,12 @@ export interface User {
   emailVerifiedAt?: string;
 
   /**
-   * Normalized phone (with country code). No longer collected at sign-up —
-   * accounts created since the switch to email verification have none. Kept for
-   * accounts that pre-date it, and for people who joined as a judge by phone.
+   * @deprecated Comitra no longer asks anyone for a phone number, and nothing
+   * reads this. Kept so accounts saved before SMS was removed still load; it is
+   * dropped from any account that signs in again.
    */
   phone?: string;
-  /**
-   * When they proved they own `phone` with an SMS code. Absent means the number
-   * was recorded but not verified — which is what happens on a deployment with
-   * no Twilio credentials, where the code step is skipped entirely.
-   */
+  /** @deprecated see `phone`. */
   phoneVerifiedAt?: string;
 
   /** Account type: standard user or personal trainer. */

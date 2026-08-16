@@ -5,13 +5,13 @@ import { emailConfig } from './config.js';
 import { normalizeEmail, maskEmail } from './address.js';
 import { sendEmail } from './send.js';
 import { verificationCodeEmail } from './templates.js';
-import { LIMITS, takeSlot } from '../twilio/throttle.js';
+import { LIMITS, takeSlot } from './throttle.js';
 
 /**
  * One-time passcodes over email — the sign-up flow's proof that the address
  * someone typed is one they can actually open.
  *
- * The secret lifecycle is identical to twilio/verify.js, and for the same
+ * The secret lifecycle is the one the SMS flow used before it was removed, for the same
  * reasons:
  *
  *   • **The plaintext code is never stored.** It lives as a local variable for

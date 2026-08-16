@@ -3,9 +3,9 @@
  *
  * express-rate-limit already caps requests per IP, and `verify.js` caps the
  * guesses against one code. Neither covers the case this guards: the SAME
- * number hammered from many IPs, or the same transactional message sent twice
- * because a request was retried. Every entry is keyed by a HASH of the number,
- * never the number itself, so a heap dump or a crash log holds no phone numbers.
+ * address hammered from many IPs, or the same message sent twice because a
+ * request was retried. Every entry is keyed by a HASH of the address, never the
+ * address itself, so a heap dump or a crash log holds no addresses.
  *
  * In-memory on purpose: the payments backend is a single process with a local
  * SQLite file, so there is no shared cache to reach for. Running more than one
@@ -24,12 +24,14 @@ function keyFor(value) {
 /* ------------------------------------------------------------- limits ---- */
 
 export const LIMITS = {
-  /** Minimum gap between two verification codes to the same number. */
-  otpResendCooldownMs: 60_000,
-  /** Codes texted to one number per hour. */
+  /**
+   * Minimum gap between two verification codes to the same address. Matches the
+   * Edge Function's own cooldown and the countdown the app shows on its
+   * "Resend code" button — three places that have to agree.
+   */
+  otpResendCooldownMs: 30_000,
+  /** Codes emailed to one address per hour. */
   otpSendsPerHour: 5,
-  /** Transactional texts to one number per hour. */
-  smsPerHourPerNumber: 10,
   /** How long a completed send is remembered for de-duplication. */
   dedupeTtlMs: 24 * 60 * 60 * 1000,
 };
@@ -120,7 +122,7 @@ export function previousSend(idempotencyKey, now = Date.now()) {
 
 /**
  * Claim an idempotency key before the network call, so two requests that arrive
- * at the same moment cannot both reach Twilio. Returns false if already claimed.
+ * at the same moment cannot both send. Returns false if already claimed.
  */
 export function claimSend(idempotencyKey, now = Date.now()) {
   if (sends.has(idempotencyKey)) return false;

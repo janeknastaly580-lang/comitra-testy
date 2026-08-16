@@ -4,18 +4,18 @@
  *
  * Two files are read, in precedence order:
  *   1. `server/.env`      — backend-only secrets (PayPal, cookie/CSRF secrets).
- *   2. `.env` (repo root) — the file the project already uses; the Twilio values
- *      live there so there is a single file to fill in.
+ *   2. `.env` (repo root) — the file the project already uses; the Amazon SES
+ *      values live there so there is a single file to fill in.
  *
  * Two rules make that predictable:
  *   • a real environment variable (Vercel/Render/systemd) always wins;
- *   • **a blank value counts as "not set"**, so `TWILIO_ACCOUNT_SID=` in
- *     `server/.env` does not shadow a filled-in one in the root `.env`. Both
- *     files ship with the Twilio names present and empty, which without this
- *     rule would silently swallow the real values.
+ *   • **a blank value counts as "not set"**, so `SES_REGION=` in `server/.env`
+ *     does not shadow a filled-in one in the root `.env`. Both files ship with
+ *     the names present and empty, which without this rule would silently
+ *     swallow the real values.
  *
  * Vite only exposes `VITE_`-prefixed variables to the browser bundle, so the
- * unprefixed Twilio secrets in the root `.env` stay server-side.
+ * unprefixed AWS secrets in the root `.env` stay server-side.
  */
 import { config as loadEnvFile } from 'dotenv';
 import { dirname, resolve } from 'node:path';

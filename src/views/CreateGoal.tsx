@@ -12,26 +12,17 @@ import {
   TONE_OPTIONS,
   type GoalTemplate,
 } from '../lib/constants';
-import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import { buildFailureMessage, checkGoalContent, SENSITIVE_CONTENT_MESSAGE } from '../lib/messages';
 import { toLocalInputValue } from '../lib/format';
-import type { Channel, InvitedJudge, MessageTone } from '../lib/types';
+import { isReachable, REACHABLE_DAYS } from '../lib/push';
+import type { InvitedJudge, MessageTone } from '../lib/types';
+import { Avatar } from '../components/Avatar';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
-import PhoneField from '../components/PhoneField';
 import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
 import { Button, Card, Input, Label, Select, Textarea } from '../components/ui';
 
-interface RecipientRow {
-  name: string;
-  channel: Channel;
-  /** Holds the email, or the national phone number when channel is 'phone'. */
-  contact: string;
-  /** Selected country ISO for the phone dial code. */
-  phoneIso: string;
-}
-const emptyRecipient = (): RecipientRow => ({ name: '', channel: 'phone', contact: '', phoneIso: DEFAULT_COUNTRY_ISO });
 const deadlineInDays = (days: number) => {
   const d = new Date();
   d.setDate(d.getDate() + days);
@@ -49,7 +40,18 @@ export default function CreateGoal() {
   // The judge must be chosen from friends the user invited (Profile &gt; Invite friends).
   const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
   const [judgeId, setJudgeId] = useState('');
-  const [recipients, setRecipients] = useState<RecipientRow[]>([]);
+  /**
+   * The recipient is picked from FRIENDS — people the user follows who follow
+   * back. There is no contact field any more: the message goes to their app.
+   */
+  const [friends, setFriends] = useState<api.SocialProfile[]>([]);
+  const [recipientIds, setRecipientIds] = useState<string[]>([]);
+  /**
+   * Whether the chosen friend has opened Comitra recently. `false` is not an
+   * error — the message is still queued and delivered if they come back — but
+   * the owner should know before they build a commitment on it.
+   */
+  const [recipientReachable, setRecipientReachable] = useState<boolean | null>(null);
   // The number the judge and any recipients will see, the goal's only identifier
   // outside this screen.
   const [goalNumber, setGoalNumber] = useState<number | null>(null);
@@ -61,8 +63,28 @@ export default function CreateGoal() {
     if (user) {
       api.listInvitedJudges(user.id).then(setInvitedJudges);
       api.getNextGoalNumber(user.id).then(setGoalNumber);
+      api.listFriends(user.id).then(setFriends);
     }
   }, [user]);
+
+  // Ask the shared store whether the chosen friend still has the app. Runs on
+  // every change of choice; a failure answers "reachable", because not being
+  // able to check is not evidence that somebody uninstalled Comitra.
+  const chosenRecipientId = recipientIds[0] ?? '';
+  useEffect(() => {
+    if (!chosenRecipientId) {
+      setRecipientReachable(null);
+      return;
+    }
+    let cancelled = false;
+    setRecipientReachable(null);
+    isReachable(chosenRecipientId)
+      .then((ok) => !cancelled && setRecipientReachable(ok))
+      .catch(() => !cancelled && setRecipientReachable(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [chosenRecipientId]);
 
   const [tone, setTone] = useState<MessageTone>('neutral');
   const [ackNotify, setAckNotify] = useState(false);
@@ -117,27 +139,25 @@ export default function CreateGoal() {
     setDeadline(deadlineInDays(t.periodDays));
   }
 
-  function setRecipient(i: number, patch: Partial<RecipientRow>) {
-    setRecipients((rs) => rs.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  function pickRecipient(id: string) {
+    // One recipient per goal today, so choosing simply replaces.
+    setRecipientIds(id ? [id] : []);
   }
-  function addRecipient() {
-    setRecipients((rs) => (rs.length >= MAX_RECIPIENTS_PER_GOAL ? rs : [...rs, emptyRecipient()]));
+  function removeRecipient(id: string) {
+    setRecipientIds((ids) => ids.filter((x) => x !== id));
   }
-  function removeRecipient(i: number) {
-    setRecipients((rs) => rs.filter((_, idx) => idx !== i));
-  }
-
-  const contactValid = (channel: Channel, contact: string) =>
-    channel === 'phone' ? contact.replace(/\D/g, '').length >= 7 : /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.trim());
 
   const selectedJudge = invitedJudges.find((j) => j.id === judgeId) ?? null;
   const judgeValid = !!selectedJudge;
-  const filledRecipients = recipients.filter((r) => r.name.trim() || r.contact.trim());
-  const hasRecipients = filledRecipients.length > 0;
+  const chosenRecipients = recipientIds
+    .map((id) => friends.find((f) => f.id === id))
+    .filter((f): f is api.SocialProfile => !!f);
+  const hasRecipients = chosenRecipients.length > 0;
   const titleValid = title.trim().length >= 3;
+  // Every id must still resolve to a friend: unfollowing someone between opening
+  // this screen and submitting it must not smuggle a stranger through.
   const recipientsValid =
-    filledRecipients.length <= MAX_RECIPIENTS_PER_GOAL &&
-    filledRecipients.every((r) => r.name.trim().length >= 2 && contactValid(r.channel, r.contact));
+    chosenRecipients.length === recipientIds.length && chosenRecipients.length <= MAX_RECIPIENTS_PER_GOAL;
 
   // Re-read the clock rather than trusting the value the field started with: a
   // form left open long enough would otherwise let a past deadline through.
@@ -159,7 +179,7 @@ export default function CreateGoal() {
     if (!deadline) return setError('Set the goal’s end date and time.');
     if (new Date(deadline).getTime() <= Date.now()) return setError('The goal’s end date must be in the future.');
     if (!judgeValid) return setError('Choose a judge from your invited friends.');
-    if (!recipientsValid) return setError('The recipient needs a name and a valid contact. A goal can have only one.');
+    if (!recipientsValid) return setError('Choose the recipient from your friends. A goal can have only one.');
     if (hasRecipients && !ackNotify) return setError('Please acknowledge the notification consent.');
     setConfirmOpen(true);
   }
@@ -167,10 +187,9 @@ export default function CreateGoal() {
   async function createConfirmed() {
     setBusy(true);
     try {
-      const recips: RecipientInput[] = filledRecipients.map((r) => ({
-        name: r.name,
-        channel: r.channel,
-        contact: r.channel === 'phone' ? fullPhone(r.phoneIso, r.contact) : r.contact,
+      const recips: RecipientInput[] = chosenRecipients.map((f) => ({
+        recipientUserId: f.id,
+        name: f.name,
       }));
       const app = APP_BLOCK_TARGETS.find((a) => a.packageName === blockApp) ?? APP_BLOCK_TARGETS[0];
       const goal = await api.createGoal({
@@ -186,8 +205,8 @@ export default function CreateGoal() {
         ackNotifyConsent: hasRecipients ? ackNotify : false,
         judge: {
           name: selectedJudge!.name,
-          channel: 'phone',
-          contact: selectedJudge!.phone,
+          channel: 'email',
+          contact: selectedJudge!.email,
         },
         recipients: recips,
         appBlock: blockOn
@@ -304,7 +323,7 @@ export default function CreateGoal() {
             <Select value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
               <option value="" disabled>Choose a judge…</option>
               {invitedJudges.map((j) => (
-                <option key={j.id} value={j.id}>{j.name} · {j.phone}</option>
+                <option key={j.id} value={j.id}>{j.name} · {j.email}</option>
               ))}
             </Select>
           )}
@@ -347,44 +366,58 @@ export default function CreateGoal() {
         <Card className="p-4">
           <div className="mb-2 flex items-center justify-between">
             <span className="text-sm font-semibold text-ink">
-              Recipient <span className="text-muted">({filledRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
+              Recipient <span className="text-muted">({chosenRecipients.length}/{MAX_RECIPIENTS_PER_GOAL})</span>
             </span>
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
           </div>
           <p className="mb-3 text-[11px] text-active">
-            If the judge marks the goal not completed, this person (once they accept) receives a message
+            If the judge marks the goal not completed, this person (once they accept) is told in the app.
           </p>
-          <div className="space-y-3">
-            {recipients.map((r, i) => (
-              <div key={i} className="rounded-xl border border-line bg-elevated p-3">
-                <div className="mb-2 flex items-center justify-between">
-                  <span className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                    {MAX_RECIPIENTS_PER_GOAL > 1 ? `Recipient ${i + 1}` : 'Recipient'}
-                  </span>
-                  <button type="button" onClick={() => removeRecipient(i)} className="text-[11px] text-danger hover:underline">Remove</button>
+          <p className="mb-3 text-[11px] text-muted">
+            Only friends can be chosen — people you follow who follow you back. They are told in Comitra
+            itself, so nobody needs your phone number and Comitra needs neither theirs nor their email.
+          </p>
+
+          {friends.length === 0 ? (
+            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3">
+              <p className="text-[12px] text-ink">You don't have any friends on Comitra yet.</p>
+              <p className="mt-1 text-[11px] text-muted">
+                A friend is someone you follow who follows you back. Find people in{' '}
+                <Link to="/social" className="text-accent underline">Social</Link>, and they'll appear here.
+              </p>
+            </div>
+          ) : chosenRecipients.length === 0 ? (
+            <Select value="" onChange={(e) => pickRecipient(e.target.value)}>
+              <option value="" disabled>Choose a friend…</option>
+              {friends.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
+              ))}
+            </Select>
+          ) : (
+            <div className="space-y-2">
+              {chosenRecipients.map((f) => (
+                <div key={f.id} className="flex items-center gap-3 rounded-xl border border-line bg-elevated p-3">
+                  <Avatar avatar={f.avatar} name={f.name} size={36} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-ink">{f.name}</p>
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Friend</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeRecipient(f.id)}
+                    className="text-[11px] text-danger hover:underline"
+                  >
+                    Remove
+                  </button>
                 </div>
-                <Input value={r.name} onChange={(e) => setRecipient(i, { name: e.target.value })} placeholder="Name" />
-                <div className="mt-2 space-y-2">
-                  <Select value={r.channel} onChange={(e) => setRecipient(i, { channel: e.target.value as Channel })}>
-                    <option value="phone">Phone</option>
-                    <option value="email">Email</option>
-                  </Select>
-                  {r.channel === 'phone' ? (
-                    <PhoneField
-                      iso={r.phoneIso}
-                      number={r.contact}
-                      onIso={(iso) => setRecipient(i, { phoneIso: iso })}
-                      onNumber={(number) => setRecipient(i, { contact: number })}
-                    />
-                  ) : (
-                    <Input value={r.contact} onChange={(e) => setRecipient(i, { contact: e.target.value })} placeholder="name@email.com" />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-          {recipients.length < MAX_RECIPIENTS_PER_GOAL && (
-            <Button type="button" variant="outline" className="mt-3 w-full" onClick={addRecipient}>+ Add recipient</Button>
+              ))}
+              {recipientReachable === false && (
+                <p className="text-[11px] leading-relaxed text-warn">
+                  They haven't opened Comitra in the last {REACHABLE_DAYS} days, so they may have removed the
+                  app. The message is kept and reaches them if they come back — but don't count on it arriving.
+                </p>
+              )}
+            </div>
           )}
         </Card>
 
@@ -437,8 +470,8 @@ export default function CreateGoal() {
           hasRecipients ? (
             <>
               <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your recipient{' '}
-              <span className="text-ink">{filledRecipients[0]?.name.trim() || '—'}</span> must accept before it starts. If it is later
-              marked not completed, they get a <span className="text-ink">{tone}</span> message about{' '}
+              <span className="text-ink">{chosenRecipients[0]?.name ?? '—'}</span> must accept before it starts. If it is later
+              marked not completed, they get a <span className="text-ink">{tone}</span> notification about{' '}
               <span className="text-ink">goal #{goalNumber ?? 1}</span>, never its content.
             </>
           ) : (

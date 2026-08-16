@@ -76,4 +76,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Re-check block expiry after a restart, so rebooting is not a way out. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Android 13+: needed to show a goal message the app has just pulled.
+         Asked for at the first notification, and refusing it only costs the
+         banner — the message still waits in the app. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

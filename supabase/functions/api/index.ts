@@ -4,30 +4,30 @@
  * NAMED `api` ON PURPOSE. Supabase routes `/functions/v1/<name>/…` and passes
  * the whole path through, so a function called `api` sees exactly the paths the
  * Express server served — `/api/email/verify/start` and friends. That means
- * src/lib/email.ts and src/lib/sms.ts need no code change at all: only
- * VITE_API_BASE moves, from the old host to `<project>.supabase.co/functions/v1`.
+ * src/lib/email.ts needs no code change at all: only VITE_API_BASE moves, from
+ * the old host to `<project>.supabase.co/functions/v1`.
  *
- * WHAT LIVES HERE NOW: the email/SMS routes it started with, plus the account
+ * WHAT LIVES HERE NOW: the email routes it started with, plus the account
  * system — sign-up, log-in, sessions, and the per-account state document (see
  * `accounts.ts`). That last part is what makes an account portable: the app's
  * data is stored against the ACCOUNT here rather than in one browser's storage,
  * so logging in on a second device reaches the same goals.
  *
- * The `/api/email/*` and `/api/sms/*` routes are deliberately cookie-less and
- * unauthenticated: someone creating an account or accepting a judge invite has
- * no session yet, so there is nothing to require. `/api/auth/*` is the same
+ * The `/api/email/*` routes are deliberately cookie-less and unauthenticated:
+ * someone creating an account or accepting a judge invite has no session yet, so
+ * there is nothing to require. `/api/auth/*` is the same
  * except where it obviously cannot be, and `/api/state/*` always requires a
  * session token. What protects the unauthenticated ones:
  *   • CORS, so only the app's own origins may call them from a browser;
  *   • a per-IP rate limit on each route (below);
  *   • a per-DESTINATION cooldown and quota in Postgres, which is what actually
- *     stops one address or number being bombed from many IPs;
+ *     stops one address being bombed from many IPs;
  *   • server-owned content — no route accepts a subject or a body.
  * CSRF protection is not applicable: no cookie is read, so a forged cross-site
  * request gains an attacker nothing they could not do with curl.
  */
 
-import { maskEmail, maskPhone, normalizeE164, normalizeEmail } from './address.ts';
+import { maskEmail, normalizeEmail } from './address.ts';
 import {
   accountByEmail,
   accountForToken,
@@ -56,29 +56,21 @@ import {
   RESET_TEMPLATE_NAME,
   RESET_TEMPLATE_VAR,
   sesConfig,
-  twilioConfig,
 } from './config.ts';
 import { issueResetLink, redeemResetToken } from './reset.ts';
 import { ApiError, failureBody } from './errors.ts';
 import {
   abandonCode,
+  type CodePurpose,
   EMAIL_CODE_TTL_MS,
   hashKey,
   issueCode,
   looksLikeCode,
-  SMS_CODE_TTL_MS,
   verifyCode,
 } from './otp.ts';
 import { sendEmail } from './ses.ts';
-import { sendSmsBody } from './twilio.ts';
-import {
-  passwordResetEmail,
-  renderTemplate,
-  TEMPLATE_IDS,
-  verificationCodeEmail,
-  verificationCodeMessage,
-} from './templates.ts';
-import { claimSend, rememberSend, releaseSend, sweep, takeSlot } from './state.ts';
+import { passwordResetEmail, verificationCodeEmail } from './templates.ts';
+import { sweep, takeSlot } from './state.ts';
 
 /**
  * A real, throwaway PBKDF2 verifier that no password matches.
@@ -91,11 +83,11 @@ import { claimSend, rememberSend, releaseSend, sweep, takeSlot } from './state.t
 const DUMMY_HASH =
   'pbkdf2$250000$AAAAAAAAAAAAAAAAAAAAAA==$Y29taXRyYS1kdW1teS12ZXJpZmllci0wMDAwMDAwMDA=';
 
-/** The per-destination limits, unchanged from server/src/twilio/throttle.js. */
+/** The per-destination limits. */
 const LIMITS = {
-  otpResendCooldownMs: 60_000,
+  /** How soon a fresh code may be asked for. The app's button counts this down. */
+  otpResendCooldownMs: 30_000,
   otpSendsPerHour: 5,
-  smsPerHourPerNumber: 10,
 };
 
 /* ─────────────────────────────────────────────────────────────── plumbing ── */
@@ -173,6 +165,18 @@ function throttleError(slot: { reason: string | null; retryAfterSec: number }, w
 
 /* ──────────────────────────────────────────────────────────────── handlers ── */
 
+/**
+ * Which flow is asking for a code.
+ *
+ * Sign-up and the judge invite send the SAME email from the SAME template — the
+ * six digits are all it contains — but they are separate codes: separate rows,
+ * separate quotas, and a receipt only where one is needed. An unknown or missing
+ * value means sign-up, which is what every older client sends.
+ */
+function purposeOf(raw: unknown): CodePurpose {
+  return raw === 'judge' ? 'judge' : 'signup';
+}
+
 async function emailVerifyStart(req: Request): Promise<unknown> {
   await limitByIp(req, 'ip-email-verify', 20, 10 * 60_000);
   const body = await readJson(req);
@@ -181,16 +185,19 @@ async function emailVerifyStart(req: Request): Promise<unknown> {
   if (!to) {
     throw new ApiError('bad-email', "That email address doesn't look right. Check it and try again.", 400, 'address failed validation before any SES call');
   }
+  const purpose = purposeOf(body.purpose);
 
-  // Local gate first: a rejected resend must not cost an SES request.
-  const slot = await takeSlot('email-otp-send', await hashKey('email', to), {
+  // Local gate first: a rejected resend must not cost an SES request. The bucket
+  // is per purpose, so accepting a judge invite is not blocked by a sign-up code
+  // sent to the same address a moment earlier.
+  const slot = await takeSlot(`email-otp-send:${purpose}`, await hashKey('email', to), {
     max: LIMITS.otpSendsPerHour,
     windowMs: 3600_000,
     cooldownMs: LIMITS.otpResendCooldownMs,
   });
   if (!slot.allowed) throw throttleError(slot, 'address');
 
-  const { code, key } = await issueCode('email', to, EMAIL_CODE_TTL_MS);
+  const { code, key } = await issueCode(purpose, to, EMAIL_CODE_TTL_MS);
 
   try {
     if (sesConfig.templateName) {
@@ -208,11 +215,11 @@ async function emailVerifyStart(req: Request): Promise<unknown> {
   } catch (err) {
     // The email never went out, so a live code would strand the person on a code
     // they were never shown.
-    await abandonCode('email', key);
+    await abandonCode(key);
     throw err;
   }
 
-  console.info('[email:verify-start] code requested for', maskEmail(to));
+  console.info(`[email:verify-start] ${purpose} code requested for`, maskEmail(to));
   return { status: 'pending', to: maskEmail(to) };
 }
 
@@ -225,16 +232,20 @@ async function emailVerifyCheck(req: Request): Promise<unknown> {
   if (!looksLikeCode(body.code)) {
     throw new ApiError('invalid-code', "That code isn't right. It's the 6 digits from the email.", 400, 'code failed shape check');
   }
+  const purpose = purposeOf(body.purpose);
 
-  await verifyCode('email', to, String(body.code).trim());
+  await verifyCode(purpose, to, String(body.code).trim());
 
   // The ticket is the RECEIPT for this check, and `register` demands one for the
   // same address. Without it the server would be taking the browser's word that
   // a code was ever typed, which would let anyone create a permanent account on
   // an address they don't own — harmless while accounts were local to a phone,
   // not harmless now that they are real and shared.
-  const ticket = await issueSignupTicket(to);
-  console.info('[email:verify-check] approved for', maskEmail(to));
+  //
+  // A judge invite gets no ticket: it creates no account, and its registration
+  // goes to the shared judge store, which has no ticket to spend.
+  const ticket = purpose === 'signup' ? await issueSignupTicket(to) : undefined;
+  console.info(`[email:verify-check] ${purpose} approved for`, maskEmail(to));
   return { approved: true, ticket };
 }
 
@@ -509,105 +520,6 @@ async function statePush(req: Request): Promise<unknown> {
   return await putState(account.id, body.data, revision);
 }
 
-async function smsVerifyStart(req: Request): Promise<unknown> {
-  await limitByIp(req, 'ip-sms-verify', 20, 10 * 60_000);
-  const body = await readJson(req);
-
-  const to = normalizeE164(body.phone);
-  if (!to) {
-    throw new ApiError('bad-phone', "That phone number doesn't look right. Include the country code, then try again.", 400, 'phone failed E.164 validation before any Twilio call');
-  }
-
-  const slot = await takeSlot('otp-send', await hashKey('sms', to), {
-    max: LIMITS.otpSendsPerHour,
-    windowMs: 3600_000,
-    cooldownMs: LIMITS.otpResendCooldownMs,
-  });
-  if (!slot.allowed) throw throttleError(slot, 'number');
-
-  const { code, key } = await issueCode('sms', to, SMS_CODE_TTL_MS);
-
-  try {
-    await sendSmsBody({ to, body: verificationCodeMessage(code) });
-  } catch (err) {
-    await abandonCode('sms', key);
-    throw err;
-  }
-
-  console.info('[sms:verify-start] code requested for', maskPhone(to));
-  return { status: 'pending', to: maskPhone(to) };
-}
-
-async function smsVerifyCheck(req: Request): Promise<unknown> {
-  await limitByIp(req, 'ip-sms-verify', 20, 10 * 60_000);
-  const body = await readJson(req);
-
-  const to = normalizeE164(body.phone);
-  if (!to) throw new ApiError('bad-phone', "That phone number doesn't look right.", 400, 'phone failed E.164 validation');
-  if (!looksLikeCode(body.code)) {
-    throw new ApiError('invalid-code', "That code isn't right. It's the 6 digits from the text message.", 400, 'code failed shape check');
-  }
-
-  await verifyCode('sms', to, String(body.code).trim());
-  console.info('[sms:verify-check] approved for', maskPhone(to));
-  return { approved: true };
-}
-
-/**
- * Send a transactional text. The caller names a TEMPLATE and supplies
- * parameters; the body is composed here. `idempotencyKey` must be stable for one
- * logical message (the outbox entry id), which is what makes a retry safe.
- */
-async function smsSend(req: Request): Promise<unknown> {
-  await limitByIp(req, 'ip-sms-send', 20, 60_000);
-  const body = await readJson(req);
-
-  const to = normalizeE164(body.to);
-  if (!to) throw new ApiError('bad-phone', "That phone number doesn't look right.", 400, 'recipient failed E.164 validation');
-
-  const template = typeof body.template === 'string' ? body.template.trim() : '';
-  if (!TEMPLATE_IDS.includes(template)) {
-    throw new ApiError('bad-request', "We couldn't build that message.", 400, `unknown template "${template}"`);
-  }
-
-  const key = typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
-  if (key.length < 8 || key.length > 128) {
-    throw new ApiError('bad-request', 'Missing message id.', 400, 'idempotencyKey missing or wrong length');
-  }
-
-  const rendered = renderTemplate(template, (body.params as Record<string, unknown>) ?? {});
-  if (!rendered) {
-    throw new ApiError('bad-request', "We couldn't build that message.", 400, `template "${template}" produced no usable body`);
-  }
-
-  // Claim before the network call so two simultaneous requests cannot both send.
-  const claim = await claimSend(key);
-  if (!claim.claimed) {
-    const prior = (claim.prior ?? {}) as { status?: string };
-    return { status: prior.status ?? 'duplicate', duplicate: true };
-  }
-
-  const slot = await takeSlot('sms-send', await hashKey('sms', to), {
-    max: LIMITS.smsPerHourPerNumber,
-    windowMs: 3600_000,
-  });
-  if (!slot.allowed) {
-    await releaseSend(key);
-    throw new ApiError('rate-limited', 'Too many messages to that number. Try again later.', 429, 'per-destination sms-send quota');
-  }
-
-  try {
-    const result = await sendSmsBody({ to, body: rendered });
-    await rememberSend(key, result);
-    console.info('[sms:send]', { to: maskPhone(to), template, sid: result.sid, status: result.status });
-    return { status: result.status, duplicate: false };
-  } catch (err) {
-    // A failed attempt must not burn the key — the caller is allowed to retry.
-    await releaseSend(key);
-    throw err;
-  }
-}
-
 /* ────────────────────────────────────────────────────────────────── router ── */
 
 type Handler = (req: Request) => Promise<unknown>;
@@ -618,15 +530,11 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
   // Public and free of anything sensitive: one boolean, no region, no identity.
   // The app uses these to decide whether to show the code step at all.
   'GET /api/email/status': { method: 'GET', route: 'email-status', handler: () => Promise.resolve({ configured: sesConfig.configured }) },
-  'GET /api/sms/status': { method: 'GET', route: 'sms-status', handler: () => Promise.resolve({ configured: twilioConfig.configured }) },
 
   'POST /api/email/verify/start': { method: 'POST', route: 'email:verify-start', handler: emailVerifyStart },
   'POST /api/email/verify/check': { method: 'POST', route: 'email:verify-check', handler: emailVerifyCheck },
   'POST /api/email/reset/start': { method: 'POST', route: 'email:reset-start', handler: emailResetStart },
   'POST /api/email/reset/apply': { method: 'POST', route: 'email:reset-apply', handler: emailResetApply },
-  'POST /api/sms/verify/start': { method: 'POST', route: 'sms:verify-start', handler: smsVerifyStart },
-  'POST /api/sms/verify/check': { method: 'POST', route: 'sms:verify-check', handler: smsVerifyCheck },
-  'POST /api/sms/send': { method: 'POST', route: 'sms:send', handler: smsSend },
 
   // Accounts. `session` is the one the app calls on every cold start.
   'POST /api/auth/available': { method: 'POST', route: 'auth:available', handler: authAvailable },
@@ -648,9 +556,6 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
 function requireConfigured(path: string): void {
   if (path.startsWith('/api/email/') && path !== '/api/email/status' && !sesConfig.configured) {
     throw new ApiError('email_not_configured', 'Email verification is not set up on this server yet.', 503);
-  }
-  if (path.startsWith('/api/sms/') && path !== '/api/sms/status' && !twilioConfig.configured) {
-    throw new ApiError('sms_not_configured', 'Text messaging is not set up on this server yet.', 503);
   }
 }
 
@@ -681,7 +586,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     if (err instanceof ApiError) {
       return json(failureBody(err, match.route), err.httpStatus, origin);
     }
-    // Unexpected: log the message only. An AWS or Twilio exception can carry the
+    // Unexpected: log the message only. An AWS exception can carry the
     // recipient, and a stack trace helps nobody in a browser.
     console.error(`[${match.route}] unexpected:`, (err as Error)?.message ?? err);
     return json({ error: 'Something went wrong. Please try again.', code: 'unknown' }, 500, origin);

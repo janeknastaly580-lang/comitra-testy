@@ -1,9 +1,8 @@
 /**
  * The state that used to be `new Map()` in the Express backend.
  *
- * WHY IT MOVED: server/src/email/verify.js, twilio/verify.js and
- * twilio/throttle.js each kept their pending codes and rate buckets in process
- * memory. That is correct for one process. Edge Functions run as many
+ * WHY IT MOVED: server/src/email/verify.js kept its pending codes and rate
+ * buckets in process memory. That is correct for one process. Edge Functions run as many
  * short-lived isolates, so a Map written by one is invisible to the next — codes
  * would verify or fail depending on which isolate answered, intermittently and
  * unreproducibly. Postgres is the only thing all isolates share.
@@ -90,7 +89,7 @@ export type OtpOutcome = 'approved' | 'wrong' | 'burnt' | 'expired' | 'none';
 
 /** Store a code's digest, replacing any earlier one for the same destination. */
 export function putOtp(
-  kind: 'email' | 'sms',
+  kind: 'email',
   keyHash: string,
   codeHashHex: string,
   ttlMs: number,
@@ -106,7 +105,7 @@ export function putOtp(
 }
 
 /** Delete a code whose message failed to go out. */
-export function dropOtp(kind: 'email' | 'sms', keyHash: string): Promise<null> {
+export function dropOtp(kind: 'email', keyHash: string): Promise<null> {
   return rpc<null>('comitra_otp_drop', { p_kind: kind, p_key: keyHash });
 }
 
@@ -116,7 +115,7 @@ export function dropOtp(kind: 'email' | 'sms', keyHash: string): Promise<null> {
  * lock, so concurrent guesses cannot each get a full five attempts.
  */
 export async function checkOtp(
-  kind: 'email' | 'sms',
+  kind: 'email',
   keyHash: string,
   codeHashHex: string,
 ): Promise<{ outcome: OtpOutcome; attemptsLeft: number }> {
@@ -127,24 +126,6 @@ export async function checkOtp(
   });
   const row = rows?.[0];
   return { outcome: row?.outcome ?? 'none', attemptsLeft: row?.attempts_left ?? 0 };
-}
-
-/* ───────────────────────────────────────────────────────── send once ────── */
-
-/** Claim an idempotency key before the network call. */
-export async function claimSend(key: string): Promise<{ claimed: boolean; prior: unknown }> {
-  const rows = await rpc<Array<{ claimed: boolean; prior: unknown }>>('comitra_send_claim', { p_key: key });
-  const row = rows?.[0];
-  return { claimed: row?.claimed ?? true, prior: row?.prior ?? null };
-}
-
-export function rememberSend(key: string, result: unknown): Promise<null> {
-  return rpc<null>('comitra_send_remember', { p_key: key, p_result: result });
-}
-
-/** Release a claim whose send failed, so the caller may genuinely retry. */
-export function releaseSend(key: string): Promise<null> {
-  return rpc<null>('comitra_send_release', { p_key: key });
 }
 
 /* ─────────────────────────────────────────────────── password resets ────── */

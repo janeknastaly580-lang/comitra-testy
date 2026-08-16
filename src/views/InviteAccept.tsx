@@ -3,9 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import * as api from '../lib/api';
 import { JUDGE_CODE_MIN } from '../lib/api';
 import { SyncError } from '../lib/supabase';
-import { DEFAULT_COUNTRY_ISO, fullPhone } from '../lib/countries';
 import BrandMark from '../components/BrandMark';
-import PhoneField from '../components/PhoneField';
 import CodeVerify from '../components/CodeVerify';
 import { Badge, Button, Card, Input, Label } from '../components/ui';
 import { Check } from 'lucide-react';
@@ -38,8 +36,7 @@ export default function InviteAccept() {
   const [ownerName, setOwnerName] = useState('');
 
   const [name, setName] = useState('');
-  const [phoneIso, setPhoneIso] = useState(DEFAULT_COUNTRY_ISO);
-  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -48,15 +45,13 @@ export default function InviteAccept() {
   // finish Comitra's one-time setup, so the button is labelled differently.
   const [errorIsSetup, setErrorIsSetup] = useState(false);
 
-  // Whether this project requires an SMS code to become a judge. `null` = not
-  // probed yet; the answer only changes the button label, never blocks the form.
-  const [smsRequired, setSmsRequired] = useState<boolean | null>(null);
+  // Whether this project confirms a judge's address with an emailed code.
+  // `null` = not probed yet; the answer only changes the button label.
+  const [codeRequired, setCodeRequired] = useState<boolean | null>(null);
 
-  // SMS verification step state (the code itself lives inside <CodeVerify/>).
+  // Verification step state (the code itself lives inside <CodeVerify/>).
   const [otpError, setOtpError] = useState('');
-  const [phoneVerified, setPhoneVerified] = useState(false);
-
-  const fullNumber = fullPhone(phoneIso, phone);
+  const [emailVerified, setEmailVerified] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -71,8 +66,8 @@ export default function InviteAccept() {
           return setState('unreadable');
         }
         setState('ready');
-        // Probe whether an SMS code is required (best-effort; falls back to false).
-        api.phoneVerificationAvailable().then(setSmsRequired).catch(() => setSmsRequired(false));
+        // Probe whether a code is required (best-effort; falls back to false).
+        api.judgeEmailVerificationAvailable().then(setCodeRequired).catch(() => setCodeRequired(false));
       } catch (err) {
         // Anything thrown here used to leave the page on "Loading…" forever.
         // `unreadable` already explains a broken/expired link, which is by far
@@ -152,8 +147,8 @@ export default function InviteAccept() {
       <Shell>
         <Card className="p-6 text-center">
           <Badge tone="accent">You're set</Badge>
-          {phoneVerified && (
-            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent"><Check className="mr-1 inline h-3 w-3" aria-hidden /> Phone number verified</p>
+          {emailVerified && (
+            <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent"><Check className="mr-1 inline h-3 w-3" aria-hidden /> Email address verified</p>
           )}
           <p className="mt-3 text-sm text-ink">
             {ownerName} can now pick you as a judge for their goals. Keep your judge password safe, because you'll
@@ -164,13 +159,13 @@ export default function InviteAccept() {
     );
   }
 
-  const phoneValid = phone.replace(/\D/g, '').length >= 7;
-  const canSubmit = name.trim().length >= 2 && phoneValid && code.trim().length >= JUDGE_CODE_MIN && consent;
+  const emailValid = api.emailLooksValid(email);
+  const canSubmit = name.trim().length >= 2 && emailValid && code.trim().length >= JUDGE_CODE_MIN && consent;
 
-  /** Register the judge (optionally recording that they passed the SMS check). */
+  /** Register the judge (recording whether they passed the code check). */
   async function finishRegistration(verified: boolean) {
-    await api.submitJudgeInvite(token, { name, phone: fullNumber, code, phoneVerified: verified });
-    setPhoneVerified(verified);
+    await api.submitJudgeInvite(token, { name, email, code, emailVerified: verified });
+    setEmailVerified(verified);
     setState('done');
   }
 
@@ -180,19 +175,19 @@ export default function InviteAccept() {
     setErrorIsSetup(err instanceof SyncError && err.kind === 'setup');
   }
 
-  // Primary button on the details form: either text a code first, or (when SMS
-  // verification isn't active) register straight away, as before.
+  // Primary button on the details form: either email a code first, or (where the
+  // backend cannot send email at all) register straight away.
   async function onPrimary() {
     setError('');
     setErrorIsSetup(false);
     setBusy(true);
     try {
       // Resolve availability now if the background probe hasn't answered yet, so a
-      // fast tapper never slips past the SMS gate on a project that requires it.
-      const needsSms = smsRequired ?? (await api.phoneVerificationAvailable());
-      setSmsRequired(needsSms);
-      if (needsSms) {
-        await api.startPhoneVerification(fullNumber);
+      // fast tapper never slips past the code gate on a project that requires it.
+      const needsCode = codeRequired ?? (await api.judgeEmailVerificationAvailable());
+      setCodeRequired(needsCode);
+      if (needsCode) {
+        await api.startEmailVerification(email, 'judge');
         setOtpError('');
         setState('verify');
       } else {
@@ -209,7 +204,7 @@ export default function InviteAccept() {
     setOtpError('');
     setBusy(true);
     try {
-      await api.startPhoneVerification(fullNumber);
+      await api.startEmailVerification(email, 'judge');
       return true;
     } catch (err) {
       showError(err, setOtpError);
@@ -219,13 +214,13 @@ export default function InviteAccept() {
     }
   }
 
-  // On the verify step: check the SMS code, then finish registration.
+  // On the verify step: check the emailed code, then finish registration.
   async function onVerify(code: string) {
     setOtpError('');
     setErrorIsSetup(false);
     setBusy(true);
     try {
-      await api.verifyPhoneCode(fullNumber, code);
+      await api.verifyEmailCode(email, code, 'judge');
       await finishRegistration(true);
     } catch (err) {
       showError(err, setOtpError);
@@ -237,15 +232,14 @@ export default function InviteAccept() {
   if (state === 'verify') {
     return (
       <Shell>
-        <h1 className="mb-1 text-xl font-bold text-ink">Confirm your phone</h1>
+        <h1 className="mb-1 text-xl font-bold text-ink">Confirm your email</h1>
         <p className="mb-4 text-sm text-muted">
-          Enter the code below to prove this number is yours.
+          Enter the code below to prove this address is yours.
         </p>
 
         <Card className="p-4">
           <CodeVerify
-            destination={fullNumber}
-            channel="sms"
+            destination={email}
             busy={busy}
             error={otpError}
             errorIsSetup={errorIsSetup}
@@ -278,16 +272,22 @@ export default function InviteAccept() {
           already has.
         </p>
 
-        <Label>Your phone number</Label>
-        <div className="mb-1">
-          <PhoneField iso={phoneIso} number={phone} onIso={setPhoneIso} onNumber={setPhone} />
-        </div>
-        {smsRequired && (
-          <p className="mb-3 mt-1 text-[11px] text-muted">
-            We'll text a 6-digit code to this number so you can confirm it's really yours.
+        <Label>Your email address</Label>
+        <Input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@email.com"
+          autoComplete="email"
+          inputMode="email"
+        />
+        {codeRequired ? (
+          <p className="mb-3 mt-1.5 text-[11px] text-muted">
+            We'll email a 6-digit code to this address so you can confirm it's really yours.
           </p>
+        ) : (
+          <div className="mb-3" />
         )}
-        {!smsRequired && <div className="mb-3" />}
 
         <Label>Set your judge password</Label>
         <Input
@@ -335,14 +335,14 @@ export default function InviteAccept() {
         )}
         <Button className="mt-3 w-full" disabled={busy || !canSubmit} onClick={onPrimary}>
           {busy
-            ? smsRequired
-              ? 'Texting code…'
+            ? codeRequired
+              ? 'Emailing code…'
               : 'Saving…'
             : error
               ? 'Try again'
-              : smsRequired
+              : codeRequired
                 ? 'Send verification code'
-                : smsRequired === null
+                : codeRequired === null
                   ? 'Continue'
                   : 'Become a judge'}
         </Button>

@@ -16,7 +16,7 @@ function goal(over: Partial<Goal> = {}): Goal {
     status: 'active',
     messageTone: 'neutral',
     evidence: [],
-    judge: { name: 'Kasia', channel: 'phone', judgeContact: '+48500100200', status: 'accepted', acceptToken: 'tok-1' },
+    judge: { name: 'Kasia', channel: 'email', judgeContact: 'kasia@example.com', status: 'accepted', acceptToken: 'tok-1' },
     recipients: [{ consentId: 'c1' }],
     ackNotifyConsent: true,
     shareToken: 'share-1',

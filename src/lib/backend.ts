@@ -1,9 +1,9 @@
 /**
  * The one place that knows how to reach Comitra's backend.
  *
- * `src/lib/email.ts` and `src/lib/sms.ts` each grew their own copy of this while
- * the backend only did verification codes; now that accounts and every byte of
- * user data go through the same function, the transport is shared. Nothing in
+ * `src/lib/email.ts` grew its own copy of this while the backend only did
+ * verification codes; now that accounts and every byte of user data go through
+ * the same function, the transport is shared. Nothing in
  * here is specific to a feature: base URL, the platform key, a timeout, and the
  * session header.
  */
@@ -51,13 +51,10 @@ interface Failure {
 function kindFor(code: string | undefined): SyncErrorKind {
   switch (code) {
     case 'email_not_configured':
-    case 'sms_not_configured':
     case 'setup':
       return 'setup';
     case 'bad-email':
       return 'bad-email';
-    case 'bad-phone':
-      return 'bad-phone';
     case 'rate-limited':
       return 'rate-limited';
     case 'invalid-code':

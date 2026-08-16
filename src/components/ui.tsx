@@ -8,10 +8,14 @@ import type {
 } from 'react';
 import { Gem } from 'lucide-react';
 
-type Variant = 'primary' | 'ghost' | 'danger' | 'outline';
+type Variant = 'primary' | 'ghost' | 'danger' | 'outline' | 'info';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-accent text-on-accent font-semibold hover:brightness-110 active:brightness-95',
+  // The theme's second colour — the blue/cyan already used for emphasis around
+  // the app (`text-active`). For a button that has to read as "not the primary
+  // one" without dropping to an outline.
+  info: 'bg-active text-on-accent font-semibold hover:brightness-110 active:brightness-95',
   danger: 'bg-danger text-on-accent font-semibold hover:brightness-110',
   outline: 'border border-line text-ink hover:border-accent hover:text-accent bg-transparent',
   ghost: 'text-muted hover:text-ink bg-transparent',
@@ -119,6 +123,43 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
     <select {...props} className={`${fieldBase} appearance-none ${props.className ?? ''}`}>
       {props.children}
     </select>
+  );
+}
+
+/**
+ * Sliding on/off switch. The knob travels along the track, so the state reads at
+ * a glance from the position, not from a mark inside a box.
+ */
+export function Toggle({
+  checked,
+  onChange,
+  label,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  /** Announced to screen readers, since the switch itself carries no text. */
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+        checked ? 'border-accent bg-accent' : 'border-line bg-elevated'
+      }`}
+    >
+      <span
+        className={`h-[18px] w-[18px] rounded-full shadow-[0_1px_2px_rgba(16,24,40,0.25)] transition-transform duration-200 ${
+          checked ? 'translate-x-[22px] bg-on-accent' : 'translate-x-[3px] bg-muted'
+        }`}
+      />
+    </button>
   );
 }
 

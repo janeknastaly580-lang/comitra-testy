@@ -25,9 +25,10 @@ function goalInput(userId: string, over: Partial<CreateGoalInput> = {}): CreateG
     deadlineAt: future(),
     messageTone: 'neutral',
     ackNotifyConsent: true,
-    judge: { name: 'Judge', channel: 'phone', contact: '+48500100200' },
-    // A goal notifies exactly one recipient (MAX_RECIPIENTS_PER_GOAL === 1).
-    recipients: [{ name: 'Alice', channel: 'phone', contact: '+48111222333' }],
+    judge: { name: 'Judge', channel: 'email', contact: 'judge@example.com' },
+    // A goal notifies exactly one recipient (MAX_RECIPIENTS_PER_GOAL === 1), and
+    // a recipient is always a friend's account — never a number or an address.
+    recipients: [{ name: 'Alice', recipientUserId: 'friend-alice' }],
     ...over,
   };
 }

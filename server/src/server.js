@@ -16,10 +16,7 @@ import {
   extractCapture,
 } from './paypal.js';
 import { createEmailRouter } from './routes/email.js';
-import { createSmsRouter } from './routes/sms.js';
-import { createTwilioWebhookRouter } from './routes/twilioWebhook.js';
 import { isEmailConfigured } from './email/client.js';
-import { isConfigured as smsConfigured } from './twilio/client.js';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -101,34 +98,10 @@ app.post('/api/paypal/webhook', requirePaypalConfigured, express.raw({ type: 'ap
   }
 });
 
-/* ---------------------------------------------------- Twilio SMS webhook --
- * Twilio reports the delivery status of every text it sent here. Like the
- * PayPal webhook above it is server-to-server, so it is registered outside the
- * CSRF/auth layer and verifies `X-Twilio-Signature` instead. It parses its own
- * body because Twilio posts `application/x-www-form-urlencoded`, not JSON.
- *
- * `/callback` is kept as an alias for deployments whose Twilio Console still
- * points there; it runs the same signature check as the canonical path.
- */
-const twilioWebhookRouter = createTwilioWebhookRouter();
-app.use('/api/twilio', twilioWebhookRouter);
-app.post('/callback', (req, res, next) => {
-  req.url = '/status-callback';
-  twilioWebhookRouter(req, res, next);
-});
-
-/* -------------------------------------------------------------- SMS API --
- * One-time codes + transactional texts, both via Programmable Messaging.
- * Mounted before the
- * CSRF layer on purpose: these routes read no cookie, so there is no session
- * for a cross-site request to ride on. See routes/sms.js for what guards them.
- */
-app.use('/api/sms', createSmsRouter());
-
 /* ------------------------------------------------------------ Email API --
- * The sign-up verification code, sent with Amazon SES. Mounted next to the SMS
- * API and for the same reason: these routes read no cookie, so there is no
- * session for a cross-site request to ride on. See routes/email.js.
+ * The sign-up verification code, sent with Amazon SES. Mounted before the CSRF
+ * layer on purpose: these routes read no cookie, so there is no session for a
+ * cross-site request to ride on. See routes/email.js.
  */
 app.use('/api/email', createEmailRouter());
 
@@ -280,11 +253,6 @@ app.use((err, _req, res, _next) => {
 
 app.listen(config.port, () => {
   console.log(`FineLine payments API on http://localhost:${config.port} [${config.paypal.env}]`);
-  console.log(
-    smsConfigured()
-      ? 'SMS: Twilio configured (Messaging Service — codes and notifications).'
-      : 'SMS: OFF — no TWILIO_* values in .env, so /api/sms/* answers 503. See TWILIO_SETUP.md.',
-  );
   console.log(
     isEmailConfigured()
       ? 'Email: Amazon SES configured (sign-up verification codes).'

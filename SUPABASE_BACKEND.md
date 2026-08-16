@@ -18,8 +18,8 @@ function named `api` sees exactly the paths the Express server served:
 |---|---|---|
 | `/api/email/verify/start` | `…/functions/v1/api/email/verify/start` | `/api/email/verify/start` |
 
-That is why `src/lib/email.ts` and `src/lib/sms.ts` needed no route changes.
-Only `VITE_API_BASE` moved.
+That is why `src/lib/email.ts` needed no route changes. Only `VITE_API_BASE`
+moved.
 
 ---
 
@@ -38,9 +38,8 @@ random fraction of real users. So the state moved to Postgres:
 
 | Table | Replaces |
 |---|---|
-| `comitra_otp` | the `pending` Maps in `email/verify.js` and `twilio/verify.js` |
-| `comitra_rate` | the `buckets` Map in `twilio/throttle.js` |
-| `comitra_send_once` | the `sends` Map (SMS idempotency) |
+| `comitra_otp` | the `pending` Map in `email/verify.js` |
+| `comitra_rate` | the `buckets` Map in `email/throttle.js` |
 
 All three have RLS on with **no policies and no grants**, so the anon key in the
 browser cannot read a code hash even though it reaches the same database. Only
@@ -73,16 +72,12 @@ supabase secrets set --project-ref utoqyuysxkkekefshfvp COMITRA_OTP_PEPPER=<64 h
 | `SES_TEMPLATE_VAR` | no | the `{{placeholder}}` in that template. Defaults to `code`. |
 | `AWS_ACCESS_KEY_ID` | for email | your IAM key |
 | `AWS_SECRET_ACCESS_KEY` | for email | your IAM secret |
-| `TWILIO_ACCOUNT_SID` | for SMS | `AC…` |
-| `TWILIO_API_KEY_SID` | for SMS | `SK…` |
-| `TWILIO_API_KEY_SECRET` | for SMS | the secret shown once at creation |
-| `TWILIO_MESSAGING_SERVICE_SID` | for SMS | `MG…` |
 | `CLIENT_ORIGIN` | recommended | Comma-separated allowed origins, e.g. `https://comitra.vercel.app,http://localhost:5173`. Unlike the Express version this accepts a list, so preview deployments are no longer blocked by CORS. |
 
 `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected automatically — do
 not set them, the platform rejects secrets with a `SUPABASE_` prefix.
 
-**No AWS or Twilio credential belongs in a `VITE_` variable.** Vite inlines
+**No AWS credential belongs in a `VITE_` variable.** Vite inlines
 those into the browser bundle and the Android APK.
 
 ---
@@ -90,8 +85,8 @@ those into the browser bundle and the Android APK.
 ## Auth
 
 The function is deployed with `verify_jwt: true`, so every request needs the
-project's publishable (anon) key. `src/lib/email.ts` and `src/lib/sms.ts` send
-it automatically from `VITE_SUPABASE_ANON_KEY`.
+project's publishable (anon) key. `src/lib/backend.ts` sends it automatically
+from `VITE_SUPABASE_ANON_KEY`.
 
 That key authorises nothing by itself — the tables are locked to it — it just
 keeps unauthenticated scanners off the function. The real protections are the
@@ -124,6 +119,3 @@ away from a money model, and porting a disabled payment flow to a new runtime
 would be speculative work. If payments come back, the orders table has to become
 Postgres tables first — Edge Functions have no local disk.
 
-The Twilio delivery-status webhook (`/api/twilio/status-callback`) also stayed
-behind. It needs the Auth Token to verify Twilio's signature and only feeds
-delivery receipts, which nothing in the app reads yet.

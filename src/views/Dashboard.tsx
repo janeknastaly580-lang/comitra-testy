@@ -7,6 +7,7 @@ import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { PRE_ACTIVE, TERMINAL } from '../lib/status';
 import { toLocalInputValue } from '../lib/format';
 import GoalCard from '../components/GoalCard';
+import Inbox from '../components/Inbox';
 import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm, { usePendingReflections } from '../components/ReflectionGate';
@@ -106,6 +107,10 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* What friends' goals have told this person. Above everything else: it is
+          the only part of this screen that is somebody else waiting on them. */}
+      <Inbox />
+
       {/* A missed goal has to be reflected on before a new one can be set. */}
       {owedReflections.length > 0 && (
         <div className="mb-5 space-y-3">
@@ -124,22 +129,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Two ways to start a goal */}
+      {/* Two ways to start a goal. Solo comes first: it is the one that needs
+          nobody else, so it is the easiest place to start. */}
       <div className="mb-5 space-y-3">
-        {/* With a judge */}
-        <Card className="border-accent/40 bg-accent/5 p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">With a judge</p>
-          <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
-          <p className="mt-1 text-[12px] text-muted">
-            A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
-            them what it is yourself.{' '}
-            <span className="text-active">You can also add someone who’ll be told if you don’t do it.</span>
-          </p>
-          <Button className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
-            {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
-          </Button>
-        </Card>
-
         {/* Without a judge */}
         <Card className="border-accent/40 bg-accent/5 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Without a judge</p>
@@ -152,7 +144,6 @@ export default function Dashboard() {
           </p>
           {!soloOpen ? (
             <Button
-              variant="outline"
               className="mt-3 w-full"
               disabled={blocked}
               onClick={() => { setSoloErr(''); setSoloOpen(true); }}
@@ -190,6 +181,20 @@ export default function Dashboard() {
               </Button>
             </div>
           )}
+        </Card>
+
+        {/* With a judge */}
+        <Card className="border-accent/40 bg-accent/5 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">With a judge</p>
+          <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
+          <p className="mt-1 text-[12px] text-muted">
+            A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
+            them what it is yourself.{' '}
+            <span className="text-active">You can also add someone who’ll be told if you don’t do it.</span>
+          </p>
+          <Button variant="info" className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
+            {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
+          </Button>
         </Card>
 
         {/* Against friends */}

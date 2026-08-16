@@ -26,7 +26,7 @@ export interface FailureMessageInput {
  * changes only the framing, never the safety: no insults, no moral judgement,
  * no "lazy / shame", and never any goal content.
  *
- * Kept identical to `TONE_SUFFIX` in server/src/twilio/templates.js, so the text
+ * Kept identical to `TONE_SUFFIX` in supabase/functions/api/templates.ts, so the text
  * a recipient is sent matches the preview the owner approved.
  */
 const TONE_SUFFIX: Record<MessageTone, string> = {
@@ -41,7 +41,7 @@ const TONE_SUFFIX: Record<MessageTone, string> = {
  * The sentence is fixed wording — "User <name> did not complete goal no. <n>."
  * — and is the ONE piece of text a recipient ever receives about someone else's
  * goal. It states a fact and nothing more: no title, no description, no
- * judgement. Kept identical in server/src/twilio/templates.js and
+ * judgement. Kept identical in supabase/functions/api/templates.ts and
  * supabase/functions/api/templates.ts so the text actually texted matches the
  * preview the owner approved before creating the goal.
  */

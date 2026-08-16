@@ -1,7 +1,7 @@
 /**
  * Every email this server is allowed to send.
  *
- * Same trust boundary as twilio/templates.js: the content is owned by the
+ * The trust boundary: the content is owned by the
  * server. No route accepts a subject or a body, so no one who finds the URL can
  * send arbitrary mail from a verified Comitra domain — which would be a
  * ready-made phishing relay with our SPF/DKIM on it.

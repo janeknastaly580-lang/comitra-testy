@@ -1,11 +1,11 @@
 /**
  * The error shape the frontend already understands.
  *
- * `src/lib/email.ts` and `src/lib/sms.ts` both switch on `code` to pick their
+ * `src/lib/email.ts` switches on `code` to pick its
  * wording, so these strings are an API contract, not an implementation detail —
  * changing one silently degrades the app to its generic "something went wrong".
  *
- * `detail` never leaves the server. AWS and Twilio put the account id, the
+ * `detail` never leaves the server. AWS puts the account id, the
  * identity and sometimes the recipient into their messages, so only `message`
  * (written for a person, by us) is ever sent.
  */

@@ -9,13 +9,10 @@ export default function ShareLink({
   title,
   hint,
   link,
-  phone,
 }: {
   title: string;
   hint: string;
   link: string;
-  /** Optional phone to pre-fill the WhatsApp deep link. */
-  phone?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [msgHint, setMsgHint] = useState(false);
@@ -35,9 +32,9 @@ export default function ShareLink({
   }
 
   function shareWhatsApp() {
-    const digits = (phone ?? '').replace(/\D/g, '');
-    const target = digits ? `https://wa.me/${digits}` : 'https://wa.me/';
-    window.open(`${target}?text=${encodeURIComponent(link)}`, '_blank', 'noopener');
+    // No recipient number to pre-fill: Comitra holds nobody's phone number, so
+    // this opens WhatsApp with the link ready and the person picks the chat.
+    window.open(`https://wa.me/?text=${encodeURIComponent(link)}`, '_blank', 'noopener');
   }
 
   function shareMessenger() {

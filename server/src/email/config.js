@@ -15,7 +15,7 @@ import '../env.js';
  *     an EC2/ECS/Lambda IAM role, `~/.aws/credentials`, SSO. That is the safer
  *     deployment, so it must not require inventing a long-lived access key.
  *
- * All-or-nothing on the two required names, matching twilio/config.js:
+ * All-or-nothing on the two required names:
  *   • nothing set   → email verification is OFF. `/api/email/*` answers 503 and
  *     sign-up falls back to creating the account without a code. Server boots.
  *   • partially set → the process refuses to boot, naming what is wrong. A

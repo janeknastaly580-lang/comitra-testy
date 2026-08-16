@@ -1,5 +1,6 @@
 /**
- * One-time passcodes, shared by the email and SMS flows.
+ * One-time passcodes for the two things an email code proves: that a new account
+ * owns its address, and that a friend accepting a judge invite owns theirs.
  *
  * The secret lifecycle is the one server/src/email/verify.js established, and it
  * survives the move to Postgres unchanged:
@@ -11,7 +12,11 @@
  *     with a pepper that lives in a function secret — never in the database, so
  *     a dump of the table is not enough to brute-force a code.
  *   • **The destination is not a key either** — rows are filed under a keyed
- *     hash of the address or number, so the table holds neither.
+ *     hash of the address, so the table holds none.
+ *   • **A code is bound to its PURPOSE.** Sign-up and judge-invite codes for the
+ *     same address are separate rows, so accepting an invite never consumes the
+ *     code someone is halfway through typing into the sign-up form (and a code
+ *     issued for one can never be presented for the other).
  *   • **Single use, capped attempts, hard expiry**, all enforced in SQL so two
  *     concurrent guesses cannot each get a fresh five.
  */
@@ -21,13 +26,22 @@ import { ApiError } from './errors.ts';
 import { checkOtp, dropOtp, putOtp, type OtpOutcome } from './state.ts';
 
 /**
- * How long a code stays valid, from the moment it is generated. Both channels
- * are seven minutes; the row is keyed by a hash of the destination, so a code is
- * bound to exactly one address or one phone number and cannot be presented for
- * another.
+ * How long a code stays valid, from the moment it is generated. The row is keyed
+ * by a hash of (purpose, address), so a code is bound to exactly one address in
+ * exactly one flow and cannot be presented for another.
  */
 export const EMAIL_CODE_TTL_MS = 7 * 60_000;
-export const SMS_CODE_TTL_MS = 7 * 60_000;
+
+/**
+ * What a code is being asked to prove. `signup` keeps the scoping it has always
+ * had, so codes already in someone's inbox still verify across a deploy.
+ */
+export type CodePurpose = 'signup' | 'judge';
+
+/** The value a code is bound to: the address, tagged with its purpose. */
+function scopeFor(purpose: CodePurpose, destination: string): string {
+  return purpose === 'signup' ? destination : `${purpose}:${destination}`;
+}
 /** Wrong guesses allowed before the code is destroyed. */
 export const MAX_ATTEMPTS = 5;
 /** Digits in a code. The app's input is sized for exactly this. */
@@ -66,9 +80,9 @@ export async function hashKey(scope: string, value: string): Promise<string> {
   return [...new Uint8Array(sig)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** The row key for a destination — never the address or number itself. */
-export function destinationKey(kind: 'email' | 'sms', destination: string): Promise<string> {
-  return hashKey(kind === 'email' ? 'email' : 'phone', destination);
+/** The row key for a destination — never the address itself. */
+export function destinationKey(purpose: CodePurpose, destination: string): Promise<string> {
+  return hashKey('email', scopeFor(purpose, destination));
 }
 
 /** The digest stored for a code, bound to its destination so it cannot be moved. */
@@ -106,37 +120,37 @@ export function looksLikeCode(raw: unknown): raw is string {
  * double the guesses on offer.
  */
 export async function issueCode(
-  kind: 'email' | 'sms',
+  purpose: CodePurpose,
   destination: string,
   ttlMs: number,
 ): Promise<{ code: string; key: string }> {
   const code = generateCode();
-  const key = await destinationKey(kind, destination);
-  await putOtp(kind, key, await codeDigest(destination, code), ttlMs, MAX_ATTEMPTS);
+  const key = await destinationKey(purpose, destination);
+  await putOtp('email', key, await codeDigest(scopeFor(purpose, destination), code), ttlMs, MAX_ATTEMPTS);
   return { code, key };
 }
 
 /** Forget a code whose message never went out. */
-export async function abandonCode(kind: 'email' | 'sms', key: string): Promise<void> {
-  await dropOtp(kind, key);
+export async function abandonCode(key: string): Promise<void> {
+  await dropOtp('email', key);
 }
 
 /**
  * Verify a typed code, turning the SQL outcome into the error the frontend
- * already knows how to word. `channel` only changes "the text"/"the email".
+ * already knows how to word.
  */
 export async function verifyCode(
-  kind: 'email' | 'sms',
+  purpose: CodePurpose,
   destination: string,
   typed: string,
 ): Promise<void> {
-  const key = await destinationKey(kind, destination);
-  const digest = await codeDigest(destination, typed);
-  const { outcome, attemptsLeft } = await checkOtp(kind, key, digest);
+  const key = await destinationKey(purpose, destination);
+  const digest = await codeDigest(scopeFor(purpose, destination), typed);
+  const { outcome, attemptsLeft } = await checkOtp('email', key, digest);
 
   if (outcome === 'approved') return;
 
-  const target = kind === 'email' ? 'address' : 'number';
+  const target = 'address';
   // 'none' and 'expired' are DIFFERENT things and must not share wording. A
   // missing row usually means the code was already used, or retired by a newer
   // one — telling that person "expired" sends them off to wait for a clock that

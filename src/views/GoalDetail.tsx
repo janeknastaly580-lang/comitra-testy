@@ -4,11 +4,11 @@ import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { countdown, countdownClock, dateTime, shortDate, timeOfDay, toLocalInputValue } from '../lib/format';
-import { deadlineElapsedRatio, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
+import { deadlineElapsedRatio, goalEndedAt, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
 import { downscaleImage } from '../lib/image';
 import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
-import { judgeLink, recipientLink } from '../lib/share';
+import { judgeLink } from '../lib/share';
 import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
 import type { Goal, GoalReflection, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
 import AppBlockPermission from '../components/AppBlockPermission';
@@ -17,7 +17,7 @@ import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
-import { Badge, Button, Card, Input, Label, Select, Textarea } from '../components/ui';
+import { Badge, Button, Card, Input, Label, Select, Textarea, Toggle } from '../components/ui';
 import { Lock } from 'lucide-react';
 
 const TONE_LABEL = { neutral: 'Neutral', supportive: 'Supportive', firm: 'Firm' } as const;
@@ -35,8 +35,9 @@ export default function GoalDetail() {
   const [notes, setNotes] = useState<NotificationLog[]>([]);
   const [outbox, setOutbox] = useState<OutboxMessage[]>([]);
   const [reflection, setReflection] = useState<GoalReflection | null>(null);
-  // Ticks every second so the deadline bar and countdown move on their own.
-  const now = useNow(1000);
+  // Ticks every second so the deadline bar and countdown move on their own. A
+  // finished goal has a frozen bar and no countdown, so it barely needs to tick.
+  const now = useNow(goal && goalEndedAt(goal) !== null ? 60_000 : 1000);
   const [notice, setNotice] = useState('');
   const [confirmCancel, setConfirmCancel] = useState(false);
   // Solo goals are decided by their owner, so both outcomes go through a
@@ -93,8 +94,14 @@ export default function GoalDetail() {
 
   const cd = countdown(goal.deadlineAt, now);
   const meta = statusMeta(goal.status);
-  // Unrounded for the bar width (so it creeps), rounded for the number.
+  // Unrounded for the bar width (so it creeps), rounded for the number. Frozen
+  // at the moment the goal ended, so a finished goal's bar no longer moves.
   const elapsedRatio = deadlineElapsedRatio(goal, now);
+  const hasEnded = goalEndedAt(goal) !== null;
+  // Red means "the deadline ran out on it". A finished goal is judged on where
+  // its bar stopped, so one that ended in time keeps its normal colour instead
+  // of turning red later, when its long-gone deadline passes.
+  const barOverdue = goal.status !== 'completed' && (hasEnded ? elapsedRatio >= 100 : cd.overdue);
   const isRunning = goal.status === 'active' || goal.status === 'proof_pending';
   const consentFor = (cid: string) => consents.find((c) => c.id === cid);
   const isPreActive = PRE_ACTIVE.includes(goal.status);
@@ -291,17 +298,16 @@ export default function GoalDetail() {
       {isTerminal && (
         <Card className="mb-4 p-4">
           <Label>Show this goal on your profile</Label>
-          <label className="flex cursor-pointer items-center justify-between gap-3 py-1">
+          <div className="flex items-center justify-between gap-3 py-1">
             <span className="min-w-0 text-sm text-ink">
-              {goal.isPublic ? 'Public: people can read this goal' : 'Private: people see “' + goalRefTitle(goal) + '”'}
+              {goal.isPublic ? 'goal is public' : 'goal is private'}
             </span>
-            <input
-              type="checkbox"
+            <Toggle
               checked={!!goal.isPublic}
-              onChange={(e) => toggleVisibility(e.target.checked)}
-              className="h-4 w-4 shrink-0 accent-[color:rgb(var(--c-accent))]"
+              onChange={toggleVisibility}
+              label={goal.isPublic ? 'goal is public' : 'goal is private'}
             />
-          </label>
+          </div>
           <p className="mt-1 text-[11px] text-muted">
             This is for this goal only, and your other goals keep their own setting. It changes your
             profile alone: messages to your judge and recipients never contain your goal’s content.
@@ -328,7 +334,8 @@ export default function GoalDetail() {
       )}
 
       {/* Deadline progress: how much of the goal period has elapsed. Updates
-          every second while the goal is running, so the bar visibly moves. */}
+          every second while the goal is running, so the bar visibly moves, and
+          stops for good at the moment the goal ended. */}
       <Card className="mb-4 p-4">
         <div className="mb-1 flex items-center justify-between">
           <span className="font-mono text-sm text-ink">Deadline elapsed</span>
@@ -336,7 +343,7 @@ export default function GoalDetail() {
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-line">
           <div
-            className={`h-full rounded-full ${cd.overdue ? 'bg-danger' : 'bg-accent'}`}
+            className={`h-full rounded-full ${barOverdue ? 'bg-danger' : 'bg-accent'}`}
             style={{ width: `${elapsedRatio}%` }}
           />
         </div>
@@ -602,7 +609,6 @@ export default function GoalDetail() {
             title="Invite your judge"
             hint="Send this so the judge can accept the role and later decide the outcome. The link shows them the goal number only, not what the goal is."
             link={judgeLink(goal)}
-            phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
           />
         </div>
       )}
@@ -615,6 +621,10 @@ export default function GoalDetail() {
           Only recipients who accepted are messaged, and only that {goalRefTitle(goal).toLowerCase()} was
           not completed. They can opt out anytime.
         </p>
+        <p className="mb-3 text-[11px] text-muted">
+          They are told inside Comitra, on their own account. Nothing is sent to a phone number or an
+          email address — Comitra does not have theirs.
+        </p>
         <div className="space-y-3">
           {goal.recipients.map((r) => {
             const c = consentFor(r.consentId);
@@ -624,19 +634,15 @@ export default function GoalDetail() {
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-ink">{c.name}</p>
-                    {c.recipientContact && <p className="truncate font-mono text-[11px] text-muted">{c.recipientContact}</p>}
+                    <p className="truncate font-mono text-[11px] text-muted">Friend · in Comitra</p>
                   </div>
                   <Badge tone={CONSENT_TONE[c.consentStatus]}>{c.consentStatus}</Badge>
                 </div>
                 {c.consentStatus === 'pending' && (
-                  <div className="mt-3">
-                    <ShareLink
-                      title="Invite this recipient"
-                      hint="They must accept before they can ever be messaged."
-                      link={recipientLink(c.inviteToken)}
-                      phone={c.channel === 'phone' ? c.recipientContact : undefined}
-                    />
-                  </div>
+                  <p className="mt-2 text-[11px] leading-relaxed text-muted">
+                    They've been asked in the app and haven't answered yet. Nothing can be sent to them
+                    until they accept.
+                  </p>
                 )}
               </div>
             );
@@ -670,13 +676,11 @@ export default function GoalDetail() {
               title="Ask for a decision"
               hint={`They mark ${goalRefTitle(goal).toLowerCase()} completed or not completed, and confirm it. That is all this link can do.`}
               link={judgeLink(goal, 'decision')}
-              phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
             />
             <ShareLink
               title="Ask for a change"
               hint="Opens their change panel, where they can cancel this goal. Use it when the goal itself has to go — you can move the deadline yourself."
               link={judgeLink(goal, 'edit')}
-              phone={goal.judge.channel === 'phone' ? goal.judge.judgeContact : undefined}
             />
           </div>
           {(goal.earlyDecisionRequested || goal.cancelRequested) && (

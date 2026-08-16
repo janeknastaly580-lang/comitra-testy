@@ -23,7 +23,7 @@ Four things worth knowing:
 - **Sign-up no longer asks for a phone number.** The address someone types is
   the address the code goes to, and `emailVerifiedAt` is recorded on the account
   only when they type that code back. SMS is still used for the *judge* invite
-  flow — that is Twilio, and unrelated (see `TWILIO_SETUP.md`).
+  flow — that one lives in the app itself (see `src/lib/push.ts`).
 - **The plaintext code is never stored.** `server/src/email/verify.js` generates
   it, emails it, and keeps only a keyed HMAC-SHA256 digest. It is valid for
   **7 minutes** from the moment it is generated, allows **5 attempts**, and is
@@ -125,7 +125,7 @@ Copy both halves into `.env`. The secret is shown once.
 
 ## Step 5 — Fill in `.env`
 
-In the **root** `.env` (the same file the Twilio values live in):
+In the **root** `.env`:
 
 ```env
 # Required — the two that switch email verification on.

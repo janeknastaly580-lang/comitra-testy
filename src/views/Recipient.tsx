@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import * as api from '../lib/api';
+import { useApp } from '../context/AppContext';
 import { recipientInviteMessage } from '../lib/messages';
 import type { RecipientConsent } from '../lib/types';
 import { Badge, Button, Card, Label, Textarea } from '../components/ui';
@@ -26,6 +27,7 @@ export default function Recipient() {
   const [params] = useSearchParams();
   const token = routeParams.token ?? params.get('token') ?? '';
 
+  const { inbox, readMessage } = useApp();
   const [state, setState] = useState<'loading' | 'not-found' | 'ready'>('loading');
   const [consent, setConsent] = useState<RecipientConsent | null>(null);
   const [ownerName, setOwnerName] = useState('');
@@ -69,10 +71,22 @@ export default function Recipient() {
     );
   }
 
+  /**
+   * Settle the in-app request that brought them here, if there was one.
+   *
+   * The message is deliberately left unread until the question is ANSWERED — a
+   * glance at this screen must not make the request disappear from their list.
+   */
+  async function clearRequest() {
+    const message = inbox.find((m) => m.payload.consentToken === token && !m.readAt);
+    if (message) await readMessage(message.id);
+  }
+
   async function accept() {
     setBusy(true);
     try {
       setConsent(await api.acceptRecipientConsent(token));
+      await clearRequest();
     } finally {
       setBusy(false);
     }
@@ -82,6 +96,7 @@ export default function Recipient() {
     setBusy(true);
     try {
       setConsent(await api.revokeRecipientConsent(token));
+      await clearRequest();
     } finally {
       setBusy(false);
     }
