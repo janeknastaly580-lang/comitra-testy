@@ -1,4 +1,20 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ⚠ SUPERSEDED — DO NOT RE-RUN THIS AGAINST THE LIVE PROJECT (2026-08-17)
+--
+-- The live definitions were hardened by two migrations:
+--   • comitra_harden_public_rpcs           — validation, size caps, rate limits
+--   • comitra_close_push_and_judge_list_to_anon — service_role only
+-- Re-running the `create or replace` statements below would restore the OLD
+-- bodies (no limits) and, worse, the old grants. Everything here is now reached
+-- through the `api` Edge Function's /api/push/* routes, which take the account
+-- from the session token instead of from an argument — because friends know each
+-- other's user ids, so a user id was never an acceptable credential.
+--
+-- Kept for the record and for provisioning a NEW project, where it must be
+-- followed by both migrations before anything is exposed.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Comitra · in-app push  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.

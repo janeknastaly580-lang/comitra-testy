@@ -1,4 +1,19 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ⚠ SUPERSEDED IN PART — DO NOT RE-RUN AGAINST THE LIVE PROJECT (2026-08-17)
+--
+-- `comitra_register_invited_judge` still answers the publishable key (a friend
+-- opening an invite has no account yet) but is now validated, throttled and
+-- capped by the `comitra_harden_public_rpcs` migration.
+--
+-- `comitra_list_invited_judges` is NO LONGER anon-callable: knowing an owner's
+-- id — which every one of their friends does — used to be enough to list their
+-- judges' names and EMAIL ADDRESSES. It is service_role only and reached through
+-- the `api` function's /api/judges/list route, which reads the owner from the
+-- session token. The grant below is deliberately stale; see
+-- `comitra_close_push_and_judge_list_to_anon`.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Comitra · cross-device judge sync  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.

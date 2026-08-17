@@ -142,7 +142,14 @@ export async function remoteLogin(email: string, password: string): Promise<Auth
   return shape(res.user, res.state);
 }
 
-export async function remoteSocialLogin(profile: { email: string; name: string }): Promise<AuthResult> {
+/**
+ * Sign in with Google.
+ *
+ * Sends the Google ACCESS TOKEN, not an address. The server asks Google whose
+ * token it is and signs that person in; an address in the body would be a claim
+ * anyone could make about anyone, which is how this endpoint used to work.
+ */
+export async function remoteSocialLogin(profile: { name: string; accessToken: string }): Promise<AuthResult> {
   requireBackend();
   const res = await apiPost<{ token?: string; user?: unknown; state?: unknown }>(
     '/api/auth/social',

@@ -182,7 +182,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loginWithGoogle = useCallback(async () => {
     const identity = await googleAuth.requestGoogleIdentity();
     const prev = await api.getSessionUser();
-    const u = await api.socialLogin({ email: identity.email, name: identity.name });
+    const u = await api.socialLogin({
+      email: identity.email,
+      name: identity.name,
+      accessToken: identity.accessToken,
+    });
     await claimGuestInto(prev, u);
   }, [claimGuestInto]);
 

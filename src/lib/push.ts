@@ -110,7 +110,7 @@ function platform(): string {
  */
 export async function registerDevice(userId: string): Promise<void> {
   if (!supabaseEnabled() || !userId) return;
-  await remoteTouchPushDevice(userId, getDeviceId(), platform());
+  await remoteTouchPushDevice(getDeviceId(), platform());
 }
 
 /**
@@ -144,10 +144,11 @@ export async function sendPush(input: {
   payload: PushPayload;
 }): Promise<PushOutcome> {
   if (!supabaseEnabled() || !input.toUserId) return 'failed';
+  // `fromUserId` is deliberately not forwarded: the backend stamps the sender
+  // from the session token, so a message cannot be sent in someone else's name.
   const ok = await remotePushSend({
     id: input.id,
     toUserId: input.toUserId,
-    fromUserId: input.fromUserId,
     kind: input.kind,
     payload: input.payload as Record<string, unknown>,
   });
@@ -206,7 +207,7 @@ export function pushBody(message: PushMessage): string {
  */
 export async function syncInbox(userId: string): Promise<PushMessage[]> {
   if (!supabaseEnabled() || !userId) return listInbox();
-  const rows = await remotePushPull(userId);
+  const rows = await remotePushPull();
   if (rows.length === 0) return listInbox();
 
   const known = new Set(listInbox().map((m) => m.id));
@@ -243,7 +244,7 @@ export async function markRead(id: string, userId: string): Promise<void> {
     message.readAt = new Date().toISOString();
     saveCache(list);
   }
-  if (supabaseEnabled() && userId) await remotePushMarkRead(id, userId);
+  if (supabaseEnabled() && userId) await remotePushMarkRead(id);
 }
 
 /** Forget everything cached on this device (used when signing out). */

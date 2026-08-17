@@ -59,6 +59,7 @@ import {
 } from './config.ts';
 import { issueResetLink, redeemResetToken } from './reset.ts';
 import { ApiError, failureBody } from './errors.ts';
+import { verifyGoogleAccessToken } from './google.ts';
 import {
   abandonCode,
   type CodePurpose,
@@ -70,7 +71,7 @@ import {
 } from './otp.ts';
 import { sendEmail } from './ses.ts';
 import { passwordResetEmail, verificationCodeEmail } from './templates.ts';
-import { sweep, takeSlot } from './state.ts';
+import { rpc, sweep, takeSlot } from './state.ts';
 
 /**
  * A real, throwaway PBKDF2 verifier that no password matches.
@@ -92,13 +93,38 @@ const LIMITS = {
 
 /* ─────────────────────────────────────────────────────────────── plumbing ── */
 
+/**
+ * The origins the native shell loads from.
+ *
+ * A Capacitor WebView is not a page on the app's domain: Android serves the
+ * bundle from `https://localhost`, iOS from `capacitor://localhost`, and a
+ * `file://` page sends the literal string `null`. Nobody deploying this could
+ * put those in CLIENT_ORIGIN — they are not the app's address, they are the
+ * WebView's — so leaving them out is exactly what makes a freshly built APK fail
+ * every single request with a CORS error and look like a dead backend.
+ *
+ * Allowing them costs nothing: no route here reads a cookie, so a browser being
+ * permitted to make the call grants an attacker nothing `curl` could not already
+ * do. What actually protects the sensitive routes is the session token.
+ */
+const NATIVE_ORIGINS = [
+  'https://localhost',
+  'http://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
+  'null',
+];
+
 function corsHeaders(origin: string | null): Record<string, string> {
-  const allow = ALLOWED_ORIGINS.length === 0
+  const from = (origin ?? '').replace(/\/+$/, '');
+  const allow = NATIVE_ORIGINS.includes(from)
+    ? from
+    : ALLOWED_ORIGINS.length === 0
     // No CLIENT_ORIGIN configured: these routes carry no cookie, so a wildcard
     // grants a browser nothing curl could not already do. Still logged, because
     // it means the deployment is not finished.
     ? '*'
-    : (origin && ALLOWED_ORIGINS.includes(origin.replace(/\/+$/, '')) ? origin : '');
+    : (from && ALLOWED_ORIGINS.includes(from) ? from : '');
 
   return {
     ...(allow ? { 'Access-Control-Allow-Origin': allow } : {}),
@@ -443,17 +469,25 @@ async function authLogin(req: Request): Promise<unknown> {
 /**
  * Sign in with a provider that has already vouched for the address.
  *
- * NOTE the trust boundary: the browser is telling us which address Google
- * returned, and this route believes it. That is the same trust the app placed in
- * it before, but it is now enough to open a real account, so this should verify
- * Google's ID token server-side before the app is used by anyone who is not the
- * author. Left as-is deliberately rather than half-done — see google.ts.
+ * THE TRUST BOUNDARY, which this route used to get wrong: it took the address
+ * out of the request body and believed it, so posting somebody else's address
+ * returned a session for their account — a complete takeover of any account, no
+ * password, no code, using nothing but the publishable key that ships in the
+ * APK. The address now comes from Google's own answer about the token the app
+ * holds, and `body.email` is not read at all. See google.ts.
  */
 async function authSocial(req: Request): Promise<unknown> {
   await limitByIp(req, 'ip-auth-social', 20, 10 * 60_000);
   const body = await readJson(req);
-  const email = requireEmail(body.email);
-  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '';
+
+  // Google is asked who this token belongs to; the answer is the only identity
+  // this route will accept.
+  const identity = await verifyGoogleAccessToken(body.accessToken);
+  const email = requireEmail(identity.email);
+  // The display name is cosmetic and lives in the person's own profile, so the
+  // client's version is fine — but Google's is the fallback, not the other way
+  // round, and it is length-capped either way.
+  const name = (typeof body.name === 'string' ? body.name.trim().slice(0, 80) : '') || identity.name;
 
   const { id, created } = await upsertSocialAccount({ email, name, provider: 'google' });
   const token = await createSession(id);
@@ -520,6 +554,114 @@ async function statePush(req: Request): Promise<unknown> {
   return await putState(account.id, body.data, revision);
 }
 
+/* ──────────────────────────────────────── the shared store, behind a session ── */
+
+/**
+ * The judge list and the in-app inbox, moved here from the phone.
+ *
+ * WHY THEY MOVED. Both used to be RPCs the app called directly with the
+ * publishable key, authorised by nothing but a user id passed as an argument.
+ * That is fine against a stranger — ids are uuids — but friends know each
+ * other's ids by design: that is how one of them sends the other a message. So
+ * any friend could pull somebody else's whole inbox, or list the name and EMAIL
+ * ADDRESS of every judge they had invited. An id is an address, not a password,
+ * and it was being used as one.
+ *
+ * Here the id is not taken from the caller at all. It comes from the session
+ * token, which is the one thing a person cannot get for somebody else, and the
+ * SQL functions are no longer reachable with the publishable key.
+ *
+ * The one place an id still travels in a request is `reachable`, where the
+ * question genuinely is about another person ("will this get through, or have
+ * they deleted the app?"). It answers a single boolean about somebody the caller
+ * is already messaging, and it needs a session of its own to ask.
+ */
+
+/** Rows come back from PostgREST as an array; a void RPC comes back as null. */
+async function judgesList(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const judges = await rpc<unknown[]>('comitra_list_invited_judges', { p_owner: account.id });
+  return { judges: Array.isArray(judges) ? judges : [] };
+}
+
+function str(raw: unknown, max: number): string {
+  return typeof raw === 'string' ? raw.trim().slice(0, max) : '';
+}
+
+async function pushTouch(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const body = await readJson(req);
+  const deviceId = str(body.deviceId, 128);
+  if (!deviceId) throw new ApiError('bad-request', 'Could not register this device.', 400, 'deviceId missing');
+  await rpc<null>('comitra_push_touch_device', {
+    p_user_id: account.id,
+    p_device_id: deviceId,
+    p_platform: str(body.platform, 16) || 'web',
+  });
+  return { ok: true };
+}
+
+async function pushReachable(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const body = await readJson(req);
+  const userId = str(body.userId, 128);
+  if (!userId) throw new ApiError('bad-request', 'Could not check that.', 400, 'userId missing');
+  const days = Number(body.days);
+  const reachable = await rpc<boolean>('comitra_push_reachable', {
+    p_user_id: userId,
+    p_days: Number.isFinite(days) ? Math.min(Math.max(Math.trunc(days), 1), 365) : 30,
+  });
+  console.info('[push:reachable] asked by', account.id.slice(0, 8));
+  return { reachable: reachable === true };
+}
+
+/**
+ * Send one message.
+ *
+ * `from` is the session's account, never the body's: letting the sender name
+ * themselves would make every message forgeable, and "your friend nudged you"
+ * is exactly the sentence somebody would want to forge.
+ */
+async function pushSend(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  await limitByIp(req, 'ip-push-send', 120, 10 * 60_000);
+  const body = await readJson(req);
+
+  const id = str(body.id, 128);
+  const toUserId = str(body.toUserId, 128);
+  const kind = str(body.kind, 64);
+  if (!id || !toUserId || !kind) {
+    throw new ApiError('bad-request', "That message couldn't be sent.", 400, 'id, toUserId or kind missing');
+  }
+  if (!body.payload || typeof body.payload !== 'object') {
+    throw new ApiError('bad-request', "That message couldn't be sent.", 400, 'payload was not an object');
+  }
+
+  await rpc<null>('comitra_push_send', {
+    p_id: id,
+    p_to_user_id: toUserId,
+    p_from_user_id: account.id,
+    p_kind: kind,
+    p_payload: body.payload,
+  });
+  return { ok: true };
+}
+
+async function pushPull(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const rows = await rpc<unknown[]>('comitra_push_pull', { p_user_id: account.id });
+  return { messages: Array.isArray(rows) ? rows : [] };
+}
+
+async function pushRead(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const body = await readJson(req);
+  const id = str(body.id, 128);
+  if (!id) throw new ApiError('bad-request', 'Could not mark that as read.', 400, 'id missing');
+  await rpc<null>('comitra_push_mark_read', { p_id: id, p_user_id: account.id });
+  return { ok: true };
+}
+
 /* ────────────────────────────────────────────────────────────────── router ── */
 
 type Handler = (req: Request) => Promise<unknown>;
@@ -550,6 +692,16 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
   // there is no way to ask for somebody else's document.
   'POST /api/state/pull': { method: 'POST', route: 'state:pull', handler: statePull },
   'POST /api/state/push': { method: 'POST', route: 'state:push', handler: statePush },
+
+  // The shared store. Same rule as /api/state/*: the account comes from the
+  // session, so none of these can be pointed at somebody else. `reachable` is
+  // the sole exception and returns one boolean about a person being messaged.
+  'POST /api/judges/list': { method: 'POST', route: 'judges:list', handler: judgesList },
+  'POST /api/push/touch': { method: 'POST', route: 'push:touch', handler: pushTouch },
+  'POST /api/push/reachable': { method: 'POST', route: 'push:reachable', handler: pushReachable },
+  'POST /api/push/send': { method: 'POST', route: 'push:send', handler: pushSend },
+  'POST /api/push/pull': { method: 'POST', route: 'push:pull', handler: pushPull },
+  'POST /api/push/read': { method: 'POST', route: 'push:read', handler: pushRead },
 };
 
 /** Refuse early, and in a way the frontend can tell apart from a failure. */

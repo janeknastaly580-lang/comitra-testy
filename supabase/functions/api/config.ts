@@ -108,6 +108,17 @@ function readSes(): SesConfig {
 export const OTP_PEPPER = clean('COMITRA_OTP_PEPPER');
 
 /**
+ * The Google OAuth client id "Continue with Google" runs through — the same
+ * public value the frontend has in VITE_GOOGLE_CLIENT_ID, not a secret.
+ *
+ * It is here because a Google token carries the id of the app it was minted
+ * for. Without this value the backend can still tell WHO a token belongs to,
+ * but not WHERE it was issued, so a token obtained by some other application
+ * would be accepted. See google.ts.
+ */
+export const GOOGLE_CLIENT_ID = clean('GOOGLE_CLIENT_ID');
+
+/**
  * Origins allowed to call this API from a browser. Comma-separated so a Vercel
  * preview deployment and a custom domain can both be listed — the Express
  * version allowed exactly one, which broke every preview build.

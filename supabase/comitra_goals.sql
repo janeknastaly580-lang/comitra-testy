@@ -1,4 +1,16 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ⚠ SUPERSEDED — DO NOT RE-RUN AGAINST THE LIVE PROJECT (2026-08-17)
+--
+-- Both functions still answer the publishable key, and must: a judge opening a
+-- link has no account, so the link IS the credential. But the live bodies were
+-- replaced by the `comitra_harden_public_rpcs` migration, which added what was
+-- missing here — argument validation, a 3 MB ceiling on `data`, a per-IP and
+-- per-owner rate limit on creating rows, and a 200-goal cap per owner. Without
+-- those, the key inside the APK is an unmetered write endpoint into a 500 MB
+-- database. Re-running the statements below would restore the unlimited version.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Comitra · cross-device GOALS  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.

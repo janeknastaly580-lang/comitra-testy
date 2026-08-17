@@ -699,14 +699,25 @@ export async function createGuest(): Promise<User> {
   return user;
 }
 
-export async function socialLogin(profile: { email: string; name: string; avatar?: string }): Promise<User> {
+/**
+ * `accessToken` is Google's, and it is what the server actually signs in on: the
+ * address below is only used for the offline/local path, because a server that
+ * believed a client-supplied address would hand over any account to anyone who
+ * typed its owner's email.
+ */
+export async function socialLogin(profile: {
+  email: string;
+  name: string;
+  avatar?: string;
+  accessToken: string;
+}): Promise<User> {
   const email = profile.email.trim().toLowerCase();
   if (!email) throw new Error('No email address was returned by the provider.');
   const name = profile.name.trim() || email.split('@')[0];
 
   if (backendEnabled()) {
     const carry = captureCarry();
-    const result = await remoteSocialLogin({ email, name });
+    const result = await remoteSocialLogin({ name, accessToken: profile.accessToken });
     return adoptAccount(result, carry, { name });
   }
 
@@ -2052,7 +2063,7 @@ export async function listInvitedJudges(ownerUserId: string): Promise<InvitedJud
   if (supabaseEnabled()) {
     // Best-effort: remoteListInvitedJudges returns [] on any failure, so a dead
     // network just falls back to whatever is already cached locally.
-    const remote = await remoteListInvitedJudges(ownerUserId);
+    const remote = await remoteListInvitedJudges();
     mergeRemoteInvitedJudges(ownerUserId, remote);
   }
   return getInvitedJudges()

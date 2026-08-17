@@ -13,8 +13,28 @@
  * true but calls fail and the app silently falls back to LocalStorage.
  */
 
+import { KEYS, read } from './storage';
+
 const RAW_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+
+/**
+ * The Edge Function's base URL, for the calls that are NOT capability-based.
+ *
+ * Two kinds of traffic leave this file. Goals and judge registration are opened
+ * by a link and reach PostgREST directly, because the person holding the link
+ * has no account yet — the link itself is the credential. Everything about an
+ * ACCOUNT (its inbox, its judge list) goes through the backend instead, where a
+ * session token says who is asking. Those used to go direct too, authorised by
+ * a user id in the arguments; since friends know each other's ids, that let one
+ * friend read another's inbox and judges' addresses.
+ */
+const API_BASE = import.meta.env.VITE_API_BASE?.trim().replace(/\/+$/, '') ?? '';
+
+/** This device's session token, or null when nobody is signed in. */
+function sessionTokenOrNull(): string | null {
+  return read<string | null>(KEYS.sessionToken, null);
+}
 
 /** Normalise `https://x.supabase.co[/rest/v1[/]]` → `https://x.supabase.co/rest/v1`. */
 function restBase(): string | null {
@@ -239,27 +259,48 @@ export async function remoteSyncHealth(): Promise<SyncHealth> {
 }
 
 /**
- * List the judges registered for one owner across all devices. Best-effort:
- * returns [] on any failure so the caller can fall back to LocalStorage.
+ * POST one of the session-gated backend routes, quietly.
+ *
+ * Quiet on purpose, exactly like `rpcQuiet` was: every caller here is a
+ * best-effort sync with a LocalStorage fallback, so a failure has to be an
+ * answer ("we could not ask") rather than an exception that reaches a screen.
+ * No session means not signed in — a guest has no account for any of this to be
+ * about, so the honest answer is the same "could not ask".
  */
-export async function remoteListInvitedJudges(ownerUserId: string): Promise<RemoteInvitedJudge[]> {
-  const base = restBase();
-  if (!base || !ANON_KEY) return [];
+async function backendQuiet<T>(path: string, payload: unknown): Promise<{ ok: boolean; data: T | null }> {
+  const token = sessionTokenOrNull();
+  if (!API_BASE || !ANON_KEY || !token) return { ok: false, data: null };
   try {
-    const res = await timedFetch(
-      `${base}/rpc/comitra_list_invited_judges`,
-      {
-        method: 'POST',
-        headers: headers(),
-        body: JSON.stringify({ p_owner: ownerUserId }),
-      },
-    );
-    if (!res.ok) return [];
-    const data = (await res.json()) as RemoteInvitedJudge[];
-    return Array.isArray(data) ? data : [];
+    const res = await timedFetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: headers({ 'x-comitra-session': token }),
+      body: JSON.stringify(payload ?? {}),
+    });
+    if (!res.ok) {
+      console.warn(`[backend] ${path} -> HTTP ${res.status}`, await res.text().catch(() => ''));
+      return { ok: false, data: null };
+    }
+    const text = await res.text();
+    return { ok: true, data: (text ? JSON.parse(text) : null) as T };
   } catch {
-    return [];
+    return { ok: false, data: null };
   }
+}
+
+/**
+ * The judges this ACCOUNT has invited, across all its devices.
+ *
+ * Takes no owner id any more, and that is the point: the backend answers for
+ * whoever the session token belongs to. Passing an id would mean anyone who
+ * learned one — every friend has it — could list that person's judges by name
+ * and email address.
+ *
+ * Best-effort: returns [] on any failure so the caller falls back to whatever is
+ * cached locally.
+ */
+export async function remoteListInvitedJudges(): Promise<RemoteInvitedJudge[]> {
+  const { data } = await backendQuiet<{ judges?: RemoteInvitedJudge[] }>('/api/judges/list', {});
+  return Array.isArray(data?.judges) ? data.judges : [];
 }
 
 /* ─────────────────────────────────────────────── Goals (judge access) ── */
@@ -368,78 +409,62 @@ export interface RemotePushRow {
 }
 
 /**
- * POST an RPC that may fail harmlessly.
- *
- * `ok` and `data` are separate because a void RPC succeeds with an empty body:
- * collapsing the two would make "it worked, there was nothing to return" and "it
- * failed" the same answer, and the push path has to tell those apart.
- */
-async function rpcQuiet<T>(fn: string, args: Record<string, unknown>): Promise<{ ok: boolean; data: T | null }> {
-  const base = restBase();
-  if (!base || !ANON_KEY) return { ok: false, data: null };
-  try {
-    const res = await timedFetch(`${base}/rpc/${fn}`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify(args),
-    });
-    if (!res.ok) {
-      console.warn(`[supabase] ${fn} -> HTTP ${res.status}`, await res.text().catch(() => ''));
-      return { ok: false, data: null };
-    }
-    const text = await res.text();
-    return { ok: true, data: (text ? JSON.parse(text) : null) as T };
-  } catch {
-    return { ok: false, data: null };
-  }
-}
-
-/**
  * Record that this account has the app open on this device, right now.
  *
  * The timestamp is the whole point: it is what later answers "is this person
  * still reachable, or did they uninstall the app?" — see `remotePushReachable`.
+ *
+ * No user id: the device is registered against whoever is signed in here, which
+ * is the only account this phone can honestly speak for.
  */
-export async function remoteTouchPushDevice(userId: string, deviceId: string, platform: string): Promise<void> {
-  await rpcQuiet('comitra_push_touch_device', { p_user_id: userId, p_device_id: deviceId, p_platform: platform });
+export async function remoteTouchPushDevice(deviceId: string, platform: string): Promise<void> {
+  await backendQuiet('/api/push/touch', { deviceId, platform });
 }
 
 /**
  * Has this person opened the app on any device within `days`?
  *
- * `null` means the question could not be asked (offline, or the SQL is not
- * installed) — which callers must NOT read as "no". Losing the network is not
- * evidence that somebody uninstalled the app.
+ * The one call that still names somebody else, because the question genuinely is
+ * about them — the sender is deciding whether to promise a delivery. It answers
+ * one boolean and nothing else, and it still needs a session to ask.
+ *
+ * `null` means the question could not be asked (offline, signed out) — which
+ * callers must NOT read as "no". Losing the network is not evidence that
+ * somebody uninstalled the app.
  */
 export async function remotePushReachable(userId: string, days: number): Promise<boolean | null> {
-  const { ok, data } = await rpcQuiet<boolean>('comitra_push_reachable', { p_user_id: userId, p_days: days });
-  return ok && typeof data === 'boolean' ? data : null;
+  const { ok, data } = await backendQuiet<{ reachable?: boolean }>('/api/push/reachable', { userId, days });
+  return ok && typeof data?.reachable === 'boolean' ? data.reachable : null;
 }
 
-/** Queue one message for an account. Idempotent on `id`. */
+/**
+ * Queue one message for an account. Idempotent on `id`.
+ *
+ * The sender is not passed: the backend stamps the message with the session's
+ * account. A client-chosen `from` would make "your friend nudged you" forgeable
+ * by anyone.
+ */
 export async function remotePushSend(row: {
   id: string;
   toUserId: string;
-  fromUserId: string | null;
   kind: string;
   payload: Record<string, unknown>;
 }): Promise<boolean> {
-  const { ok } = await rpcQuiet<null>('comitra_push_send', {
-    p_id: row.id,
-    p_to_user_id: row.toUserId,
-    p_from_user_id: row.fromUserId,
-    p_kind: row.kind,
-    p_payload: row.payload,
+  const { ok } = await backendQuiet<{ ok?: boolean }>('/api/push/send', {
+    id: row.id,
+    toUserId: row.toUserId,
+    kind: row.kind,
+    payload: row.payload,
   });
   return ok;
 }
 
 /** Everything unread for this account. Marks each row delivered on the way out. */
-export async function remotePushPull(userId: string): Promise<RemotePushRow[]> {
-  const { data } = await rpcQuiet<RemotePushRow[]>('comitra_push_pull', { p_user_id: userId });
-  return Array.isArray(data) ? data : [];
+export async function remotePushPull(): Promise<RemotePushRow[]> {
+  const { data } = await backendQuiet<{ messages?: RemotePushRow[] }>('/api/push/pull', {});
+  return Array.isArray(data?.messages) ? data.messages : [];
 }
 
-export async function remotePushMarkRead(id: string, userId: string): Promise<void> {
-  await rpcQuiet('comitra_push_mark_read', { p_id: id, p_user_id: userId });
+export async function remotePushMarkRead(id: string): Promise<void> {
+  await backendQuiet('/api/push/read', { id });
 }

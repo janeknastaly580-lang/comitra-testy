@@ -24,6 +24,16 @@ export interface GoogleIdentity {
   name: string;
   picture?: string;
   googleId: string;
+  /**
+   * Google's own access token for this sign-in, passed straight through to the
+   * backend.
+   *
+   * It is what makes the sign-in provable. The address below was read from
+   * Google by THIS device, which the server has no reason to trust — anyone can
+   * post an address. The server re-asks Google who the token belongs to and uses
+   * that answer instead, so a tampered client can only ever sign in as itself.
+   */
+  accessToken: string;
 }
 
 /**
@@ -147,5 +157,6 @@ export async function requestGoogleIdentity(): Promise<GoogleIdentity> {
     name: info.name || info.given_name || info.email.split('@')[0],
     picture: info.picture,
     googleId: info.sub ?? '',
+    accessToken,
   };
 }
