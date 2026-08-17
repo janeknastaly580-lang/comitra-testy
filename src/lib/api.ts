@@ -37,15 +37,7 @@ import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHL
 import { goalRef } from './goal';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
-import {
-  CHALLENGE_MAX_POINTS,
-  CHALLENGE_MAX_TEAM,
-  CHALLENGE_MIN_POINTS,
-  CHALLENGE_MIN_TEAM,
-  declinedMembers,
-  everyoneAccepted,
-  outcomeOf,
-} from './teamChallenge';
+import { EVERYDAY, dayKey, fromDayKey, isDueOn } from './renewing';
 import {
   remoteGetGoal,
   remoteListInvitedJudges,
@@ -73,8 +65,6 @@ import type {
   AppBlockPenalty,
   AuditLog,
   Channel,
-  ChallengeMember,
-  ChallengeRole,
   FeatureRequest,
   FeatureRequestView,
   Goal,
@@ -96,11 +86,12 @@ import type {
   PlannedAction,
   ProfileVisibility,
   RecipientConsent,
+  RenewingEntry,
+  RenewingEntryStatus,
+  RenewingGoal,
   Subscription,
-  TeamChallenge,
-  TeamChallengeMode,
-  TeamSide,
   TesterApplication,
+  Weekday,
   TrainerClient,
   User,
 } from './types';
@@ -3451,399 +3442,201 @@ export async function deleteLeague(id: string): Promise<void> {
   write(KEYS.leagues, read<League[]>(KEYS.leagues, []).filter((l) => l.id !== id));
 }
 
-/* ──────────────────────────────── Team challenges (relay / tug of war) ── */
-
-function getChallenges(): TeamChallenge[] {
-  return read<TeamChallenge[]>(KEYS.teamChallenges, []);
-}
-function saveChallenges(list: TeamChallenge[]) {
-  write(KEYS.teamChallenges, list);
-}
+/* ──────────────────────────────────────────────────── Renewing goals ── */
 
 /**
- * Seeded demo friends have no account to sign in with, so a challenge involving
- * them would sit in `pending_invites` forever and never move. They therefore act
- * on a timer: answer their invite, then compete. Real people always act for
- * themselves: nothing below ever touches a member without `demo: true`.
+ * The private half of the app: a goal that comes back on the days you choose,
+ * scored by nothing but your own record of it.
+ *
+ * Deliberately has no judge, no recipients and no app block. Those exist to put
+ * something at stake for ONE deadline; asking a friend to rule on the same
+ * commitment every morning would burn them out in a fortnight, and a habit you
+ * are building is not something to punish yourself over on day three.
  */
-const DEMO_RESPOND_MS = 5_000;
-const DEMO_MOVE_MS = 20_000;
-const DEMO_JUDGE_MS = 4_000;
 
-function isDemoUser(userId: string): boolean {
-  return userId.startsWith('fake_');
+function getRenewing(): RenewingGoal[] {
+  return read<RenewingGoal[]>(KEYS.renewingGoals, []);
 }
 
-/** Stable 0-9 roll from a string, so a demo verdict never flips between reads. */
-function demoRoll(seed: string): number {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
-  return (h >>> 0) % 10;
+function saveRenewing(list: RenewingGoal[]): void {
+  write(KEYS.renewingGoals, list);
 }
 
-/** Demo players claim a goal every so often; their demo judge then rules on it. */
-function simulateDemoPlay(c: TeamChallenge, now: number): boolean {
-  let changed = false;
-
-  const demoPlayers = c.members.filter((m) => m.demo && m.role === 'player' && m.inviteStatus === 'accepted');
-  if (demoPlayers.length > 0) {
-    const ids = new Set(demoPlayers.map((m) => m.id));
-    const done = c.tasks.filter((t) => ids.has(t.memberId)).length;
-    const expected = Math.floor((now - +new Date(c.startedAt ?? c.createdAt)) / DEMO_MOVE_MS);
-    // One claim per pass, so the board animates a step at a time rather than
-    // jumping when a long-idle challenge is reopened.
-    if (done < expected) {
-      const m = demoPlayers[done % demoPlayers.length];
-      c.tasks.unshift({
-        id: uid('ct'),
-        memberId: m.id,
-        side: m.side,
-        title: c.task,
-        status: 'pending',
-        createdAt: new Date(now).toISOString(),
-      });
-      changed = true;
-    }
+/** Valid, deduplicated and in a stable order, so two equal schedules compare equal. */
+function normalizeDays(days: readonly number[] | undefined): Weekday[] {
+  const set = new Set<Weekday>();
+  for (const d of days ?? []) {
+    const n = Math.trunc(Number(d)) as Weekday;
+    if (EVERYDAY.includes(n)) set.add(n);
   }
-
-  // A demo judge decides for their own side. A claim judged by a real person
-  // stays pending until that person rules on it.
-  for (const t of c.tasks) {
-    if (t.status !== 'pending') continue;
-    const judge = c.members.find((m) => m.side === t.side && m.role === 'judge');
-    if (!judge?.demo) continue;
-    if (now - +new Date(t.createdAt) < DEMO_JUDGE_MS) continue;
-    // ~70% approved: enough misses that a rejection is visible on the board.
-    t.status = demoRoll(t.id) < 7 ? 'approved' : 'rejected';
-    t.decidedAt = new Date(now).toISOString();
-    t.decidedByUserId = judge.userId;
-    changed = true;
-  }
-  return changed;
+  return [...set].sort((a, b) => a - b);
 }
 
-/**
- * Move every challenge to where the clock says it should be: demo members
- * answer, a fully accepted challenge starts, demo play advances, and a decided
- * challenge is closed out. Called before any read.
- */
-function advanceChallenges(): TeamChallenge[] {
-  const list = getChallenges();
-  const now = Date.now();
-  let changed = false;
-
-  for (const c of list) {
-    if (c.status === 'pending_invites') {
-      for (const m of c.members) {
-        if (m.demo && m.inviteStatus === 'pending' && now - +new Date(c.createdAt) >= DEMO_RESPOND_MS) {
-          m.inviteStatus = 'accepted';
-          m.respondedAt = new Date(now).toISOString();
-          changed = true;
-        }
-      }
-      const declined = declinedMembers(c);
-      if (declined.length > 0) {
-        c.status = 'cancelled';
-        c.cancelledAt = new Date(now).toISOString();
-        c.declinedByName = declined[0].name;
-        changed = true;
-      } else if (everyoneAccepted(c)) {
-        c.status = 'active';
-        c.startedAt = new Date(now).toISOString();
-        changed = true;
-      }
-    }
-
-    if (c.status === 'active') {
-      if (simulateDemoPlay(c, now)) changed = true;
-      const outcome = outcomeOf(c, now);
-      if (outcome) {
-        c.status = 'finished';
-        c.winner = outcome;
-        c.finishedAt = new Date(now).toISOString();
-        changed = true;
-      }
-    }
-  }
-
-  if (changed) saveChallenges(list);
-  return list;
+function requireRenewingTitle(raw: string): string {
+  const title = raw.trim().slice(0, 120);
+  if (!title) throw new Error('Give the goal a name.');
+  return title;
 }
 
-export interface CreateTeamChallengeInput {
-  creatorUserId: string;
-  mode: TeamChallengeMode;
-  name: string;
-  /** The goal every player commits to. */
-  task: string;
-  teamSize: number;
-  teamAName: string;
-  teamBName: string;
-  pointsToWin: number;
-  deadlineAt: string;
-  /** Team A's other players: the creator always fills the first slot. */
-  teamAPlayerIds: string[];
-  teamBPlayerIds: string[];
-  judgeAUserId: string;
-  judgeBUserId: string;
+function mineOrThrow(id: string, userId: string): { list: RenewingGoal[]; goal: RenewingGoal } {
+  const list = getRenewing();
+  const goal = list.find((g) => g.id === id);
+  if (!goal) throw new Error('That goal no longer exists.');
+  if (goal.userId !== userId) throw new Error('That goal belongs to someone else.');
+  return { list, goal };
 }
 
-/**
- * Set up a challenge. Everyone invited must already be a friend (a mutual
- * follow), the two rosters must be exactly the same size, and nobody may hold
- * two seats. The creator is on team A and counts as accepted; everyone else is
- * invited and the challenge stays in `pending_invites` until they all say yes.
- */
-export async function createTeamChallenge(input: CreateTeamChallengeInput): Promise<TeamChallenge> {
-  await delay();
-  const users = getUsers();
-  const creator = users.find((u) => u.id === input.creatorUserId);
-  if (!creator) throw new Error('User not found.');
-  if (!hasEntitlement(normalizeUser(creator))) {
-    throw new Error('A subscription is required to start a team challenge.');
-  }
+export interface CreateRenewingGoalInput {
+  userId: string;
+  title: string;
+  note?: string;
+  /** Weekdays it is due. All seven is "every day"; at least one is required. */
+  days: readonly number[];
+}
 
-  const size = Math.round(input.teamSize);
-  if (size < CHALLENGE_MIN_TEAM || size > CHALLENGE_MAX_TEAM) {
-    throw new Error(`Teams can hold ${CHALLENGE_MIN_TEAM} to ${CHALLENGE_MAX_TEAM} players.`);
-  }
-  const points = Math.round(input.pointsToWin);
-  if (points < CHALLENGE_MIN_POINTS || points > CHALLENGE_MAX_POINTS) {
-    throw new Error(`The target must be between ${CHALLENGE_MIN_POINTS} and ${CHALLENGE_MAX_POINTS} goals.`);
-  }
-  if (input.task.trim().length < 3) throw new Error('Describe the goal both teams are competing on.');
-  if (+new Date(input.deadlineAt) <= Date.now()) throw new Error('The end date must be in the future.');
-
-  const teamA = input.teamAPlayerIds.filter(Boolean);
-  const teamB = input.teamBPlayerIds.filter(Boolean);
-  // The creator occupies one seat in team A, so they only pick size − 1 more.
-  if (teamA.length !== size - 1 || teamB.length !== size) {
-    throw new Error(`Both teams need exactly ${size} ${size === 1 ? 'player' : 'players'}.`);
-  }
-  if (!input.judgeAUserId || !input.judgeBUserId) {
-    throw new Error('Each team needs its own judge.');
-  }
-
-  const everyone = [input.creatorUserId, ...teamA, ...teamB, input.judgeAUserId, input.judgeBUserId];
-  if (new Set(everyone).size !== everyone.length) {
-    throw new Error('Each person can only take one seat. A player can’t also be a judge.');
-  }
-
-  // Only friends (mutual follows) can be invited; the judges included.
-  const friends = await listFriends(input.creatorUserId);
-  const friendById = new Map(friends.map((f) => [f.id, f]));
-  const invited = everyone.filter((id) => id !== input.creatorUserId);
-  for (const id of invited) {
-    if (!friendById.has(id)) {
-      throw new Error('You can only invite people from your friends list.');
-    }
-  }
+export async function createRenewingGoal(input: CreateRenewingGoalInput): Promise<RenewingGoal> {
+  await delay(80);
+  const title = requireRenewingTitle(input.title);
+  const days = normalizeDays(input.days);
+  if (days.length === 0) throw new Error('Pick at least one day of the week.');
 
   const now = new Date().toISOString();
-  const member = (
-    userId: string,
-    side: TeamSide,
-    role: ChallengeRole,
-  ): ChallengeMember => {
-    const isCreator = userId === input.creatorUserId;
-    const profile = friendById.get(userId);
-    return {
-      id: uid('cm'),
-      userId,
-      name: isCreator ? creator.name : profile?.name ?? 'Friend',
-      avatar: isCreator ? creator.avatar : profile?.avatar ?? '',
-      side,
-      role,
-      // The creator accepts by creating it; everyone else has to press accept.
-      inviteStatus: isCreator ? 'accepted' : 'pending',
-      respondedAt: isCreator ? now : undefined,
-      isCreator: isCreator || undefined,
-      demo: isDemoUser(userId) || undefined,
-    };
-  };
-
-  const challenge: TeamChallenge = {
-    id: uid('tc'),
-    createdByUserId: input.creatorUserId,
-    mode: input.mode,
-    name: input.name.trim() || 'Team challenge',
-    task: input.task.trim(),
-    teamSize: size,
-    teamAName: input.teamAName.trim() || 'Team A',
-    teamBName: input.teamBName.trim() || 'Team B',
-    pointsToWin: points,
-    deadlineAt: new Date(input.deadlineAt).toISOString(),
-    status: 'pending_invites',
-    members: [
-      member(input.creatorUserId, 'A', 'player'),
-      ...teamA.map((id) => member(id, 'A', 'player')),
-      ...teamB.map((id) => member(id, 'B', 'player')),
-      member(input.judgeAUserId, 'A', 'judge'),
-      member(input.judgeBUserId, 'B', 'judge'),
-    ],
-    tasks: [],
+  const goal: RenewingGoal = {
+    id: uid('renew'),
+    userId: input.userId,
+    title,
+    note: input.note?.trim().slice(0, 500) || undefined,
+    days,
+    // History starts today: days before the goal existed were never missed.
+    startedAt: now,
+    entries: [],
     createdAt: now,
+    updatedAt: now,
+  };
+  saveRenewing([goal, ...getRenewing()]);
+  return goal;
+}
+
+export async function listRenewingGoals(userId: string): Promise<RenewingGoal[]> {
+  await delay(60);
+  return getRenewing()
+    .filter((g) => g.userId === userId)
+    // Live ones first, then by newest — an archived goal is a record, not a task.
+    .sort((a, b) => {
+      const archived = Number(!!a.archivedAt) - Number(!!b.archivedAt);
+      return archived !== 0 ? archived : +new Date(b.createdAt) - +new Date(a.createdAt);
+    });
+}
+
+export async function getRenewingGoal(id: string): Promise<RenewingGoal | null> {
+  await delay(40);
+  return getRenewing().find((g) => g.id === id) ?? null;
+}
+
+export async function updateRenewingGoal(
+  id: string,
+  userId: string,
+  patch: { title?: string; note?: string; days?: readonly number[] },
+): Promise<RenewingGoal> {
+  await delay(60);
+  const { list, goal } = mineOrThrow(id, userId);
+
+  const next: RenewingGoal = { ...goal, updatedAt: new Date().toISOString() };
+  if (patch.title !== undefined) next.title = requireRenewingTitle(patch.title);
+  if (patch.note !== undefined) next.note = patch.note.trim().slice(0, 500) || undefined;
+  if (patch.days !== undefined) {
+    const days = normalizeDays(patch.days);
+    if (days.length === 0) throw new Error('Pick at least one day of the week.');
+    // Entries for days that are no longer due stay put: they record what actually
+    // happened, and rewriting history to match a new schedule would be a lie.
+    next.days = days;
+  }
+
+  saveRenewing(list.map((g) => (g.id === id ? next : g)));
+  return next;
+}
+
+/**
+ * Mark one day done or not done.
+ *
+ * Defaults to today, and refuses the future outright — marking tomorrow's run
+ * complete is the one thing that would make the whole record worthless. Past
+ * days are allowed, because people forget to open the app and the alternative is
+ * a streak lost to a missed tap rather than a missed run.
+ */
+export async function markRenewingDay(
+  id: string,
+  userId: string,
+  status: RenewingEntryStatus,
+  date?: string,
+): Promise<RenewingGoal> {
+  await delay(60);
+  const { list, goal } = mineOrThrow(id, userId);
+
+  const now = new Date();
+  const key = date ?? dayKey(now);
+  if (key > dayKey(now)) throw new Error("You can't mark a day that hasn't happened yet.");
+  if (!isDueOn(goal.days, fromDayKey(key))) {
+    throw new Error("This goal isn't due on that day.");
+  }
+  if (key < dayKey(new Date(goal.startedAt))) {
+    throw new Error('That day is before the goal started.');
+  }
+
+  const entry: RenewingEntry = { date: key, status, at: now.toISOString() };
+  const next: RenewingGoal = {
+    ...goal,
+    entries: [...goal.entries.filter((e) => e.date !== key), entry].sort((a, b) => a.date.localeCompare(b.date)),
+    updatedAt: now.toISOString(),
   };
 
-  const list = getChallenges();
-  list.unshift(challenge);
-  saveChallenges(list);
-  logAudit({
-    actorId: input.creatorUserId,
-    actionType: 'team_challenge_created',
-    entityType: 'team_challenge',
-    entityId: challenge.id,
-    metadata: { mode: challenge.mode, teamSize: size },
-  });
-  return challenge;
+  saveRenewing(list.map((g) => (g.id === id ? next : g)));
+  return next;
 }
 
-/** Every challenge the user takes part in, newest first. */
-export async function listTeamChallenges(userId: string): Promise<TeamChallenge[]> {
-  await delay(80);
-  return advanceChallenges()
-    .filter((c) => c.members.some((m) => m.userId === userId))
-    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-}
-
-export async function getTeamChallenge(id: string): Promise<TeamChallenge | null> {
+/** Undo a mark, for the tap that went on the wrong row. */
+export async function clearRenewingDay(id: string, userId: string, date: string): Promise<RenewingGoal> {
   await delay(60);
-  return advanceChallenges().find((c) => c.id === id) ?? null;
+  const { list, goal } = mineOrThrow(id, userId);
+  const next: RenewingGoal = {
+    ...goal,
+    entries: goal.entries.filter((e) => e.date !== date),
+    updatedAt: new Date().toISOString(),
+  };
+  saveRenewing(list.map((g) => (g.id === id ? next : g)));
+  return next;
 }
 
 /**
- * Accept or turn down a challenge invite. One decline ends the challenge for
- * everyone: sides have to stay equal, so a missing player can't be replaced
- * mid-invite.
+ * Retire a goal without losing what it recorded.
+ *
+ * Archiving rather than deleting is the default because the history IS the
+ * point: someone who kept a habit for four months and stopped should still be
+ * able to see those four months.
  */
-export async function respondToChallengeInvite(
-  challengeId: string,
-  userId: string,
-  accept: boolean,
-): Promise<TeamChallenge> {
-  await delay(80);
-  const list = advanceChallenges();
-  const c = list.find((x) => x.id === challengeId);
-  if (!c) throw new Error('Challenge not found.');
-  if (c.status !== 'pending_invites') throw new Error('This challenge is no longer waiting for answers.');
-  const me = c.members.find((m) => m.userId === userId);
-  if (!me) throw new Error('You were not invited to this challenge.');
-  if (me.inviteStatus !== 'pending') throw new Error('You have already answered this invite.');
+export async function archiveRenewingGoal(id: string, userId: string): Promise<RenewingGoal> {
+  await delay(60);
+  const { list, goal } = mineOrThrow(id, userId);
+  const next: RenewingGoal = { ...goal, archivedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  saveRenewing(list.map((g) => (g.id === id ? next : g)));
+  return next;
+}
 
+export async function resumeRenewingGoal(id: string, userId: string): Promise<RenewingGoal> {
+  await delay(60);
+  const { list, goal } = mineOrThrow(id, userId);
   const now = new Date().toISOString();
-  me.inviteStatus = accept ? 'accepted' : 'declined';
-  me.respondedAt = now;
-
-  if (!accept) {
-    c.status = 'cancelled';
-    c.cancelledAt = now;
-    c.declinedByName = me.name;
-  } else if (everyoneAccepted(c)) {
-    c.status = 'active';
-    c.startedAt = now;
-  }
-  saveChallenges(list);
-  return c;
+  // The gap while it was archived is not counted as missed: history restarts
+  // from the day it came back.
+  const next: RenewingGoal = { ...goal, archivedAt: undefined, startedAt: now, updatedAt: now };
+  saveRenewing(list.map((g) => (g.id === id ? next : g)));
+  return next;
 }
 
-/**
- * A player says they did the goal. It counts for nothing until that team's own
- * judge rules on it, and only one claim can be open at a time per player.
- */
-export async function submitChallengeTask(
-  challengeId: string,
-  userId: string,
-  note?: string,
-): Promise<TeamChallenge> {
-  await delay(80);
-  const list = advanceChallenges();
-  const c = list.find((x) => x.id === challengeId);
-  if (!c) throw new Error('Challenge not found.');
-  if (c.status !== 'active') throw new Error('This challenge is not running.');
-  const me = c.members.find((m) => m.userId === userId && m.role === 'player');
-  if (!me) throw new Error('Only players on a team can submit a goal.');
-  if (c.tasks.some((t) => t.memberId === me.id && t.status === 'pending')) {
-    throw new Error('Your judge still has to decide your last one.');
-  }
-  c.tasks.unshift({
-    id: uid('ct'),
-    memberId: me.id,
-    side: me.side,
-    title: c.task,
-    note: note?.trim() || undefined,
-    status: 'pending',
-    createdAt: new Date().toISOString(),
-  });
-  saveChallenges(list);
-  return c;
-}
-
-/**
- * The judge of one team rules on a claim from their own side. Judges cannot
- * touch the other team's claims: that's the whole point of having two.
- */
-export async function decideChallengeTask(
-  challengeId: string,
-  taskId: string,
-  judgeUserId: string,
-  decision: 'approved' | 'rejected',
-  judgeNote?: string,
-): Promise<TeamChallenge> {
-  await delay(80);
-  const list = advanceChallenges();
-  const c = list.find((x) => x.id === challengeId);
-  if (!c) throw new Error('Challenge not found.');
-  if (c.status !== 'active') throw new Error('This challenge is not running.');
-  const task = c.tasks.find((t) => t.id === taskId);
-  if (!task) throw new Error('That goal is not in this challenge.');
-  if (task.status !== 'pending') throw new Error('That goal has already been decided.');
-  const judge = c.members.find((m) => m.userId === judgeUserId && m.role === 'judge');
-  if (!judge) throw new Error('Only a judge can decide a goal.');
-  if (judge.side !== task.side) throw new Error('You only judge your own team.');
-
-  const now = new Date().toISOString();
-  task.status = decision;
-  task.decidedAt = now;
-  task.decidedByUserId = judgeUserId;
-  task.judgeNote = judgeNote?.trim() || undefined;
-
-  const outcome = outcomeOf(c, Date.now());
-  if (outcome) {
-    c.status = 'finished';
-    c.winner = outcome;
-    c.finishedAt = now;
-  }
-  saveChallenges(list);
-  return c;
-}
-
-/** The creator calls it off while people are still being invited. */
-export async function cancelTeamChallenge(challengeId: string, userId: string): Promise<TeamChallenge> {
+export async function deleteRenewingGoal(id: string, userId: string): Promise<void> {
   await delay(60);
-  const list = advanceChallenges();
-  const c = list.find((x) => x.id === challengeId);
-  if (!c) throw new Error('Challenge not found.');
-  if (c.createdByUserId !== userId) throw new Error('Only the person who set it up can call it off.');
-  if (c.status !== 'pending_invites') {
-    throw new Error('A running challenge runs to its deadline.');
-  }
-  c.status = 'cancelled';
-  c.cancelledAt = new Date().toISOString();
-  saveChallenges(list);
-  return c;
-}
-
-/** Remove a finished or cancelled challenge from the user's list. */
-export async function deleteTeamChallenge(challengeId: string, userId: string): Promise<void> {
-  await delay(60);
-  const list = getChallenges();
-  const c = list.find((x) => x.id === challengeId);
-  if (!c) return;
-  if (c.createdByUserId !== userId) throw new Error('Only the person who set it up can remove it.');
-  if (c.status === 'active' || c.status === 'pending_invites') {
-    throw new Error('You can only remove a challenge once it is over.');
-  }
-  saveChallenges(list.filter((x) => x.id !== challengeId));
+  const { list } = mineOrThrow(id, userId);
+  saveRenewing(list.filter((g) => g.id !== id));
 }
 
 /* ────────────────────────────────────────────────── Feature requests ── */

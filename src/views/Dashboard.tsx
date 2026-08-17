@@ -197,15 +197,16 @@ export default function Dashboard() {
           </Button>
         </Card>
 
-        {/* Against friends */}
+        {/* On repeat */}
         <Card className="border-accent/40 bg-accent/5 p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Team challenge</p>
-          <p className="mt-1 text-base font-semibold text-ink">A goal you race your friends on</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Renewing goal</p>
+          <p className="mt-1 text-base font-semibold text-ink">A goal that comes back</p>
           <p className="mt-1 text-[12px] text-muted">
-            Two equal teams, 1v1 up to 8v8, each with its own judge. Relay race or tug of war.
+            Pick the days it should be due — or every day — and mark each one. Comitra keeps the streak and
+            the full record.
           </p>
-          <Button variant="outline" className="mt-3 w-full" onClick={() => navigate('/challenges')}>
-            Team challenges
+          <Button variant="outline" className="mt-3 w-full" onClick={() => navigate('/renewing')}>
+            Renewing goals
           </Button>
         </Card>
       </div>

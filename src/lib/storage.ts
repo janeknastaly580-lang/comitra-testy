@@ -15,6 +15,29 @@
 const PREFIX = 'fineline:';
 
 /**
+ * Keys left behind by features that no longer exist.
+ *
+ * They have to be deleted HERE rather than just dropped from `KEYS`, because
+ * `keys()` enumerates LocalStorage itself — so a retired key on somebody's phone
+ * would keep being folded into every snapshot and pushed back to the server for
+ * ever, as dead weight in the account document nothing can ever read again.
+ *
+ * Runs once at import, before anything has had a chance to read or sync, and
+ * bypasses `remove()` on purpose: this is not a change to the account's data,
+ * and reporting it would schedule a push before the engine has even started.
+ */
+const RETIRED_KEYS = [
+  // Team challenges (relay / tug of war), removed 2026-08-17.
+  'teamChallenges',
+];
+
+try {
+  for (const key of RETIRED_KEYS) localStorage.removeItem(PREFIX + key);
+} catch {
+  // No LocalStorage at all (SSR, a locked-down WebView). Nothing to clean.
+}
+
+/**
  * The sync engine's hook into every local write. One listener, set once at
  * startup — this is deliberately not a general event bus.
  */
@@ -159,8 +182,8 @@ export const KEYS = {
   // Invited judges (friends who registered as possible judges) + invite tokens
   invitedJudges: 'invitedJudges',
   judgeInvites: 'judgeInvites',
-  // Team challenges (relay / tug of war) between two equally sized teams
-  teamChallenges: 'teamChallenges',
+  // Goals that come back every week on chosen days, with their day-by-day record
+  renewingGoals: 'renewingGoals',
   // "Why did it fail / what next" answers owed after a missed goal
   goalReflections: 'goalReflections',
   /**

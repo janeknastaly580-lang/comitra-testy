@@ -18,9 +18,9 @@ import InviteFriends from './views/InviteFriends';
 import InviteAccept from './views/InviteAccept';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
-import TeamChallenges from './views/TeamChallenges';
-import CreateTeamChallenge from './views/CreateTeamChallenge';
-import TeamChallengeDetail from './views/TeamChallengeDetail';
+import RenewingGoals from './views/RenewingGoals';
+import CreateRenewingGoal from './views/CreateRenewingGoal';
+import RenewingGoalDetail from './views/RenewingGoalDetail';
 import Analytics from './views/Analytics';
 import Themes from './views/Themes';
 import Verifier from './views/Verifier';
@@ -92,10 +92,15 @@ export default function App() {
           {/* Legacy alias */}
           <Route path="/premium" element={<Navigate to="/subscription" replace />} />
           <Route path="/wallet" element={<Navigate to="/subscription" replace />} />
-          {/* Team challenges: relay / tug of war between two equal teams */}
-          <Route path="/challenges" element={<TeamChallenges />} />
-          <Route path="/challenges/new" element={<CreateTeamChallenge />} />
-          <Route path="/challenge/:id" element={<TeamChallengeDetail />} />
+          {/* Renewing goals: the same commitment, due again on chosen weekdays */}
+          <Route path="/renewing" element={<RenewingGoals />} />
+          <Route path="/renewing/new" element={<CreateRenewingGoal />} />
+          <Route path="/renewing/:id" element={<RenewingGoalDetail />} />
+          {/* Team challenges lived here. Anyone holding an old link lands on the
+              feature that replaced them rather than on a dead route. */}
+          <Route path="/challenges" element={<Navigate to="/renewing" replace />} />
+          <Route path="/challenges/new" element={<Navigate to="/renewing/new" replace />} />
+          <Route path="/challenge/:id" element={<Navigate to="/renewing" replace />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/themes" element={<Themes />} />
         </Route>
