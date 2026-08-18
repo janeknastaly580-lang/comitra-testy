@@ -8,7 +8,7 @@ import type {
 } from 'react';
 import { Gem } from 'lucide-react';
 
-type Variant = 'primary' | 'ghost' | 'danger' | 'outline' | 'info';
+type Variant = 'primary' | 'ghost' | 'danger' | 'outline' | 'info' | 'purple';
 
 const variants: Record<Variant, string> = {
   primary: 'bg-accent text-on-accent font-semibold hover:brightness-110 active:brightness-95',
@@ -17,6 +17,11 @@ const variants: Record<Variant, string> = {
   // one" without dropping to an outline.
   info: 'bg-active text-on-accent font-semibold hover:brightness-110 active:brightness-95',
   danger: 'bg-danger text-on-accent font-semibold hover:brightness-110',
+  // A fixed violet rather than a theme variable, because it is asked for by
+  // colour rather than by role — no palette defines 'the purple one'. White
+  // text is part of the variant for the same reason: violet-600 is dark enough
+  // that 'ink' would vanish into it under a light theme.
+  purple: 'bg-violet-600 text-white font-semibold hover:bg-violet-500 active:bg-violet-700',
   outline: 'border border-line text-ink hover:border-accent hover:text-accent bg-transparent',
   ghost: 'text-muted hover:text-ink bg-transparent',
 };

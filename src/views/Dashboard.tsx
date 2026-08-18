@@ -205,7 +205,7 @@ export default function Dashboard() {
             Pick the days it should be due — or every day — and mark each one. Comitra keeps the streak and
             the full record.
           </p>
-          <Button variant="outline" className="mt-3 w-full" onClick={() => navigate('/renewing')}>
+          <Button variant="purple" className="mt-3 w-full" onClick={() => navigate('/renewing')}>
             Renewing goals
           </Button>
         </Card>
