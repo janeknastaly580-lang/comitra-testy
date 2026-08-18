@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import { EVERYDAY, scheduleLabel } from '../lib/renewing';
+import { scheduleLabel } from '../lib/renewing';
 import type { Weekday } from '../lib/types';
 import DayPicker from '../components/DayPicker';
 import PageHeader from '../components/PageHeader';
@@ -14,9 +14,10 @@ export default function CreateRenewingGoal() {
 
   const [title, setTitle] = useState('');
   const [note, setNote] = useState('');
-  // Every day is the honest default: it is what most people mean by a habit, and
-  // narrowing it down is easier than remembering to widen it.
-  const [days, setDays] = useState<Weekday[]>([...EVERYDAY]);
+  // Nothing preselected: the schedule is the one real decision on this screen,
+  // and a form that arrives already answered is one people scroll past. Everyday
+  // is still one tap away for anyone who wants it.
+  const [days, setDays] = useState<Weekday[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
