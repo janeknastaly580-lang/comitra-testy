@@ -1,21 +1,41 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import {
   CHAT_MAX_CHARS,
-  listMessages,
+  fetchMessages,
   markThreadRead,
   sendMessage,
   type ChatMessage,
 } from '../lib/chat';
 import { shortDate, timeOfDay } from '../lib/format';
+import { uuid } from '../lib/storage';
 import { Avatar } from '../components/Avatar';
 import PageHeader from '../components/PageHeader';
-import { Button, Card } from '../components/ui';
+import { Button } from '../components/ui';
 
-/** How often an open conversation checks for the other side's replies. */
-const POLL_MS = 12_000;
+/**
+ * How often an OPEN conversation checks for the other side's replies.
+ *
+ * There is no socket and no push service: this poll IS the delivery. While a
+ * conversation is on screen it is the only thing the person is looking at, so it
+ * runs fast — a few seconds, not the fifteen the conversation LIST uses. It
+ * falls back to a slow beat once the page says it is hidden, and fires again the
+ * instant it is looked at, so almost nothing is spent while nobody is reading.
+ */
+const POLL_MS = 3_000;
+
+/**
+ * The slowest this screen will ever go while it is still mounted.
+ *
+ * A page that says it is hidden gets the fast poll withheld — but not switched
+ * off. Some WebViews (and every headless one) report themselves hidden while a
+ * person is looking straight at them, and a conversation that quietly stops
+ * updating is the exact bug this whole file exists to not have. So "hidden" buys
+ * a long interval, never silence.
+ */
+const BACKGROUND_POLL_MS = 30_000;
 
 /**
  * One conversation.
@@ -29,6 +49,14 @@ const POLL_MS = 12_000;
  *    looking for where a message wants them to act;
  *  • an EVENT the app recorded, so the conversation is the goal's whole history.
  *
+ * WHO SENT IT IS NEVER LEFT TO BE INFERRED. Each of those three carries its
+ * sender on its face: your own messages sit on the right, in the accent colour,
+ * under "You"; theirs sit on the left behind their avatar, under their name; and
+ * a request — the one kind that asks somebody to go and DO something — says
+ * outright whether they asked you or you asked them. Being wrong about that
+ * means accepting to judge a goal you thought you had set, so it is stated
+ * rather than implied.
+ *
  * The limits (300 characters, 20 typed messages a day) are deliberately not
  * advertised. Nothing counts down at you; the composer simply stops at 300, and
  * if you run out of messages for the day it says so at the point where it
@@ -40,6 +68,13 @@ export default function Chat() {
   const navigate = useNavigate();
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  /**
+   * Messages typed here that the server has not handed back yet. They are drawn
+   * straight away — waiting out a poll to see your own sentence appear is the
+   * one delay a chat can never explain away — and drop out of this list as soon
+   * as the same id arrives in a fetched one.
+   */
+  const [pending, setPending] = useState<ChatMessage[]>([]);
   const [profile, setProfile] = useState<api.SocialProfile | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [draft, setDraft] = useState('');
@@ -47,27 +82,81 @@ export default function Chat() {
   const [notice, setNotice] = useState('');
   /** Set once the day's allowance is gone, so the composer stays honest. */
   const [outOfMessages, setOutOfMessages] = useState(false);
+  /** True when the last attempt could not reach the server at all. */
+  const [unreachable, setUnreachable] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  /** Keeps a slow poll from stacking on top of the one still in flight. */
+  const fetching = useRef(false);
 
   const load = useCallback(
     async (markRead: boolean) => {
-      if (!userId || !user) return;
-      const list = await listMessages(userId);
-      setMessages(list);
-      setLoaded(true);
-      if (markRead && list.some((m) => m.toUserId === user.id && !m.readAt)) {
-        await markThreadRead(userId);
-        await refreshChat();
+      if (!userId || !user || fetching.current) return;
+      fetching.current = true;
+      try {
+        const list = await fetchMessages(userId);
+        // The screen has had its first answer either way — leaving it on
+        // "Loading…" forever because the network is down would be its own lie.
+        setLoaded(true);
+        // `null` is "we could not ask", which must never blank a conversation
+        // somebody is reading. Only a real answer replaces what is on screen.
+        if (!list) {
+          setUnreachable(true);
+          return;
+        }
+        setUnreachable(false);
+        setMessages(list);
+        setPending((p) => p.filter((m) => !list.some((row) => row.id === m.id)));
+        if (markRead && list.some((m) => m.toUserId === user.id && !m.readAt)) {
+          await markThreadRead(userId);
+          await refreshChat();
+        }
+      } finally {
+        fetching.current = false;
       }
     },
     [userId, user, refreshChat],
   );
 
+  // The poll reads the loader out of a ref. Re-rendering happens here whenever
+  // the conversation list changes underneath us, and an effect keyed on the
+  // loader itself would tear the timer down and start a fresh one each time —
+  // which, often enough, means it never lives long enough to fire at all.
+  const loadRef = useRef(load);
   useEffect(() => {
-    void load(true);
-    const timer = setInterval(() => void load(true), POLL_MS);
-    return () => clearInterval(timer);
+    loadRef.current = load;
   }, [load]);
+
+  useEffect(() => {
+    if (!userId || !user) return;
+    let stopped = false;
+    let lastRun = 0;
+    /**
+     * `force` is what the mount and every wake-up use: they must fetch whatever
+     * the page currently claims about its own visibility. Only the timer is
+     * allowed to hold back, and only for a while — see BACKGROUND_POLL_MS.
+     */
+    const tick = (force: boolean) => {
+      if (stopped) return;
+      if (!force && document.hidden && Date.now() - lastRun < BACKGROUND_POLL_MS) return;
+      lastRun = Date.now();
+      void loadRef.current(true);
+    };
+    tick(true);
+    const timer = setInterval(() => tick(false), POLL_MS);
+    // Coming back to the app, or back onto a network, is the moment something is
+    // most likely to be waiting: don't make anyone sit out the interval for it.
+    const onWake = () => tick(true);
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    window.addEventListener('online', onWake);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+      window.removeEventListener('online', onWake);
+    };
+  }, [userId, user]);
 
   useEffect(() => {
     if (!userId || !user) return;
@@ -77,9 +166,12 @@ export default function Chat() {
     })();
   }, [userId, user]);
 
+  /** What is on screen: the server's list, plus anything still in flight. */
+  const shown = useMemo(() => [...messages, ...pending], [messages, pending]);
+
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
-  }, [messages.length]);
+  }, [shown.length]);
 
   if (!user || !userId) return null;
 
@@ -88,17 +180,36 @@ export default function Chat() {
     if (!text || busy) return;
     setBusy(true);
     setNotice('');
+    // The id is made here so that the copy drawn now and the copy the server
+    // hands back are recognisably the same message, not two of them.
+    const id = uuid();
+    const optimistic: ChatMessage = {
+      id,
+      fromUserId: user!.id,
+      toUserId: userId!,
+      kind: 'text',
+      body: text,
+      payload: {},
+      createdAt: new Date().toISOString(),
+    };
+    setPending((p) => [...p, optimistic]);
+    setDraft('');
     try {
-      const result = await sendMessage({ toUserId: userId!, text });
+      const result = await sendMessage({ id, toUserId: userId!, text });
       if (result.sent) {
-        setDraft('');
         await load(false);
-      } else if (result.reason === 'rate-limited') {
-        // Said only now, after it happened — never as a warning up front.
-        setOutOfMessages(true);
-        setNotice("You've sent all your messages to this person for today. You can write again tomorrow.");
       } else {
-        setNotice("That didn't send. Check your connection and try again.");
+        // Nothing was stored, so take the bubble back and hand the person their
+        // sentence back too, rather than leaving it looking sent.
+        setPending((p) => p.filter((m) => m.id !== id));
+        setDraft(text);
+        if (result.reason === 'rate-limited') {
+          // Said only now, after it happened — never as a warning up front.
+          setOutOfMessages(true);
+          setNotice("You've sent all your messages to this person for today. You can write again tomorrow.");
+        } else {
+          setNotice("That didn't send. Check your connection and try again.");
+        }
       }
     } finally {
       setBusy(false);
@@ -120,12 +231,23 @@ export default function Chat() {
       <div className="flex-1 overflow-y-auto px-4 pb-2">
         {!loaded ? (
           <p className="py-8 text-center text-sm text-muted">Loading…</p>
-        ) : messages.length === 0 ? (
-          <p className="py-8 text-center text-[12px] text-muted">No messages yet.</p>
+        ) : shown.length === 0 ? (
+          <p className="py-8 text-center text-[12px] text-muted">
+            {unreachable
+              ? "We couldn't reach the server, so this conversation isn't loaded yet."
+              : 'No messages yet.'}
+          </p>
         ) : (
-          <div className="space-y-2">
-            {messages.map((m) => (
-              <Bubble key={m.id} message={m} mine={m.fromUserId === user.id} onOpen={navigate} />
+          <div className="space-y-2.5">
+            {shown.map((m) => (
+              <Bubble
+                key={m.id}
+                message={m}
+                mine={m.fromUserId === user.id}
+                them={profile}
+                sending={pending.some((p) => p.id === m.id)}
+                onOpen={navigate}
+              />
             ))}
           </div>
         )}
@@ -158,65 +280,134 @@ export default function Chat() {
   );
 }
 
-/** What a request or an event says, and which button (if any) belongs on it. */
-function actionFor(message: ChatMessage): { label: string; to: string } | null {
+/** What a request asks for, worded the same way as the button that answers it. */
+function requestWording(message: ChatMessage, goal: string): { what: string; action: string } {
+  switch (message.payload.request) {
+    case 'judge_invite':
+      return { what: `be the judge of ${goal}`, action: 'Accept or decline' };
+    case 'decision':
+      return { what: `decide ${goal} now`, action: 'Decide this goal' };
+    default:
+      return { what: `allow a change to ${goal}`, action: 'Review the request' };
+  }
+}
+
+/** Where a request's button leads, when it has one to lead anywhere. */
+function targetFor(message: ChatMessage): string | null {
   const goalId = message.payload.goalId;
-  if (!goalId) return null;
-  if (message.payload.request) return { label: 'Open goal', to: `/judge/${goalId}` };
-  return null;
+  if (!goalId || !message.payload.request) return null;
+  return `/judge/${goalId}`;
 }
 
 function Bubble({
   message,
   mine,
+  them,
+  sending,
   onOpen,
 }: {
   message: ChatMessage;
   mine: boolean;
+  them: api.SocialProfile | null;
+  sending: boolean;
   onOpen: (to: string) => void;
 }) {
   const stamp = `${shortDate(message.createdAt)} · ${timeOfDay(message.createdAt)}`;
+  // 'Someone' rather than a pronoun: a name that has not loaded yet still has to
+  // sit in a sentence ("Someone is asking you to…") without reading as broken.
+  const theirName = them?.name ?? 'Someone';
 
   if (message.kind === 'text') {
+    if (mine) {
+      return (
+        <div className="flex justify-end">
+          <div className="max-w-[82%]">
+            <p className="mb-0.5 pr-1 text-right font-mono text-[9px] uppercase tracking-widest text-accent">
+              You
+            </p>
+            <div className="rounded-2xl rounded-br-md bg-accent px-3.5 py-2 text-on-accent">
+              <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
+              <p className="mt-0.5 text-right font-mono text-[9px] text-on-accent/75">
+                {sending ? 'Sending…' : stamp}
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
-      <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-        <div
-          className={`max-w-[80%] rounded-2xl px-3.5 py-2 ${
-            mine ? 'bg-accent/15 text-ink' : 'border border-line bg-elevated text-ink'
-          }`}
-        >
-          <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
-          <p className="mt-0.5 text-right font-mono text-[9px] text-muted">{stamp}</p>
+      <div className="flex justify-start gap-2">
+        <Avatar avatar={them?.avatar} name={theirName} size={26} className="mt-4" />
+        <div className="max-w-[82%]">
+          <p className="mb-0.5 pl-1 font-mono text-[9px] uppercase tracking-widest text-muted">
+            {theirName}
+          </p>
+          <div className="rounded-2xl rounded-bl-md border border-line bg-elevated px-3.5 py-2 text-ink">
+            <p className="whitespace-pre-wrap break-words text-sm">{message.body}</p>
+            <p className="mt-0.5 text-right font-mono text-[9px] text-muted">{stamp}</p>
+          </div>
         </div>
       </div>
     );
   }
 
   const goal = message.payload.goalNumber ? `goal #${message.payload.goalNumber}` : 'a goal';
-  const action = actionFor(message);
 
   if (message.kind === 'request') {
-    const what =
-      message.payload.request === 'judge_invite'
-        ? `judge ${goal}`
-        : message.payload.request === 'decision'
-          ? `decide ${goal}`
-          : `change or cancel ${goal}`;
+    const { what, action } = requestWording(message, goal);
+    const to = targetFor(message);
+
+    // Incoming: somebody is asking YOU to go and do something. It gets their
+    // name, their face, the accent colour, and the button that does it.
+    if (!mine) {
+      return (
+        <div className="flex justify-start gap-2">
+          <Avatar avatar={them?.avatar} name={theirName} size={26} className="mt-6" />
+          {/* A plain div, not <Card>: Card carries its own background and border
+              utilities, and Tailwind resolves those by stylesheet order rather
+              than by the order they are written here — so a tint passed in
+              through className simply loses. */}
+          <div className="max-w-[88%] rounded-2xl border border-accent/60 bg-accent/10 p-3.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full bg-accent px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-on-accent">
+                Request
+              </span>
+              <span className="font-mono text-[10px] uppercase tracking-widest text-accent">
+                from {theirName}
+              </span>
+            </div>
+            <p className="mt-2 text-sm text-ink">
+              <span className="font-semibold">{theirName}</span> is asking you to {what}.
+            </p>
+            {to && (
+              <Button className="mt-3 w-full" onClick={() => onOpen(to)}>
+                {action}
+              </Button>
+            )}
+            <p className="mt-1.5 font-mono text-[9px] text-muted">{stamp}</p>
+          </div>
+        </div>
+      );
+    }
+
+    // Outgoing: you asked them. Deliberately quiet, and on your side of the
+    // screen — there is nothing here for you to do, and it must not look as if
+    // there were.
     return (
-      <Card className={`p-3.5 ${mine ? 'border-line' : 'border-accent/40 bg-accent/5'}`}>
-        <p className="font-mono text-[10px] uppercase tracking-widest text-accent">
-          {mine ? 'You asked' : 'Asked of you'}
-        </p>
-        <p className="mt-1 text-sm text-ink">
-          {mine ? `You asked them to ${what}.` : `They asked you to ${what}.`}
-        </p>
-        {!mine && action && (
-          <Button className="mt-3 w-full" onClick={() => onOpen(action.to)}>
-            {action.label}
-          </Button>
-        )}
-        <p className="mt-1.5 font-mono text-[9px] text-muted">{stamp}</p>
-      </Card>
+      <div className="flex justify-end">
+        <div className="max-w-[88%] rounded-2xl border border-line bg-surface p-3.5">
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Sent by you</span>
+            <span className="rounded-full border border-line px-2 py-0.5 font-mono text-[9px] uppercase tracking-widest text-muted">
+              Request
+            </span>
+          </div>
+          <p className="mt-2 text-right text-sm text-ink">
+            You asked <span className="font-semibold">{theirName}</span> to {what}.
+          </p>
+          <p className="mt-1.5 text-right font-mono text-[9px] text-muted">{stamp}</p>
+        </div>
+      </div>
     );
   }
 
@@ -234,7 +425,7 @@ function Bubble({
 
   return (
     <p className="py-1 text-center text-[11px] text-muted">
-      {mine ? 'You' : 'They'} {said} · {stamp}
+      <span className="font-semibold text-ink">{mine ? 'You' : theirName}</span> {said} · {stamp}
     </p>
   );
 }

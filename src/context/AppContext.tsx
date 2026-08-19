@@ -26,6 +26,21 @@ import type { ThemeId, User } from '../lib/types';
  */
 const INBOX_POLL_MS = 120_000;
 
+/**
+ * How often the conversation list is re-read while the app is open.
+ *
+ * Much faster than the inbox above, and on its own timer for a reason: this one
+ * is what puts the badge on the Chats tab and raises the banner for a message
+ * that just arrived. Two minutes was too slow to be called delivery — a friend's
+ * reply is the thing people wait on — and it is a single call that returns one
+ * row per conversation, so running it often costs very little. The conversation
+ * that is actually open polls faster still, in `src/views/Chat.tsx`.
+ */
+const CHAT_POLL_MS = 15_000;
+
+/** The slowest the same poll goes once the page says it is in the background. */
+const CHAT_BACKGROUND_POLL_MS = 60_000;
+
 interface AppContextValue {
   user: User | null;
   loading: boolean;
@@ -116,26 +131,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const consumed = api.absorbConsentAnswers(id, messages);
       for (const messageId of consumed) await markRead(messageId, id);
       if (!stopped) setInbox(listInbox());
-
-      // Chat rides the same timer. A conversation is pulled as a list of
-      // threads, not of messages: the badge only needs counts, and the screen
-      // that shows a conversation fetches it itself.
-      const threads = await listThreads();
-      if (stopped) return;
-      setChatThreads(threads);
-      for (const thread of threads) {
-        if (thread.unread === 0 || thread.lastFromUserId === id) continue;
-        // One banner per newest-message-per-thread. The list above is the
-        // record; this is only the nudge, and it must not repeat.
-        const key = `${thread.userId}:${thread.lastAt}`;
-        if (notified.current.has(key)) continue;
-        notified.current.add(key);
-        void postNotification({
-          id: key,
-          title: 'Comitra',
-          body: chatPreview({ kind: thread.lastKind, body: thread.lastBody, payload: {} }),
-        });
-      }
     };
 
     void tick();
@@ -149,6 +144,67 @@ export function AppProvider({ children }: { children: ReactNode }) {
       stopped = true;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [user]);
+
+  /**
+   * Pull the conversation list, on its own fast timer.
+   *
+   * A conversation is pulled as a list of THREADS, not of messages: the badge
+   * only needs counts, and the screen showing a conversation fetches that
+   * conversation itself. Separate from the inbox poll above because it has to
+   * run several times a minute to be worth calling delivery, and because it is
+   * one cheap call — none of the device registration or graph syncing the other
+   * timer does needs to happen this often.
+   */
+  useEffect(() => {
+    if (!user || user.isGuest) {
+      setChatThreads([]);
+      return;
+    }
+    const id = user.id;
+    let stopped = false;
+    let lastRun = 0;
+
+    // A page that claims to be hidden gets the slow interval, never silence:
+    // some WebViews report themselves hidden while somebody is reading them, and
+    // a badge that stops counting is worse than a poll that costs a little.
+    const tick = async (force: boolean) => {
+      if (stopped) return;
+      if (!force && document.hidden && Date.now() - lastRun < CHAT_BACKGROUND_POLL_MS) return;
+      lastRun = Date.now();
+      const threads = await listThreads();
+      if (stopped) return;
+      setChatThreads(threads);
+      for (const thread of threads) {
+        if (thread.unread === 0 || thread.lastFromUserId === id) continue;
+        // One banner per newest-message-per-thread. The list itself is the
+        // record; this is only the nudge, and it must not repeat.
+        const key = `${thread.userId}:${thread.lastAt}`;
+        if (notified.current.has(key)) continue;
+        notified.current.add(key);
+        void postNotification({
+          id: key,
+          title: 'Comitra',
+          body: chatPreview({ kind: thread.lastKind, body: thread.lastBody, payload: {} }),
+        });
+      }
+    };
+
+    void tick(true);
+    const timer = setInterval(() => void tick(false), CHAT_POLL_MS);
+    // Reopening the app, or coming back onto a network, is when a message is
+    // most likely already waiting — ask straight away rather than on the beat.
+    const onWake = () => void tick(true);
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    window.addEventListener('online', onWake);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+      window.removeEventListener('online', onWake);
     };
   }, [user]);
 

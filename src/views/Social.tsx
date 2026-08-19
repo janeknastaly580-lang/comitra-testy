@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import type {
@@ -10,6 +10,7 @@ import type {
   SocialProfile,
 } from '../lib/api';
 import { smartSearch } from '../lib/search';
+import Friends from './Friends';
 import { Avatar } from '../components/Avatar';
 import AuthModal from '../components/AuthModal';
 import PageHeader from '../components/PageHeader';
@@ -17,6 +18,24 @@ import { Badge, Button, Card, Input } from '../components/ui';
 import { Lightbulb, X } from 'lucide-react';
 
 const DEFAULT_LIMIT = 15;
+
+/**
+ * The three things "other people" can mean, in the order they make sense in:
+ * find someone, see how the ones you already have are doing, then the whole
+ * app's ranking. Friends used to be a tab of its own along the bottom of the
+ * screen; it is the same screen, reached from the middle of this row instead.
+ */
+type Tab = 'discover' | 'friends' | 'leaderboard';
+
+const TABS: { id: Tab; label: string; subtitle: string }[] = [
+  { id: 'discover', label: 'Discover', subtitle: 'Find people · build your network' },
+  { id: 'friends', label: 'Friends', subtitle: 'How you and your friends are doing' },
+  { id: 'leaderboard', label: 'Leaderboard', subtitle: 'Premium members, ranked' },
+];
+
+function tabFromParam(raw: string | null): Tab {
+  return TABS.some((t) => t.id === raw) ? (raw as Tab) : 'discover';
+}
 
 const STATUS_BADGE: Record<Relationship, { label: string; tone: 'accent' | 'active' | 'neutral' } | null> = {
   friends: { label: 'Friends', tone: 'accent' },
@@ -38,7 +57,14 @@ export default function Social() {
   const [remote, setRemote] = useState<api.SocialProfile[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
-  const [tab, setTab] = useState<'discover' | 'leaderboard'>('discover');
+  // Kept in the URL rather than in state, so that anything still pointing at the
+  // old /friends screen can be redirected straight onto this tab, and so a
+  // reload leaves you where you were. Replaced rather than pushed: switching tab
+  // is not a place you should have to press Back out of.
+  const [params, setParams] = useSearchParams();
+  const tab = tabFromParam(params.get('tab'));
+  const setTab = (next: Tab) =>
+    setParams(next === 'discover' ? {} : { tab: next }, { replace: true });
 
   async function load() {
     if (!user) return;
@@ -109,7 +135,7 @@ export default function Social() {
     <div className="px-4 py-5">
       <PageHeader
         title="Social"
-        subtitle="Find people · build your network"
+        subtitle={TABS.find((t) => t.id === tab)!.subtitle}
         action={
           <Button
             variant="outline"
@@ -121,18 +147,17 @@ export default function Social() {
         }
       />
 
-      {/* Sub-tabs: Discover / Leaderboard */}
-      <div className="mb-5 grid grid-cols-2 gap-1 rounded-lg border border-line bg-elevated p-1">
-        <TabButton active={tab === 'discover'} onClick={() => setTab('discover')} label="Discover" />
-        <TabButton
-          active={tab === 'leaderboard'}
-          onClick={() => setTab('leaderboard')}
-          label="Leaderboard"
-        />
+      {/* Sub-tabs: Discover / Friends / Leaderboard */}
+      <div className="mb-5 grid grid-cols-3 gap-1 rounded-lg border border-line bg-elevated p-1">
+        {TABS.map((t) => (
+          <TabButton key={t.id} active={tab === t.id} onClick={() => setTab(t.id)} label={t.label} />
+        ))}
       </div>
 
       {tab === 'leaderboard' ? (
         <Leaderboard viewerId={user.id} onOpenProfile={openProfile} />
+      ) : tab === 'friends' ? (
+        <Friends onFindPeople={() => setTab('discover')} />
       ) : (
         DiscoverBody()
       )}
@@ -233,7 +258,7 @@ function TabButton({ active, onClick, label }: { active: boolean; onClick: () =>
   return (
     <button
       onClick={onClick}
-      className={`rounded-md py-2 text-sm font-medium transition ${
+      className={`rounded-md py-2 text-[13px] font-medium transition ${
         active ? 'bg-surface text-ink shadow-sm' : 'text-muted hover:text-ink'
       }`}
     >

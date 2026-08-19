@@ -13,7 +13,6 @@ import CreateGoal from './views/CreateGoal';
 import GoalDetail from './views/GoalDetail';
 import Profile from './views/Profile';
 import Social from './views/Social';
-import Friends from './views/Friends';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
 import RenewingGoals from './views/RenewingGoals';
@@ -75,7 +74,8 @@ export default function App() {
           <Route path="/create" element={<CreateGoal />} />
           <Route path="/goal/:id" element={<GoalDetail />} />
           <Route path="/social" element={<Social />} />
-          <Route path="/friends" element={<Friends />} />
+          {/* Friends is a tab inside Social now, not a destination of its own. */}
+          <Route path="/friends" element={<Navigate to="/social?tab=friends" replace />} />
           {/* Judging, and the conversation every judge request travels on.
               Both are signed-in screens: there are no judge links any more. */}
           <Route path="/judge/:id" element={<JudgeGoal />} />

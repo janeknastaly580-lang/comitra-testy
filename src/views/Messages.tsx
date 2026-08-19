@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
-import { chatPreview } from '../lib/chat';
+import { threadPreview } from '../lib/chat';
 import { shortDate, timeOfDay } from '../lib/format';
 import { Avatar } from '../components/Avatar';
 import PageHeader from '../components/PageHeader';
@@ -71,12 +71,15 @@ export default function Messages() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <p className="truncate text-sm font-semibold text-ink">{person?.name ?? 'Someone'}</p>
+                    {/* A request is somebody waiting on YOU to go and do
+                        something, so it is called out here rather than being
+                        left to read as one more line of chat. */}
+                    {thread.lastKind === 'request' && thread.lastFromUserId !== user.id && (
+                      <Badge tone="active">Request</Badge>
+                    )}
                     {thread.unread > 0 && <Badge tone="accent">{thread.unread}</Badge>}
                   </div>
-                  <p className="truncate text-[12px] text-muted">
-                    {thread.lastFromUserId === user.id ? 'You: ' : ''}
-                    {chatPreview({ kind: thread.lastKind, body: thread.lastBody, payload: {} })}
-                  </p>
+                  <p className="truncate text-[12px] text-muted">{threadPreview(thread, user.id)}</p>
                 </div>
                 <p className="shrink-0 font-mono text-[10px] text-muted">
                   {shortDate(thread.lastAt)} · {timeOfDay(thread.lastAt)}

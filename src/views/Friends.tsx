@@ -4,7 +4,6 @@ import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
 import type { FriendStat } from '../lib/api';
 import { Avatar } from '../components/Avatar';
-import PageHeader from '../components/PageHeader';
 import { Badge, Button, Card } from '../components/ui';
 
 type Window = '30' | '90';
@@ -14,7 +13,20 @@ const WINDOWS: { id: Window; label: string }[] = [
   { id: '90', label: 'Last 3 months' },
 ];
 
-export default function Friends() {
+/**
+ * You and your friends, ranked by what you have actually finished.
+ *
+ * This used to be its own tab along the bottom of the app. It is the same screen
+ * as it ever was — it just lives inside Social now, between Discover and the
+ * Leaderboard, which is where the rest of "other people" already was. Hence no
+ * page header of its own: Social draws that, and the tabs above it are how you
+ * got here.
+ *
+ * `onFindPeople` is what the empty state's button does. Inside Social that is a
+ * switch to the Discover tab rather than a navigation, so nobody is thrown out
+ * of the screen they are standing on to be shown people to follow.
+ */
+export default function Friends({ onFindPeople }: { onFindPeople?: () => void } = {}) {
   const { user } = useApp();
   const navigate = useNavigate();
   const [stats, setStats] = useState<FriendStat[] | null>(null);
@@ -35,9 +47,7 @@ export default function Friends() {
   const top = value(ranked[0] ?? ({} as FriendStat)) || 1;
 
   return (
-    <div className="px-4 py-5">
-      <PageHeader title="Friends" subtitle="How you and your friends are doing" />
-
+    <div>
       {/* Window toggle */}
       <div className="mb-4 flex gap-1.5">
         {WINDOWS.map((w) => (
@@ -60,7 +70,9 @@ export default function Friends() {
         <Card className="p-6 text-center">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">No friends yet</p>
           <p className="mt-2 text-sm text-ink">A friend is someone you follow who follows you back.</p>
-          <Button className="mt-4 w-full" onClick={() => navigate('/social')}>Find people</Button>
+          <Button className="mt-4 w-full" onClick={() => (onFindPeople ? onFindPeople() : navigate('/social'))}>
+            Find people
+          </Button>
         </Card>
       ) : (
         <>

@@ -134,11 +134,18 @@ export async function sendMessage(input: {
   text?: string;
   kind?: ChatKind;
   payload?: ChatPayload;
+  /**
+   * The id to store the message under. Passed in by a screen that has already
+   * drawn the message (see `src/views/Chat.tsx`), so the copy on screen and the
+   * copy that comes back from the server are recognisably the same one and the
+   * message does not appear twice for a moment.
+   */
+  id?: string;
 }): Promise<SendResult> {
   const body = (input.text ?? '').slice(0, CHAT_MAX_CHARS);
   const result = await post<{ sent?: boolean; reason?: string; remaining?: number }>('/api/chat/send', {
     // Client-side id, so a retry after a dropped response cannot post twice.
-    id: uuid(),
+    id: input.id ?? uuid(),
     toUserId: input.toUserId,
     kind: input.kind ?? 'text',
     text: body,
@@ -151,10 +158,18 @@ export async function sendMessage(input: {
   return { sent: true, remaining: result.remaining ?? 0 };
 }
 
-/** One conversation, oldest message first (which is how it is read). */
-export async function listMessages(withUserId: string, limit = 100): Promise<ChatMessage[]> {
+/**
+ * One conversation, oldest message first (which is how it is read).
+ *
+ * `null` means the server could not be ASKED — offline, signed out, no backend.
+ * That is not the same answer as an empty conversation, and a screen that polls
+ * must be able to tell them apart: treating a dropped request as "no messages"
+ * would blank a conversation someone is reading every time the network blinks.
+ */
+export async function fetchMessages(withUserId: string, limit = 100): Promise<ChatMessage[] | null> {
   const data = await post<{ messages?: RawRow[] }>('/api/chat/list', { withUserId, limit });
-  const rows = data?.messages ?? [];
+  if (!data) return null;
+  const rows = data.messages ?? [];
   return rows.map(toMessage).sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt));
 }
 
@@ -226,4 +241,26 @@ export function chatPreview(message: Pick<ChatMessage, 'kind' | 'body' | 'payloa
     default:
       return 'New message';
   }
+}
+
+/**
+ * The same line, but told from the point of view of whoever is reading the list
+ * — because a conversation list has to answer "who said this?" before it
+ * answers "what was said?".
+ *
+ * A thread row carries the last message's body and kind but not its payload, so
+ * a request or an event cannot be worded in detail here. What it CAN always say
+ * is which side it came from, and that is the part that matters at a glance.
+ */
+export function threadPreview(
+  thread: Pick<ChatThread, 'lastBody' | 'lastKind' | 'lastFromUserId'>,
+  myUserId: string,
+): string {
+  const mine = thread.lastFromUserId === myUserId;
+  if (thread.lastKind === 'request') return mine ? 'You sent a request' : 'Sent you a request';
+  // An event is the app talking, not either of them, so it reads the same way
+  // from both sides — there is no "you" to attribute it to.
+  if (thread.lastKind === 'system') return 'Goal update';
+  if (!thread.lastBody) return 'New message';
+  return mine ? `You: ${thread.lastBody}` : thread.lastBody;
 }
