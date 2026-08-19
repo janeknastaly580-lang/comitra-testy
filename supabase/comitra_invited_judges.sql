@@ -1,4 +1,17 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- ⚠ RETIRED (2026-08-19) — DO NOT RUN THIS AGAINST A NEW PROJECT.
+--
+-- Judges are no longer invited by email. A judge is a friend with an account,
+-- picked from the social graph (`comitra_directory` + `comitra_follows`), and
+-- asked inside the app rather than through a link. Nothing in the client reads
+-- this table any more, and `comitra_register_invited_judge` has had its `anon`
+-- grant revoked so the door it opened is closed.
+--
+-- Kept so rows written before the change are still explainable. See
+-- supabase/MIGRATIONS.md.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- ⚠ SUPERSEDED IN PART — DO NOT RE-RUN AGAINST THE LIVE PROJECT (2026-08-17)
 --
 -- `comitra_register_invited_judge` still answers the publishable key (a friend

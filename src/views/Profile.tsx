@@ -304,7 +304,7 @@ export default function Profile() {
 
       {/* Navigation */}
       <div className="space-y-2">
-        <NavRow label="Invite friends" onClick={() => navigate('/invite-friends')} />
+        <NavRow label="Messages" onClick={() => navigate('/messages')} />
         <NavRow label="Subscription" onClick={() => navigate('/subscription')} />
         <NavRow label="Analytics & export" onClick={() => navigate('/analytics')} />
         <NavRow label="Themes" onClick={() => navigate('/themes')} />

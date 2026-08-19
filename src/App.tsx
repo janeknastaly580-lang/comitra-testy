@@ -14,8 +14,6 @@ import GoalDetail from './views/GoalDetail';
 import Profile from './views/Profile';
 import Social from './views/Social';
 import Friends from './views/Friends';
-import InviteFriends from './views/InviteFriends';
-import InviteAccept from './views/InviteAccept';
 import UserProfile from './views/UserProfile';
 import Subscription from './views/Subscription';
 import RenewingGoals from './views/RenewingGoals';
@@ -23,7 +21,9 @@ import CreateRenewingGoal from './views/CreateRenewingGoal';
 import RenewingGoalDetail from './views/RenewingGoalDetail';
 import Analytics from './views/Analytics';
 import Themes from './views/Themes';
-import Verifier from './views/Verifier';
+import JudgeGoal from './views/JudgeGoal';
+import Chat from './views/Chat';
+import Messages from './views/Messages';
 import Recipient from './views/Recipient';
 import Terms from './views/Terms';
 import Privacy from './views/Privacy';
@@ -63,17 +63,9 @@ export default function App() {
             emailed link look broken. */}
         <Route path="/reset-password" element={<ResetPassword />} />
 
-        {/* Public judge view: clean URLs: /verify/:challengeId/:token */}
-        <Route path="/verify/:challengeId/:token" element={<Verifier />} />
-        <Route path="/verify" element={<Verifier />} />
-
         {/* Public recipient consent / manage / unsubscribe page */}
         <Route path="/recipient/:token" element={<Recipient />} />
         <Route path="/recipient" element={<Recipient />} />
-
-        {/* Public "become a judge" invite acceptance page */}
-        <Route path="/invite/:token" element={<InviteAccept />} />
-        <Route path="/invite" element={<InviteAccept />} />
 
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
@@ -84,7 +76,17 @@ export default function App() {
           <Route path="/goal/:id" element={<GoalDetail />} />
           <Route path="/social" element={<Social />} />
           <Route path="/friends" element={<Friends />} />
-          <Route path="/invite-friends" element={<InviteFriends />} />
+          {/* Judging, and the conversation every judge request travels on.
+              Both are signed-in screens: there are no judge links any more. */}
+          <Route path="/judge/:id" element={<JudgeGoal />} />
+          <Route path="/messages" element={<Messages />} />
+          <Route path="/chat/:userId" element={<Chat />} />
+          {/* Judges were invited by email here. They are app friends now. */}
+          <Route path="/invite-friends" element={<Navigate to="/social" replace />} />
+          <Route path="/invite" element={<Navigate to="/goals" replace />} />
+          <Route path="/invite/:token" element={<Navigate to="/goals" replace />} />
+          <Route path="/verify" element={<Navigate to="/goals" replace />} />
+          <Route path="/verify/:challengeId/:token" element={<Navigate to="/goals" replace />} />
           <Route path="/u/:userId" element={<UserProfile />} />
           <Route path="/feature-requests" element={<FeatureRequests />} />
           <Route path="/profile" element={<Profile />} />

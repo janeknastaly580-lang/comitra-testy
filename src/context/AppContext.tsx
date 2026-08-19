@@ -9,7 +9,9 @@ import {
   type ReactNode,
 } from 'react';
 import * as api from '../lib/api';
+import { chatPreview, listThreads, type ChatThread } from '../lib/chat';
 import { clearAllDrafts } from '../lib/draft';
+import { postNotification } from '../lib/localNotify';
 import * as googleAuth from '../lib/google';
 import { clearInbox, listInbox, markRead, registerDevice, syncInbox, type PushMessage } from '../lib/push';
 import type { ThemeId, User } from '../lib/types';
@@ -45,6 +47,10 @@ interface AppContextValue {
   inbox: PushMessage[];
   /** Mark one message read, here and on the server. */
   readMessage: (id: string) => Promise<void>;
+  /** Conversations with unread messages, newest first (see `src/lib/chat.ts`). */
+  chatThreads: ChatThread[];
+  /** Re-read the conversation list now (after opening or answering one). */
+  refreshChat: () => Promise<void>;
   /** Activate the $4.99/mo subscription (placeholder payment). */
   subscribe: () => Promise<void>;
   cancelSubscription: () => Promise<void>;
@@ -61,6 +67,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [inbox, setInbox] = useState<PushMessage[]>(() => listInbox());
+  const [chatThreads, setChatThreads] = useState<ChatThread[]>([]);
+  // Ids already announced, so the same message is not notified twice while the
+  // app polls. Kept in a ref: it must survive a render without causing one.
+  const notified = useRef<Set<string>>(new Set());
   const bootstrapped = useRef(false);
 
   useEffect(() => {
@@ -94,6 +104,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     const tick = async () => {
       await registerDevice(id);
+      // Be findable, and agree with the server about who follows whom. Both are
+      // on the same timer as the inbox because both are how somebody ELSE's
+      // action reaches this device (see `src/lib/social.ts`).
+      await api.publishMyProfile(user);
+      await api.syncSocialGraph(id);
       const messages = await syncInbox(id);
       // A friend's yes/no is machinery, not news: apply it to this account's
       // consents (which may start a goal that was waiting on them) and clear it,
@@ -101,6 +116,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const consumed = api.absorbConsentAnswers(id, messages);
       for (const messageId of consumed) await markRead(messageId, id);
       if (!stopped) setInbox(listInbox());
+
+      // Chat rides the same timer. A conversation is pulled as a list of
+      // threads, not of messages: the badge only needs counts, and the screen
+      // that shows a conversation fetches it itself.
+      const threads = await listThreads();
+      if (stopped) return;
+      setChatThreads(threads);
+      for (const thread of threads) {
+        if (thread.unread === 0 || thread.lastFromUserId === id) continue;
+        // One banner per newest-message-per-thread. The list above is the
+        // record; this is only the nudge, and it must not repeat.
+        const key = `${thread.userId}:${thread.lastAt}`;
+        if (notified.current.has(key)) continue;
+        notified.current.add(key);
+        void postNotification({
+          id: key,
+          title: 'Comitra',
+          body: chatPreview({ kind: thread.lastKind, body: thread.lastBody, payload: {} }),
+        });
+      }
     };
 
     void tick();
@@ -125,6 +160,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     [user],
   );
+
+  const refreshChat = useCallback(async () => {
+    if (!user || user.isGuest) return;
+    setChatThreads(await listThreads());
+  }, [user]);
 
   // The session can be revoked while the app is open — a password reset done
   // elsewhere, or the account deleted from another device. Fall back to a guest
@@ -243,8 +283,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage }),
-    [user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage],
+    () => ({ user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage, chatThreads, refreshChat }),
+    [user, loading, login, register, loginWithGoogle, logout, deleteAccount, refresh, patchUser, subscribe, cancelSubscription, setTheme, inbox, readMessage, chatThreads, refreshChat],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

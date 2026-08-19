@@ -2,9 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import * as api from '../api';
 import { KEYS, write } from '../storage';
 import type { CreateGoalInput } from '../api';
+import type { User } from '../types';
 import type { PushMessage } from '../push';
 import { goalRequired } from '../goal';
 import { checkGoalContent } from '../messages';
+import { toSharedGoal } from '../goalShare';
 
 /** Simulate acting from a device different from the goal creator's. */
 function setDevice(id: string) {
@@ -13,8 +15,14 @@ function setDevice(id: string) {
 
 const future = () => new Date(Date.now() + 7 * 86_400_000).toISOString();
 
-/** The judge's secret code used across the link-based flow in these tests. */
-const JUDGE_CODE = 'code1234';
+/**
+ * The account that judges in these tests.
+ *
+ * A judge used to be an email address plus a secret code; it is a friend's
+ * ACCOUNT now, so the fixture is a registered user and every judge call is
+ * authorised by being that user rather than by holding a token.
+ */
+let judgeUser: User;
 
 function goalInput(userId: string, over: Partial<CreateGoalInput> = {}): CreateGoalInput {
   return {
@@ -26,7 +34,7 @@ function goalInput(userId: string, over: Partial<CreateGoalInput> = {}): CreateG
     deadlineAt: future(),
     messageTone: 'neutral',
     ackNotifyConsent: true,
-    judge: { name: 'Judge', channel: 'email', contact: 'judge@example.com' },
+    judge: { judgeUserId: judgeUser.id, name: 'Judge' },
     // A goal notifies exactly one recipient (MAX_RECIPIENTS_PER_GOAL === 1), and
     // a recipient is always a friend's account — never a number or an address.
     recipients: [{ name: 'Alice', recipientUserId: 'friend-alice' }],
@@ -48,15 +56,16 @@ async function activatedGoal(over: Partial<CreateGoalInput> = {}) {
   const alice = consents.find((c) => c.name === 'Alice')!;
   await api.acceptRecipientConsent(alice.inviteToken); // the one recipient accepts
   setDevice('judge-device');
-  await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+  await api.acceptJudgeRole(goal.id, judgeUser.id);
   // Deadlines are in the future in these tests, so let the judge decide now by
   // having the owner request an early decision (the only way to decide early).
   await api.requestEarlyDecision(goal.id, owner.id);
   return { owner, goal: (await api.getGoal(goal.id))!, alice, consents };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   localStorage.clear();
+  judgeUser = await api.register('Judge', `j_${Math.random().toString(36).slice(2)}@e.com`, 'pw');
 });
 
 describe('subscription / trial gating', () => {
@@ -92,11 +101,16 @@ describe('judge acceptance is required to activate', () => {
     expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_judge_acceptance');
   });
 
-  it('a creator cannot judge their own goal (device isolation)', async () => {
+  it('a creator cannot be the judge of their own goal', async () => {
     setDevice('creator-device');
     const owner = await freshOwner();
+    // Refused at the source: you cannot even set the goal that way.
+    await expect(
+      api.createGoal(goalInput(owner.id, { judge: { judgeUserId: owner.id, name: 'Me' } })),
+    ).rejects.toThrow(/your own goal/i);
+    // And a goal judged by somebody else cannot be acted on by its owner.
     const goal = await api.createGoal(goalInput(owner.id));
-    await expect(api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE)).rejects.toThrow(/your own goal/i);
+    await expect(api.acceptJudgeRole(goal.id, owner.id)).rejects.toThrow(/your own goal/i);
   });
 
   it('activates once judge + one recipient accept', async () => {
@@ -113,17 +127,17 @@ describe('notifications only reach accepted, non-revoked recipients', () => {
     const owner = await freshOwner();
     const goal = await api.createGoal(goalInput(owner.id));
     setDevice('judge-device');
-    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    await api.acceptJudgeRole(goal.id, judgeUser.id);
     expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_recipients_acceptance');
     await expect(
-      api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE),
+      api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined),
     ).rejects.toThrow(/not ready/i);
     expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
   });
 
   it('sends exactly one message, to the one accepted recipient', async () => {
     const { goal, alice } = await activatedGoal();
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const notes = await api.listGoalNotifications(goal.id);
     const sent = notes.filter((n) => n.status === 'sent');
     expect(sent).toHaveLength(1);
@@ -133,7 +147,7 @@ describe('notifications only reach accepted, non-revoked recipients', () => {
   it('does not send after a recipient revokes consent', async () => {
     const { goal, alice } = await activatedGoal();
     await api.revokeRecipientConsent(alice.inviteToken);
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const notes = await api.listGoalNotifications(goal.id);
     const aliceNote = notes.find((n) => n.recipientConsentId === alice.id)!;
     expect(aliceNote.status).toBe('suppressed');
@@ -143,7 +157,7 @@ describe('notifications only reach accepted, non-revoked recipients', () => {
 
   it('completing a goal sends no messages and pays no reward', async () => {
     const { goal } = await activatedGoal();
-    const done = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    const done = await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     expect(done.status).toBe('completed');
     expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
   });
@@ -152,7 +166,7 @@ describe('notifications only reach accepted, non-revoked recipients', () => {
 describe('message tone', () => {
   it('uses the selected tone in the delivered message', async () => {
     const { goal, alice } = await activatedGoal({ messageTone: 'supportive' });
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const notes = await api.listGoalNotifications(goal.id);
     const aliceNote = notes.find((n) => n.recipientConsentId === alice.id)!;
     expect(aliceNote.tone).toBe('supportive');
@@ -163,7 +177,7 @@ describe('message tone', () => {
 describe('goal content is never shared, only the goal number', () => {
   it('the failure message carries the goal number, never the title or details', async () => {
     const { goal, alice } = await activatedGoal();
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const notes = await api.listGoalNotifications(goal.id);
     const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
     expect(body).not.toContain('Study 3 times');
@@ -175,7 +189,7 @@ describe('goal content is never shared, only the goal number', () => {
   it('every tone keeps the goal content out of the message', async () => {
     for (const tone of ['neutral', 'supportive', 'firm'] as const) {
       const { goal, alice } = await activatedGoal({ messageTone: tone });
-      await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+      await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
       const notes = await api.listGoalNotifications(goal.id);
       const body = notes.find((n) => n.recipientConsentId === alice.id)!.body;
       expect(body).not.toContain(goal.title);
@@ -183,16 +197,25 @@ describe('goal content is never shared, only the goal number', () => {
     }
   });
 
-  it('the messages queued for the judge never contain the goal content', async () => {
+  it('nothing about a goal is queued to its judge at all', async () => {
+    // Judges are messaged in the app, never through the outbox — and what the
+    // app sends them carries the goal NUMBER and nothing else. The outbox is
+    // now recipients-only, so "no judge messages" is the assertion.
     const { goal } = await activatedGoal();
     const messages = await api.listOutbox(goal.id);
-    const toJudge = messages.filter((m) => m.to === 'judge');
-    expect(toJudge.length).toBeGreaterThan(0);
-    for (const m of toJudge) {
+    expect(messages.filter((m) => m.to === 'judge')).toHaveLength(0);
+    for (const m of messages) {
       expect(m.body).not.toContain(goal.title);
       expect(m.body).not.toContain(goal.description);
-      expect(m.body).toContain(`goal #${goal.goalNumber}`);
     }
+  });
+
+  it('what the judge is shared never contains the goal content', async () => {
+    const { goal } = await activatedGoal();
+    const shared = JSON.stringify(toSharedGoal((await api.getGoal(goal.id))!));
+    expect(shared).not.toContain(goal.title);
+    expect(shared).not.toContain(goal.description);
+    expect(shared).toContain(`"goalNumber":${goal.goalNumber}`);
   });
 
   it('numbers goals per owner, starting at 1', async () => {
@@ -264,7 +287,7 @@ describe('publishing one finished goal', () => {
 
   it('publishing never puts the goal content into a message', async () => {
     const { goal, alice } = await activatedGoal();
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const published = await api.setGoalVisibility(goal.id, goal.userId, true);
     expect(published.isPublic).toBe(true);
 
@@ -286,9 +309,9 @@ describe('profile visibility (public / friends / private)', () => {
     await api.completeSoloGoal(solo.id, owner.id);
     const judged = await api.createGoal(goalInput(owner.id, { recipients: [] }));
     setDevice('judge-device');
-    await api.acceptJudge(judged.id, judged.judge.acceptToken, JUDGE_CODE);
+    await api.acceptJudgeRole(judged.id, judgeUser.id);
     await api.requestEarlyDecision(judged.id, owner.id);
-    await api.judgeDecision(judged.id, judged.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(judged.id, judgeUser.id, 'not_completed', undefined);
     setDevice('creator-device');
     return { owner, solo, judged };
   }
@@ -453,12 +476,12 @@ describe('commitment app block (blocks an app while the goal runs)', () => {
       const owner = await freshOwner();
       const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
       setDevice('judge-device');
-      await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+      await api.acceptJudgeRole(goal.id, judgeUser.id);
       setDevice('creator-device');
       await api.setCommitmentBlock(goal.id, owner.id, 'com.discord', 'Discord');
       await api.requestEarlyDecision(goal.id, owner.id);
       setDevice('judge-device'); // the creator can never rule on their own goal
-      await api.judgeDecision(goal.id, goal.judge.acceptToken, decision, undefined, JUDGE_CODE);
+      await api.judgeDecide(goal.id, judgeUser.id, decision);
       const stored = (await api.getGoal(goal.id))!;
       expect(stored.commitmentBlock?.liftedAt).toBeTruthy();
       expect(api.isCommitmentBlockLive(stored)).toBe(false);
@@ -519,7 +542,7 @@ describe('a missed goal must be reflected on before a new one', () => {
 
   it('a completed goal owes no answers', async () => {
     const { goal, owner } = await activatedGoal();
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     expect(await api.listUnreflectedGoals(owner.id)).toHaveLength(0);
   });
 });
@@ -529,7 +552,7 @@ describe('app-block penalty on a judged goal', () => {
     const { goal } = await activatedGoal({
       appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
     });
-    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    const decided = await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     expect(decided.status).toBe('failed_notified');
     expect(decided.appBlockUntil).toBeTruthy();
     expect(+new Date(decided.appBlockUntil!)).toBeGreaterThan(Date.now());
@@ -539,7 +562,7 @@ describe('app-block penalty on a judged goal', () => {
     const { goal } = await activatedGoal({
       appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
     });
-    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    const decided = await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     expect(decided.status).toBe('completed');
     expect(decided.appBlockUntil).toBeUndefined();
   });
@@ -600,20 +623,21 @@ describe('trainer role', () => {
     setDevice('client-device');
     const client = await makeUser('Marek', 'standard');
     const goal = await api.createGoal(
-      goalInput(client.id, { judge: { name: 'Coach', channel: 'internal', judgeUserId: trainer.id } }),
+      goalInput(client.id, { judge: { judgeUserId: trainer.id, name: 'Coach' } }),
     );
     const consents = await api.listOwnerConsents(client.id);
     await api.acceptRecipientConsent(consents[0].inviteToken);
 
     // The client (creator) cannot accept as judge.
-    await expect(api.acceptJudgeByUser(goal.id, client.id)).rejects.toThrow(/your own goal/i);
+    await expect(api.acceptJudgeRole(goal.id, client.id)).rejects.toThrow(/your own goal/i);
     // A random user is not the judge.
     const stranger = await makeUser('Stranger', 'standard');
-    await expect(api.judgeDecisionByUser(goal.id, stranger.id, 'completed')).rejects.toThrow(/not the judge/i);
+    await expect(api.judgeDecide(goal.id, stranger.id, 'completed')).rejects.toThrow(/not the judge/i);
 
     // The trainer accepts and decides.
-    await api.acceptJudgeByUser(goal.id, trainer.id);
-    const decided = await api.judgeDecisionByUser(goal.id, trainer.id, 'completed');
+    await api.acceptJudgeRole(goal.id, trainer.id);
+    await api.requestEarlyDecision(goal.id, client.id);
+    const decided = await api.judgeDecide(goal.id, trainer.id, 'completed');
     expect(decided.status).toBe('completed');
   });
 });
@@ -629,7 +653,7 @@ describe('a recipient is a friend, and answers in the app', () => {
     const owner = await freshOwner();
     const goal = await api.createGoal(goalInput(owner.id));
     setDevice('judge-device');
-    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    await api.acceptJudgeRole(goal.id, judgeUser.id);
     setDevice('creator-device');
 
     const consent = (await api.listOwnerConsents(owner.id))[0];
@@ -695,7 +719,7 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
     expect((await api.getGoal(goal.id))!.status).toBe('waiting_for_judge_acceptance');
     setDevice('judge-device');
-    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
+    await api.acceptJudgeRole(goal.id, judgeUser.id);
     expect((await api.getGoal(goal.id))!.status).toBe('active');
   });
 
@@ -713,9 +737,9 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     const { goal, owner } = await activatedGoal();
     await expect(api.cancelGoal(goal.id)).rejects.toThrow(/judge/i);
     // Judge cannot cancel until the user requests it.
-    await expect(api.judgeCancelGoal(goal.id, goal.judge.acceptToken)).rejects.toThrow(/asked|not asked/i);
+    await expect(api.judgeCancel(goal.id, judgeUser.id)).rejects.toThrow(/asked|not asked/i);
     await api.requestCancel(goal.id, owner.id);
-    const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken);
+    const cancelled = await api.judgeCancel(goal.id, judgeUser.id);
     expect(cancelled.status).toBe('cancelled');
   });
 
@@ -774,11 +798,11 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     const owner = await freshOwner();
     const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
     setDevice('judge-device');
-    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
-    await expect(api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE)).rejects.toThrow(/deadline|early/i);
+    await api.acceptJudgeRole(goal.id, judgeUser.id);
+    await expect(api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined)).rejects.toThrow(/deadline|early/i);
     // After the owner asks, the judge may decide.
     await api.requestEarlyDecision(goal.id, owner.id);
-    const done = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    const done = await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     expect(done.status).toBe('completed');
   });
 
@@ -832,35 +856,37 @@ describe('a judged goal is only ever ended by its judge', () => {
     expect(boards.consistency.find((e) => e.id === owner.id)).toBeUndefined();
     // Only the judge's decision ends it, however late that is.
     setDevice('judge-device');
-    const decided = await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    const decided = await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     expect(decided.status).toBe('completed');
     expect(await api.listCompletedGoals(owner.id)).toHaveLength(1);
   });
 
-  it('the judge link carries the request: Comitra messages the judge for nothing', async () => {
+  it('asking the judge is what unlocks each thing they can do', async () => {
     setDevice('creator-device');
     const owner = await freshOwner();
     const goal = await api.createGoal(goalInput(owner.id, { recipients: [] }));
     setDevice('judge-device');
-    await api.acceptJudge(goal.id, goal.judge.acceptToken, JUDGE_CODE);
-    // Nothing was ever queued to the judge beyond their original invite.
-    const queued = await api.listOutbox(goal.id);
-    expect(queued.filter((m) => m.kind === 'judge_review_request')).toHaveLength(0);
+    await api.acceptJudgeRole(goal.id, judgeUser.id);
 
-    // Opening the "ask for a decision" link is what unlocks deciding early.
-    await expect(
-      api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE),
-    ).rejects.toThrow(/deadline|early/i);
-    await api.applyJudgeLinkRequest(goal.id, goal.judge.acceptToken, 'decision');
+    // Nothing is emailed or queued: being asked IS a message in the app.
+    expect(await api.listOutbox(goal.id)).toHaveLength(0);
+
+    // "Ask for goal verification" is what unlocks deciding before the deadline.
+    await expect(api.judgeDecide(goal.id, judgeUser.id, 'completed')).rejects.toThrow(/deadline|early/i);
+    await api.askJudge(goal.id, owner.id, 'decision');
     expect((await api.getGoal(goal.id))!.earlyDecisionRequested).toBe(true);
     expect((await api.getGoal(goal.id))!.cancelRequested).toBeFalsy();
-    expect(await api.listOutbox(goal.id)).toHaveLength(queued.length);
 
-    // And the "ask for a change" link is what unlocks cancelling.
-    await expect(api.judgeCancelGoal(goal.id, goal.judge.acceptToken)).rejects.toThrow(/asked/i);
-    await api.applyJudgeLinkRequest(goal.id, goal.judge.acceptToken, 'edit');
-    const cancelled = await api.judgeCancelGoal(goal.id, goal.judge.acceptToken);
+    // "Ask for goal edit" is what unlocks cancelling.
+    await expect(api.judgeCancel(goal.id, judgeUser.id)).rejects.toThrow(/asked/i);
+    await api.askJudge(goal.id, owner.id, 'edit');
+    const cancelled = await api.judgeCancel(goal.id, judgeUser.id);
     expect(cancelled.status).toBe('cancelled');
+  });
+
+  it('only the owner can ask their judge for something', async () => {
+    const { goal } = await activatedGoal();
+    await expect(api.askJudge(goal.id, judgeUser.id, 'decision')).rejects.toThrow(/owner/i);
   });
 
   it('a judge deciding on their own phone leaves the message for the owner to send', async () => {
@@ -870,7 +896,7 @@ describe('a judged goal is only ever ended by its judge', () => {
     // phone. Marking the goal "notified" here would bury the message forever.
     const consents = localStorage.getItem('fineline:recipientConsents')!;
     localStorage.setItem('fineline:recipientConsents', '[]');
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     expect((await api.getGoal(goal.id))!.status).toBe('failed_pending_notification');
     expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
 
@@ -881,9 +907,10 @@ describe('a judged goal is only ever ended by its judge', () => {
     expect((await api.listGoalNotifications(goal.id)).filter((n) => n.status === 'sent')).toHaveLength(1);
   });
 
-  it('a wrong token never records a request', async () => {
+  it("a stranger cannot record a request against another person's goal", async () => {
     const { goal } = await activatedGoal();
-    await api.applyJudgeLinkRequest(goal.id, 'not-the-token', 'edit');
+    const stranger = await freshOwner();
+    await expect(api.askJudge(goal.id, stranger.id, 'edit')).rejects.toThrow(/owner/i);
     expect((await api.getGoal(goal.id))!.cancelRequested).toBeFalsy();
   });
 });
@@ -905,7 +932,7 @@ describe('the deadline is the only thing the owner may edit', () => {
     const later = new Date(Date.now() + 30 * 86_400_000).toISOString();
     await expect(api.updateGoalDeadline(goal.id, stranger.id, later)).rejects.toThrow(/owner/i);
     setDevice('judge-device');
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'completed', undefined);
     await expect(api.updateGoalDeadline(goal.id, owner.id, later)).rejects.toThrow(/finished|decided/i);
   });
 });
@@ -933,7 +960,7 @@ describe('no gambling mechanics anywhere in the flow', () => {
 
   it('a notification carries no monetary amount', async () => {
     const { goal } = await activatedGoal();
-    await api.judgeDecision(goal.id, goal.judge.acceptToken, 'not_completed', undefined, JUDGE_CODE);
+    await api.judgeDecide(goal.id, judgeUser.id, 'not_completed', undefined);
     const notes = await api.listGoalNotifications(goal.id);
     for (const n of notes) {
       expect((n as unknown as Record<string, unknown>).amount).toBeUndefined();

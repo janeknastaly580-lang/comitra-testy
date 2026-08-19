@@ -22,7 +22,7 @@ async function sha256Hex(message: string): Promise<string> {
 }
 
 async function hmac(key: Uint8Array, message: string): Promise<Uint8Array> {
-  const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const cryptoKey = await crypto.subtle.importKey('raw', key as BufferSource, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, encoder.encode(message)));
 }
 
@@ -97,7 +97,7 @@ export async function signJsonPost(
   const kRegion = await hmac(kDate, region);
   const kService = await hmac(kRegion, service);
   const kSigning = await hmac(kService, 'aws4_request');
-  const signature = hex(await hmac(kSigning, stringToSign));
+  const signature = hex((await hmac(kSigning, stringToSign)).buffer as ArrayBuffer);
 
   return {
     url: `https://${host}${path}`,

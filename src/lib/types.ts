@@ -74,12 +74,15 @@ export interface PlannedAction {
 /**
  * How Comitra reaches someone.
  *
- *  • `email`    — a judge's address (the only thing it ever emails a person about
- *    is confirming that address).
- *  • `internal` — an account, reached in the app itself. Every recipient message
- *    goes this way now; see `src/lib/push.ts`.
- *  • `phone`    — @deprecated. SMS is gone; the member survives only so records
- *    written before it was removed still load.
+ *  • `internal` — an account, reached inside the app. This is the only one now:
+ *    judges and recipients are both friends with accounts, so every message is
+ *    addressed to a user id (see `src/lib/chat.ts` and `src/lib/push.ts`).
+ *  • `email`    — @deprecated. Judges were invited by address before they were
+ *    friends; the only thing Comitra emails anyone about now is their own
+ *    sign-up code.
+ *  • `phone`    — @deprecated. SMS is gone.
+ *
+ * Both dead members survive only so records written before the change load.
  */
 export type Channel = 'email' | 'phone' | 'internal';
 
@@ -88,23 +91,31 @@ export type Channel = 'email' | 'phone' | 'internal';
 export type JudgeStatus = 'pending' | 'accepted' | 'declined';
 export type JudgeDecision = 'completed' | 'not_completed';
 
-/** The single judge assigned to a goal, plus their acceptance + decision. */
+/**
+ * The single judge assigned to a goal, plus their acceptance + decision.
+ *
+ * A judge is a FRIEND — an account the owner follows who follows back — so
+ * `judgeUserId` is the whole identity. There is no address, no invite and no
+ * secret code: the owner picks a friend, that friend is asked inside the app,
+ * and everything either of them does is authorised by being signed in.
+ */
 export interface GoalJudge {
   name: string;
   channel: Channel;
-  /** Free-form contact (email / phone) or an internal user id. */
-  judgeContact?: string;
+  /** The judge's account. Absent only on a solo goal's placeholder judge. */
   judgeUserId?: string;
-  /**
-   * The logged-in account (if any) that accepted this judge role. Captured when
-   * the judge opens the invite link while signed in. Only judges with an account
-   * accumulate a judge rating.
-   */
+  /** @deprecated an email address, from when judges were invited by one. */
+  judgeContact?: string;
+  /** @deprecated collapsed into `judgeUserId`, which is now always the account. */
   judgeAccountUserId?: string;
   status: JudgeStatus;
-  /** Whether the judge has set their secret verification code for this role. */
+  /** @deprecated judges no longer set a secret code. */
   codeSet?: boolean;
-  /** Token used to build the judge accept/decision link. */
+  /**
+   * @deprecated the capability token from the judge link. Nothing reads it: the
+   * shared goal row is gated on who you are signed in as. Still written so a
+   * goal saved by an older build round-trips unchanged.
+   */
   acceptToken: string;
   acceptedAt?: string;
   declinedAt?: string;
@@ -113,59 +124,6 @@ export interface GoalJudge {
   decisionComment?: string;
   /** The 0-5 rating the goal owner gave this judge after the decision. */
   judgeRating?: number;
-}
-
-/**
- * A judge's standing acceptance + secret code for one goal-owner. Once a judge
- * accepts a role for an owner and sets a code, that acceptance persists: the
- * SAME owner can assign them again without re-asking for consent. A DIFFERENT
- * owner still needs a fresh acceptance. The judge must enter their code to
- * verify every goal.
- */
-export interface JudgeCredential {
-  id: string;
-  /** The owner (goal creator) this credential is scoped to. */
-  ownerUserId: string;
-  /** Stable identity of the judge for this owner (contact or account id). */
-  judgeKey: string;
-  /** Hashed secret code (never stored in the clear). */
-  codeHash: string;
-  /** The judge's account id, if they were signed in when they accepted. */
-  judgeAccountUserId?: string;
-  createdAt: string;
-}
-
-/**
- * A friend the user invited (via their reusable invite link) to be a possible
- * judge. The friend gave an email address and confirmed it with a code, set
- * their secret password (stored as a `JudgeCredential`), and agreed to receive
- * Comitra messages about this owner's goals. These are the only people the owner
- * can pick as a judge.
- */
-export interface InvitedJudge {
-  id: string;
-  ownerUserId: string;
-  name: string;
-  /** Lower-cased email address. This is what identifies a judge for one owner. */
-  email: string;
-  /** They agreed to receive goal-related messages from Comitra. */
-  consentedAt: string;
-  /** When they proved they own this address with an emailed code (undefined = not verified). */
-  emailVerifiedAt?: string;
-  /** @deprecated judges registered before SMS was removed. Never read. */
-  phone?: string;
-  /** @deprecated see `emailVerifiedAt`. */
-  phoneVerifiedAt?: string;
-  createdAt: string;
-}
-
-/** A reusable invite token that maps a link back to the inviting owner. */
-export interface JudgeInvite {
-  ownerUserId: string;
-  token: string;
-  /** Device the invite was generated on, the judge must accept from a different one. */
-  inviterDeviceId?: string;
-  createdAt: string;
 }
 
 /** One 0-5 rating of an account-holding judge, left by a goal owner. */
@@ -337,7 +295,10 @@ export interface Goal {
   /** Set once the judge has been auto-notified to review (avoids duplicates). */
   judgeReviewNotifiedAt?: string;
 
-  /** Token used to build the judge link (kept name for share-link compat). */
+  /**
+   * @deprecated the capability token from the judge link. See
+   * `GoalJudge.acceptToken`: nothing reads either of them now.
+   */
   shareToken: string;
   /** Device id of the creator, captured at creation (device-isolation check). */
   creatorDeviceId: string;

@@ -1,10 +1,14 @@
 /**
- * Link generation for judge invites and recipient invite / manage pages.
+ * Link generation for the recipient invite / manage page.
+ *
+ * There are no judge links left: a judge is a friend with an account, so being
+ * asked to judge something is a message inside the app rather than a URL that
+ * works for whoever ends up holding it. What remains is the recipient page,
+ * which a person opens to give or withdraw consent.
  *
  * We keep the HashRouter `#` so the same deep link works on localhost, through a
  * tunnel, and inside a WebView (file://).
  */
-import type { Goal } from './types';
 
 /**
  * The address the app is served from. NOT whatever page the user happens to be
@@ -29,23 +33,6 @@ function base(): string {
   return `${origin}${path}`;
 }
 
-/**
- * Absolute judge link: `…/#/verify/<goalId>/<token>`.
- *
- * `ask` is what the owner wants from their judge, and it is the whole request:
- * Comitra never messages a judge on its own, so the link the owner hands over is
- * what opens the matching panel — `decision` to mark the goal completed or not
- * completed, `edit` to ask for a change or a cancellation. Plain (no `ask`) is
- * the invite link, which only offers the judge role.
- */
-export function judgeLink(
-  goal: Pick<Goal, 'id'> & { judge?: { acceptToken?: string }; shareToken?: string },
-  ask?: 'decision' | 'edit',
-): string {
-  const token = goal.judge?.acceptToken ?? goal.shareToken ?? '';
-  return `${base()}#/verify/${goal.id}/${token}${ask ? `?ask=${ask}` : ''}`;
-}
-
 /** Absolute recipient invite / manage link: `…/#/recipient/<inviteToken>`. */
 export function recipientLink(inviteToken: string): string {
   return `${base()}#/recipient/${inviteToken}`;
@@ -56,7 +43,3 @@ export function coachInviteLink(inviteToken: string): string {
   return `${base()}#/coach-invite/${inviteToken}`;
 }
 
-/** Absolute "invite a friend as a judge" link: `…/#/invite/<token>`. */
-export function judgeInviteLink(token: string): string {
-  return `${base()}#/invite/${token}`;
-}

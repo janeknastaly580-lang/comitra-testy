@@ -7,7 +7,6 @@ import { countdown, countdownClock, dateTime, shortDate, timeOfDay, toLocalInput
 import { deadlineElapsedRatio, goalEndedAt, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
 import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
-import { judgeLink } from '../lib/share';
 import { statusMeta, PRE_ACTIVE, TERMINAL } from '../lib/status';
 import type { Goal, GoalReflection, NotificationLog, OutboxMessage, RecipientConsent } from '../lib/types';
 import AppBlockPermission from '../components/AppBlockPermission';
@@ -15,9 +14,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
-import ShareLink from '../components/ShareLink';
 import { Badge, Button, Card, Input, Label, Select, Toggle } from '../components/ui';
-import { Lock } from 'lucide-react';
+import { Lock, MessageSquare } from 'lucide-react';
 
 const TONE_LABEL = { neutral: 'Neutral', supportive: 'Supportive', firm: 'Firm' } as const;
 const CONSENT_TONE = { pending: 'warn', accepted: 'accent', revoked: 'danger' } as const;
@@ -55,6 +53,9 @@ export default function GoalDetail() {
   const [blockBusy, setBlockBusy] = useState(false);
   const [rateVal, setRateVal] = useState('');
   const [rateBusy, setRateBusy] = useState(false);
+  // Asking the judge for something. One at a time, so the button that is
+  // working says so and the other cannot be pressed underneath it.
+  const [asking, setAsking] = useState<'decision' | 'edit' | null>(null);
 
 
   async function load() {
@@ -100,6 +101,32 @@ export default function GoalDetail() {
   // The two links the owner sends their judge. Comitra messages the judge for
   // nothing, so these are the whole channel.
   const showJudgeAsk = !isSoloGoal(goal) && !isTerminal && goal.judge.status === 'accepted' && !goal.judge.decision;
+
+  /**
+   * Ask the judge to decide, or to change/cancel.
+   *
+   * This used to be a link the owner copied and sent themselves — Comitra could
+   * honestly say it never messaged a judge, because it could not. Now the ask
+   * IS the message: it lands in their conversation with the button on it, and
+   * the goal records that they were asked in the same call.
+   */
+  async function ask(what: 'decision' | 'edit') {
+    setAsking(what);
+    setNotice('');
+    try {
+      await api.askJudge(goal!.id, user!.id, what);
+      await load();
+      setNotice(
+        what === 'decision'
+          ? `${goal!.judge.name} has been asked to verify this goal.`
+          : `${goal!.judge.name} has been asked to edit this goal.`,
+      );
+    } catch (err) {
+      setNotice((err as Error).message);
+    } finally {
+      setAsking(null);
+    }
+  }
 
   async function submitRating() {
     const v = Number(rateVal);
@@ -435,6 +462,16 @@ export default function GoalDetail() {
               {goal.judge.decisionComment && <>: “{goal.judge.decisionComment}”</>}
             </p>
           )}
+          {goal.judge.judgeUserId && (
+            <Button
+              variant="outline"
+              className="mt-3 w-full"
+              onClick={() => navigate(`/chat/${goal.judge.judgeUserId}`)}
+            >
+              <MessageSquare className="mr-1.5 inline h-4 w-4" aria-hidden />
+              Message {goal.judge.name}
+            </Button>
+          )}
         </Card>
       )}
 
@@ -471,13 +508,12 @@ export default function GoalDetail() {
       )}
 
       {goal.judge.status === 'pending' && isPreActive && (
-        <div className="mb-4">
-          <ShareLink
-            title="Invite your judge"
-            hint="They accept the role, then decide the outcome later."
-            link={judgeLink(goal)}
-          />
-        </div>
+        <Card className="mb-4 border-warn/30 p-4">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Waiting on your judge</p>
+          <p className="mt-1 text-sm text-ink">
+            {goal.judge.name} has been asked in the app. This goal starts when they accept.
+          </p>
+        </Card>
       )}
 
       {/* Recipients */}
@@ -521,30 +557,34 @@ export default function GoalDetail() {
       </Card>
       )}
 
-      {/* Asking the judge for something: two links, and nothing is sent by the
-          app. Which link they open decides what they can do. */}
+      {/* Asking the judge for something. Each button sends them a message in
+          the app with the matching button on it — there is nothing to copy and
+          nothing to send by hand. */}
       {showJudgeAsk && (
         <Card className="mb-4 p-4">
           <Label>Ask {goal.judge.name}</Label>
-          <p className="mb-3 text-[11px] text-muted">
-            Comitra doesn't message them. Send a link yourself.
-          </p>
-          <div className="space-y-3">
-            <ShareLink
-              title="Ask for a decision"
-              hint={`They mark ${goalRefTitle(goal).toLowerCase()} completed or not completed.`}
-              link={judgeLink(goal, 'decision')}
-            />
-            <ShareLink
-              title="Ask for a change"
-              hint="They can cancel this goal. To buy time, move the deadline yourself."
-              link={judgeLink(goal, 'edit')}
-            />
+          <div className="mt-2 space-y-2">
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={asking !== null}
+              onClick={() => ask('decision')}
+            >
+              {asking === 'decision' ? 'Asking…' : 'Ask for goal verification'}
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full"
+              disabled={asking !== null}
+              onClick={() => ask('edit')}
+            >
+              {asking === 'edit' ? 'Asking…' : 'Ask for goal edit'}
+            </Button>
           </div>
           {(goal.earlyDecisionRequested || goal.cancelRequested) && (
             <p className="mt-3 text-[11px] text-muted">
-              {goal.earlyDecisionRequested && 'They opened the decision link. '}
-              {goal.cancelRequested && 'They opened the change link and can cancel this goal.'}
+              {goal.earlyDecisionRequested && 'They have been asked to verify it. '}
+              {goal.cancelRequested && 'They have been asked to edit it, and can cancel it.'}
             </p>
           )}
         </Card>
@@ -621,7 +661,7 @@ export default function GoalDetail() {
         // ask on their behalf. They send the "ask for a change" link above.
         <p className="mt-3 text-center text-[11px] text-muted">
           {showJudgeAsk
-            ? `Only ${goal.judge.name} can cancel this — use the link above.`
+            ? `Only ${goal.judge.name} can cancel this — ask them above.`
             : `Only ${goal.judge.name} can cancel this, once they accept.`}
         </p>
       )}

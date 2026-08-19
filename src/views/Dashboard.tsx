@@ -7,6 +7,8 @@ import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { PRE_ACTIVE, TERMINAL } from '../lib/status';
 import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { toLocalInputValue } from '../lib/format';
+import { goalRef } from '../lib/goal';
+import { Avatar } from '../components/Avatar';
 import GoalCard from '../components/GoalCard';
 import Inbox from '../components/Inbox';
 import DateTimeField from '../components/DateTimeField';
@@ -39,6 +41,10 @@ export default function Dashboard() {
   const { user } = useApp();
   const navigate = useNavigate();
   const [goals, setGoals] = useState<Goal[]>([]);
+  // Goals somebody else set and asked THIS person to judge. They live on the
+  // server, not on this phone, so they arrive with the dashboard rather than
+  // through a link somebody had to remember to send.
+  const [judging, setJudging] = useState<Goal[]>([]);
   const [streak, setStreak] = useState({ goals: 0 });
   const [loaded, setLoaded] = useState(false);
 
@@ -72,6 +78,7 @@ export default function Dashboard() {
     setGoals(await api.listGoals(user.id));
     setStreak(await api.getStreak(user.id));
     setLoaded(true);
+    setJudging(await api.listJudgingGoals(user.id));
   }
 
   useEffect(() => {
@@ -119,6 +126,7 @@ export default function Dashboard() {
     }
   }
 
+  const waitingOnMe = api.judgeActionNeeded(judging);
   const running = goals.filter((g) => g.status === 'active' || g.status === 'proof_pending' || g.status === 'judge_review');
   const pending = goals.filter((g) => PRE_ACTIVE.includes(g.status));
   const history = goals.filter((g) => TERMINAL.includes(g.status));
@@ -139,6 +147,38 @@ export default function Dashboard() {
       {/* What friends' goals have told this person. Above everything else: it is
           the only part of this screen that is somebody else waiting on them. */}
       <Inbox />
+
+      {/* What other people are waiting on this person for. Above their own
+          goals: somebody else's commitment is stuck until they answer. */}
+      {waitingOnMe.length > 0 && (
+        <div className="mb-5">
+          <h2 className="mb-2 font-mono text-xs uppercase tracking-widest text-muted">
+            Waiting on you <Badge tone="accent">{waitingOnMe.length}</Badge>
+          </h2>
+          <div className="space-y-2">
+            {waitingOnMe.map((g) => (
+              <Card
+                key={g.id}
+                onClick={() => navigate(`/judge/${g.id}`)}
+                className="flex items-center gap-3 border-accent/40 bg-accent/5 p-3.5"
+              >
+                <Avatar avatar={g.creatorAvatar} name={g.creatorName} size={38} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{g.creatorName}</p>
+                  <p className="truncate text-[12px] text-muted">
+                    {g.judge.status === 'pending'
+                      ? `Asks you to judge ${goalRef(g)}`
+                      : g.cancelRequested
+                        ? `Asks you to cancel ${goalRef(g)}`
+                        : `Asks you to decide ${goalRef(g)}`}
+                  </p>
+                </div>
+                <span className="shrink-0 font-mono text-[11px] text-accent">Open →</span>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* A missed goal has to be reflected on before a new one can be set. */}
       {owedReflections.length > 0 && (

@@ -16,7 +16,7 @@ import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { buildFailureMessage, checkGoalContent, SENSITIVE_CONTENT_MESSAGE } from '../lib/messages';
 import { toLocalInputValue } from '../lib/format';
 import { isReachable, REACHABLE_DAYS } from '../lib/push';
-import type { InvitedJudge, MessageTone } from '../lib/types';
+import type { MessageTone } from '../lib/types';
 import { Avatar } from '../components/Avatar';
 import ConfirmDialog from '../components/ConfirmDialog';
 import DateTimeField from '../components/DateTimeField';
@@ -64,8 +64,9 @@ export default function CreateGoal() {
   const [description, setDescription] = useState(saved.description ?? '');
   const [deadline, setDeadline] = useState(() => restoreDeadline(saved.deadline));
 
-  // The judge must be chosen from friends the user invited (Profile &gt; Invite friends).
-  const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
+  // The judge is a FRIEND — someone you follow who follows you back. There is
+  // nobody to invite and no address to type: the same list the recipient comes
+  // from, minus whoever is already the recipient.
   const [judgeId, setJudgeId] = useState(saved.judgeId ?? '');
   /**
    * The recipient is picked from FRIENDS — people the user follows who follow
@@ -88,7 +89,6 @@ export default function CreateGoal() {
 
   useEffect(() => {
     if (user) {
-      api.listInvitedJudges(user.id).then(setInvitedJudges);
       api.getNextGoalNumber(user.id).then(setGoalNumber);
       api.listFriends(user.id).then(setFriends);
     }
@@ -178,13 +178,17 @@ export default function CreateGoal() {
   function pickRecipient(id: string) {
     // One recipient per goal today, so choosing simply replaces.
     setRecipientIds(id ? [id] : []);
+    if (id && id === judgeId) setJudgeId('');
   }
   function removeRecipient(id: string) {
     setRecipientIds((ids) => ids.filter((x) => x !== id));
   }
 
-  const selectedJudge = invitedJudges.find((j) => j.id === judgeId) ?? null;
+  const selectedJudge = friends.find((f) => f.id === judgeId) ?? null;
   const judgeValid = !!selectedJudge;
+  // Nobody can be both: the judge decides the goal, the recipient hears how it
+  // went, and one person doing both makes the second meaningless.
+  const judgeChoices = friends.filter((f) => !recipientIds.includes(f.id));
   const chosenRecipients = recipientIds
     .map((id) => friends.find((f) => f.id === id))
     .filter((f): f is api.SocialProfile => !!f);
@@ -239,11 +243,7 @@ export default function CreateGoal() {
         deadlineAt: new Date(deadline).toISOString(),
         messageTone: tone,
         ackNotifyConsent: hasRecipients ? ackNotify : false,
-        judge: {
-          name: selectedJudge!.name,
-          channel: 'email',
-          contact: selectedJudge!.email,
-        },
+        judge: { judgeUserId: selectedJudge!.id, name: selectedJudge!.name },
         recipients: recips,
         appBlock: blockOn
           ? { packageName: app.packageName, appLabel: app.label, durationMinutes: blockDuration }
@@ -328,19 +328,19 @@ export default function CreateGoal() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-danger">Required</span>
           </div>
           <p className="mb-3 text-[11px] text-muted">
-            A friend who accepted your invite. They confirm whether you did it.
+            A friend, asked in the app. They confirm whether you did it.
           </p>
 
-          {invitedJudges.length === 0 ? (
+          {judgeChoices.length === 0 ? (
             <div className="rounded-xl border border-warn/40 bg-warn/5 p-3 text-[12px] text-ink">
-              Nobody invited yet —{' '}
-              <Link to="/invite-friends" className="text-accent underline">invite a friend</Link>.
+              No friends yet — find people in{' '}
+              <Link to="/social" className="text-accent underline">Social</Link>. A friend follows you back.
             </div>
           ) : (
             <Select value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
               <option value="" disabled>Choose a judge…</option>
-              {invitedJudges.map((j) => (
-                <option key={j.id} value={j.id}>{j.name} · {j.email}</option>
+              {judgeChoices.map((f) => (
+                <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </Select>
           )}
@@ -393,7 +393,7 @@ export default function CreateGoal() {
           ) : chosenRecipients.length === 0 ? (
             <Select value="" onChange={(e) => pickRecipient(e.target.value)}>
               <option value="" disabled>Choose a friend…</option>
-              {friends.map((f) => (
+              {friends.filter((f) => f.id !== judgeId).map((f) => (
                 <option key={f.id} value={f.id}>{f.name}</option>
               ))}
             </Select>

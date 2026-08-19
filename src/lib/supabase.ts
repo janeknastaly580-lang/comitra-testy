@@ -1,16 +1,17 @@
 /**
- * Minimal Supabase REST client (raw fetch, no SDK, so nothing extra to bundle
- * or build for the Android WebView).
+ * Minimal Supabase client (raw fetch, no SDK, so nothing extra to bundle or
+ * build for the Android WebView).
  *
- * This is the ONE shared store the app has: it exists so a friend who registers
- * as a judge on their own phone becomes pickable on the inviter's device. Every
- * other bit of state still lives in per-device LocalStorage, so all calls here
- * are best-effort: callers must keep working (local-only) when Supabase is not
- * configured or is unreachable.
+ * This is the ONE shared store the app has: it is where an owner's phone and
+ * their judge's phone meet. Everything else still lives in per-device
+ * LocalStorage, so every call here is best-effort — callers must keep working,
+ * local-only, when the backend is not configured or cannot be reached.
  *
- * Requires a one-time table + policies in the Supabase project, see
- * `supabase/comitra_invited_judges.sql`. Without it, `supabaseEnabled()` is still
- * true but calls fail and the app silently falls back to LocalStorage.
+ * EVERY ROUTE NOW NEEDS A SESSION. There used to be a second, anonymous path:
+ * a judge opened a link, had no account, and the link itself was the credential.
+ * Judges are app friends with accounts now and there are no judge links at all,
+ * so the anonymous door is closed (the SQL grants were revoked to match) and
+ * both sides of a goal are authorised by who they are signed in as.
  */
 
 import { KEYS, read } from './storage';
@@ -19,20 +20,19 @@ const RAW_URL = import.meta.env.VITE_SUPABASE_URL?.trim();
 const ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
 
 /**
- * The Edge Function's base URL, for the calls that are NOT capability-based.
+ * The Edge Function's base URL. Every call in this file goes through it.
  *
- * Two kinds of traffic leave this file. Goals and judge registration are opened
- * by a link and reach PostgREST directly, because the person holding the link
- * has no account yet — the link itself is the credential. Everything about an
- * ACCOUNT (its inbox, its judge list) goes through the backend instead, where a
- * session token says who is asking. Those used to go direct too, authorised by
- * a user id in the arguments; since friends know each other's ids, that let one
- * friend read another's inbox and judges' addresses.
+ * Nothing reaches PostgREST directly any more. The direct path existed for
+ * people without accounts (a judge holding a link) and was authorised by ids
+ * passed as arguments — but friends know each other's ids by design, which made
+ * an address into a credential. Now the backend takes the caller from the
+ * session token, which is the one thing nobody can hold on someone else's
+ * behalf.
  */
 const API_BASE = import.meta.env.VITE_API_BASE?.trim().replace(/\/+$/, '') ?? '';
 
 /** This device's session token, or null when nobody is signed in. */
-function sessionTokenOrNull(): string | null {
+export function sessionTokenOrNull(): string | null {
   return read<string | null>(KEYS.sessionToken, null);
 }
 
@@ -51,36 +51,6 @@ export function supabaseEnabled(): boolean {
   return !!restBase() && !!ANON_KEY;
 }
 
-/**
- * One shared row per (owner, judge email), the minimum the inviter needs to see
- * and pick a judge on another device.
- *
- * SECURITY: the judge's password (even its hash) is intentionally NOT here. It
- * never leaves the judge's own device; the shared store only carries the name +
- * address so the owner can display and select the judge. Reads are gated behind
- * an RPC that requires knowing the owner id (see supabase/comitra_invited_judges.sql),
- * so the table can't be enumerated.
- */
-export interface RemoteInvitedJudge {
-  id: string;
-  owner_user_id: string;
-  name: string;
-  email: string;
-  /** @deprecated rows written before judges moved to email. Never read. */
-  phone?: string | null;
-  judge_account_user_id: string | null;
-  consented_at: string | null;
-  created_at: string;
-}
-
-/**
- * What went wrong with a shared-store write, in terms the UI can act on.
- *
- * `setup` is the important one: the request reached Supabase and Supabase said
- * no, because the one-time SQL install (table / policies) hasn't been run, or
- * was only half-run. Nobody on the phone can fix that; the project owner has to
- * run `supabase/comitra_invited_judges.sql`.
- */
 export type SyncErrorKind =
   | 'not-configured'
   | 'setup'
@@ -163,55 +133,6 @@ async function timedFetch(url: string, init: RequestInit, ms = 8000): Promise<Re
 }
 
 /**
- * Publish (insert or update) a judge's registration to the shared store so the
- * inviting owner can see it on another device. Throws on failure so the judge
- * can be told to retry (their registration would otherwise silently not sync).
- */
-export async function remoteUpsertInvitedJudge(row: RemoteInvitedJudge): Promise<void> {
-  const base = restBase();
-  if (!base || !ANON_KEY) {
-    throw new SyncError('not-configured', 'Sync is not configured.');
-  }
-  let res: Response;
-  try {
-    // Writes go through a SECURITY DEFINER function, NOT a direct table insert.
-    // The table is fully locked to the anon key (it can't be read/dumped, and a
-    // direct `INSERT ... ON CONFLICT` upsert is impossible without a SELECT policy
-    // that would leak every address). The function performs the upsert
-    // server-side. See supabase/comitra_invited_judges.sql.
-    res = await timedFetch(
-      `${base}/rpc/comitra_register_invited_judge`,
-      {
-        method: 'POST',
-        headers: headers(),
-        body: JSON.stringify({
-          p_id: row.id,
-          p_owner_user_id: row.owner_user_id,
-          p_name: row.name,
-          p_email: row.email,
-          p_judge_account_user_id: row.judge_account_user_id,
-          p_consented_at: row.consented_at,
-          p_created_at: row.created_at,
-        }),
-      },
-    );
-  } catch {
-    throw new SyncError(
-      'offline',
-      "We couldn't reach the server. Check your connection and tap “Become a judge” again.",
-    );
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const err = classify(res.status, text);
-    // The detail (raw server text, SQL file to run) belongs in the console, not
-    // on a phone screen: the person reading the invite page can't act on it.
-    console.error('[supabase] judge sync failed:', err.detail ?? text);
-    throw err;
-  }
-}
-
-/**
  * Health of the shared store, as far as it can be told without writing data.
  *
  * `unreachable` and `no-server` are both "the request never got an answer", told
@@ -288,103 +209,121 @@ async function backendQuiet<T>(path: string, payload: unknown): Promise<{ ok: bo
 }
 
 /**
- * The judges this ACCOUNT has invited, across all its devices.
+ * The same call, but LOUD: for the paths where silence would be a lie.
  *
- * Takes no owner id any more, and that is the point: the backend answers for
- * whoever the session token belongs to. Passing an id would mean anyone who
- * learned one — every friend has it — could list that person's judges by name
- * and email address.
- *
- * Best-effort: returns [] on any failure so the caller falls back to whatever is
- * cached locally.
+ * Publishing a goal and recording a decision are things a person is told
+ * happened, so "we could not reach the server" has to arrive as an error the
+ * screen can show, not as a `null` that looks like "there was nothing there".
+ * The server's own wording is used when it sent one — it writes those for a
+ * person and leaves out anything sensitive.
  */
-export async function remoteListInvitedJudges(): Promise<RemoteInvitedJudge[]> {
-  const { data } = await backendQuiet<{ judges?: RemoteInvitedJudge[] }>('/api/judges/list', {});
-  return Array.isArray(data?.judges) ? data.judges : [];
+async function backendOrThrow<T>(path: string, payload: unknown, offlineMessage: string): Promise<T | null> {
+  const token = sessionTokenOrNull();
+  if (!API_BASE || !ANON_KEY) throw new SyncError('not-configured', 'Sync is not configured.');
+  if (!token) throw new SyncError('not-configured', 'You need to be signed in for this.');
+  let res: Response;
+  try {
+    res = await timedFetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: headers({ 'x-comitra-session': token }),
+      body: JSON.stringify(payload ?? {}),
+    });
+  } catch {
+    throw new SyncError('offline', offlineMessage);
+  }
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    let message: string;
+    try {
+      message = String((JSON.parse(text) as { error?: string }).error ?? '');
+    } catch {
+      message = '';
+    }
+    console.error(`[backend] ${path} -> HTTP ${res.status}`, text);
+    throw new SyncError(res.status === 400 ? 'unknown' : classify(res.status, text).kind, message || offlineMessage, text);
+  }
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
-/* ─────────────────────────────────────────────── Goals (judge access) ── */
+/* ──────────────────────────────────────────── Goals (owner + judge) ── */
 
 /**
  * A goal as it exists outside its owner's device.
  *
  * `data` is the ALLOW-LISTED projection built by `src/lib/goalShare.ts` — the
  * goal's title and details are not in it and never reach this file. What is
- * here is what a judge must see to do their job: which numbered goal, whose,
- * by when, and the judge's own state.
+ * here is what a judge must see to do their job: which numbered goal, whose, by
+ * when, and the judge's own state.
  *
- * Access is capability-based, never by owner: reads need `(id, token)`, and the
- * token only exists in the link the owner chose to send. There is deliberately
- * no "list an owner's goals" call — that would turn a leaked user id into a
- * dump of everything that person is working on.
+ * Access is by IDENTITY. A row can be written only by its owner, read only by
+ * its owner or the judge named on it, and listed by that judge. The old model
+ * had to be capability-based — a judge with no account could present nothing but
+ * a token — and paid for it: holding the token let you rewrite the whole
+ * projection, deadline included, and no "list my goals" call could exist at all
+ * because a leaked link would have become a dump of everything someone was
+ * working on.
  */
 export interface RemoteGoalRow {
   data: unknown;
   updated_at: string;
 }
 
-/** Push (insert or update) one goal's shared projection. Throws on failure. */
+/** Publish (insert or update) one goal's shared projection. Throws on failure. */
 export async function remotePutGoal(input: {
   id: string;
-  ownerUserId: string;
-  judgeToken: string;
-  shareToken: string;
+  judgeUserId?: string;
   data: unknown;
 }): Promise<void> {
-  const base = restBase();
-  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Sync is not configured.');
-  let res: Response;
-  try {
-    res = await timedFetch(`${base}/rpc/comitra_put_goal`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({
-        p_id: input.id,
-        p_owner_user_id: input.ownerUserId,
-        p_judge_token: input.judgeToken,
-        p_share_token: input.shareToken,
-        p_data: input.data,
-      }),
-    });
-  } catch {
-    throw new SyncError('offline', "We couldn't reach the server, so your judge may not see this yet.");
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const err = classify(res.status, text);
-    console.error('[supabase] goal sync failed:', err.detail ?? text);
-    throw err;
-  }
+  await backendOrThrow('/api/goals/put', {
+    id: input.id,
+    judgeUserId: input.judgeUserId ?? null,
+    data: input.data,
+  }, "We couldn't reach the server, so your judge may not see this yet.");
 }
 
 /**
- * Fetch one goal by its id and a token from the link. Returns null when the row
- * isn't there or the token doesn't match, and throws only when the server could
- * not be asked at all — the judge view needs to tell those two apart.
+ * Fetch one goal. Returns null when there is no such row FOR THIS ACCOUNT —
+ * which covers both "no such goal" and "not yours to read", deliberately
+ * indistinguishable — and throws only when the server could not be asked.
  */
-export async function remoteGetGoal(id: string, token: string): Promise<RemoteGoalRow | null> {
-  const base = restBase();
-  if (!base || !ANON_KEY) throw new SyncError('not-configured', 'Sync is not configured.');
-  let res: Response;
-  try {
-    res = await timedFetch(`${base}/rpc/comitra_get_goal`, {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ p_id: id, p_token: token }),
-    });
-  } catch {
-    throw new SyncError('offline', "We couldn't reach the server.");
-  }
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    const err = classify(res.status, text);
-    console.error('[supabase] goal fetch failed:', err.detail ?? text);
-    throw err;
-  }
-  // PostgREST returns a table-returning function as an array of rows.
-  const rows = (await res.json()) as RemoteGoalRow[];
-  const row = Array.isArray(rows) ? rows[0] : undefined;
-  return row?.data ? row : null;
+export async function remoteGetGoal(id: string): Promise<RemoteGoalRow | null> {
+  const data = await backendOrThrow<{ goal?: RemoteGoalRow | null }>(
+    '/api/goals/get',
+    { id },
+    "We couldn't reach the server.",
+  );
+  return data?.goal ?? null;
+}
+
+/** Every goal this account is the judge of. */
+export async function remoteListJudgingGoals(): Promise<{ id: string; data: unknown; updated_at: string }[]> {
+  const { data } = await backendQuiet<{ goals?: { id: string; data: unknown; updated_at: string }[] }>(
+    '/api/goals/judging',
+    {},
+  );
+  return Array.isArray(data?.goals) ? data.goals : [];
+}
+
+/** What a judge is allowed to do to a goal. The server builds the patch. */
+export type JudgeAction = 'accept' | 'decline' | 'completed' | 'not_completed' | 'cancel';
+
+/**
+ * Record a judge's action. The whole point is that this sends an ACTION, not a
+ * goal: the new row is built server-side from the stored one, so a judge writes
+ * their verdict and cannot touch anything else on it.
+ */
+export async function remoteJudgeAct(
+  id: string,
+  action: JudgeAction,
+  comment?: string,
+): Promise<RemoteGoalRow | null> {
+  const data = await backendOrThrow<{ goal?: RemoteGoalRow | null }>(
+    '/api/goals/judge-act',
+    { id, action, comment: comment ?? null },
+    "We couldn't reach the server, so your decision wasn't recorded. Try again.",
+  );
+  return data?.goal ?? null;
 }
 
 /* ─────────────────────────────────────────────────────── In-app push ──── */

@@ -34,22 +34,29 @@ import { backendEnabled } from './backend';
 import * as cloud from './cloud';
 import { cancelAppBlock, commitmentBlockId, penaltyBlockId, scheduleAppBlock } from './appBlock';
 import { MAX_INVITES_PER_DAY, MAX_RECIPIENTS_PER_GOAL, SUBSCRIPTION_PRICE_MONTHLY, TRIAL_MS } from './constants';
-import { goalRef } from './goal';
+import { goalNumberOf } from './goal';
 import { failureMessageForGoal, recipientInviteMessage } from './messages';
 import { getDeviceId, KEYS, read, uid, uuid, write } from './storage';
 import { EVERYDAY, dayKey, fromDayKey, isDueOn } from './renewing';
 import {
   remoteGetGoal,
-  remoteListInvitedJudges,
+  remoteJudgeAct,
+  remoteListJudgingGoals,
   remotePutGoal,
-  remoteSyncHealth,
-  remoteUpsertInvitedJudge,
   supabaseEnabled,
   SyncError,
-  type RemoteInvitedJudge,
-  type SyncErrorKind,
-  type SyncHealth,
+  type JudgeAction,
 } from './supabase';
+import { chatEnabled, sendMessage as sendChatMessage, type ChatRequest } from './chat';
+import {
+  fetchGraph,
+  fetchPeople,
+  publishProfile,
+  searchPeople,
+  setFollow,
+  socialSyncEnabled,
+  type DirectoryPerson,
+} from './social';
 import { isNewerThan, mergeSharedGoal, sharedFingerprint, toSharedGoal, type SharedGoal } from './goalShare';
 import {
   emailVerificationMode as emailOtpMode,
@@ -64,17 +71,13 @@ import type {
   AbuseReport,
   AppBlockPenalty,
   AuditLog,
-  Channel,
   FeatureRequest,
   FeatureRequestView,
   Goal,
   GoalJudge,
   GoalReflection,
   GoalStatus,
-  InvitedJudge,
-  JudgeCredential,
   JudgeDecision,
-  JudgeInvite,
   JudgeRating,
   League,
   LegalAcceptance,
@@ -141,12 +144,14 @@ const goalPushes = new Set<Promise<void>>();
  * copy to exist off the device.
  */
 function pushGoal(goal: Goal): void {
+  // Only the owner may publish, and the server enforces that against the stored
+  // row — so a judge's device must not even try: it would be refused, and the
+  // refusal would be logged as if something had gone wrong.
   if (!supabaseEnabled() || goal.noJudge) return;
+  if (read<string | null>(KEYS.session, null) !== goal.userId) return;
   const task = remotePutGoal({
     id: goal.id,
-    ownerUserId: goal.userId,
-    judgeToken: goal.judge.acceptToken,
-    shareToken: goal.shareToken,
+    judgeUserId: goal.judge.judgeUserId,
     data: toSharedGoal(goal),
   })
     .catch((err) => {
@@ -181,21 +186,59 @@ function absorbSharedGoal(shared: SharedGoal): Goal | null {
   // Straight to storage: saveGoals would see a change and push it back, and a
   // pull is not a change.
   write(KEYS.goals, next);
-  // A judge's "not completed" can only be delivered by the owner's device: the
-  // recipients' contacts live there and nowhere else.
-  if (merged.status === 'failed_pending_notification') dispatchFailureNotifications(merged.id);
+  applyLocalConsequences(merged);
   return getGoals().find((g) => g.id === merged.id) ?? merged;
 }
 
 /**
- * Pull one goal from the shared store using a token from its link. Best-effort
- * by default; `strict` lets the judge view tell "no such goal" apart from "the
- * server never answered", which are very different things to show someone.
+ * Do, on THIS phone, what a verdict made on another one means here.
+ *
+ * A judge decides on their own device, so everything a decision costs has to
+ * happen when the owner's device picks it up: the app block runs on the owner's
+ * phone, and the recipients' consents exist nowhere else. Both are guarded on
+ * being the owner — a judge absorbing the same row must not block their own
+ * Instagram or try to message people they have never heard of.
+ *
+ * Idempotent by construction: every branch is a no-op the second time.
  */
-async function pullGoal(id: string, token: string, strict = false): Promise<Goal | null> {
-  if (!supabaseEnabled() || !id || !token) return null;
+function applyLocalConsequences(goal: Goal): void {
+  if (read<string | null>(KEYS.session, null) !== goal.userId) return;
+
+  if (goal.status === 'failed_pending_notification') dispatchFailureNotifications(goal.id);
+
+  // The penalty block. `appBlockUntil` is set by whoever recorded the verdict —
+  // possibly the server — but only the owner's phone can actually enforce it.
+  if (goal.appBlock && goal.appBlockUntil) {
+    const until = +new Date(goal.appBlockUntil);
+    if (Number.isFinite(until) && until > Date.now()) {
+      void scheduleAppBlock(penaltyBlockId(goal.id), goal.appBlock.packageName, goal.appBlock.appLabel, until);
+    }
+  }
+  if (goal.status === 'completed' || goal.status === 'cancelled') {
+    cancelAppBlock(penaltyBlockId(goal.id));
+  }
+  // A goal that ended releases the app its owner locked away for the duration.
+  if (TERMINAL_STATUSES.includes(goal.status) && goal.commitmentBlock && !goal.commitmentBlock.liftedAt) {
+    const goals = getGoals();
+    const local = goals.find((g) => g.id === goal.id);
+    if (local?.commitmentBlock && !local.commitmentBlock.liftedAt) {
+      local.commitmentBlock = { ...local.commitmentBlock, liftedAt: new Date().toISOString() };
+      write(KEYS.goals, goals);
+      cancelAppBlock(commitmentBlockId(goal.id));
+    }
+  }
+}
+
+/**
+ * Pull one goal from the shared store. The server answers only for the account
+ * that owns it or the one judging it, so there is nothing to present but being
+ * signed in. Best-effort by default; `strict` lets a caller tell "no such goal"
+ * apart from "the server never answered", which are very different things.
+ */
+async function pullGoal(id: string, strict = false): Promise<Goal | null> {
+  if (!supabaseEnabled() || !id) return null;
   try {
-    const row = await remoteGetGoal(id, token);
+    const row = await remoteGetGoal(id);
     if (!row) return null;
     return absorbSharedGoal(row.data as SharedGoal);
   } catch (err) {
@@ -903,14 +946,14 @@ async function pullRunningGoals(userId: string): Promise<void> {
   }
 
   // Bounded: a dashboard load must not fan out to dozens of requests.
-  await Promise.all(mine.slice(0, 12).map((g) => pullGoal(g.id, g.judge.acceptToken)));
+  await Promise.all(mine.slice(0, 12).map((g) => pullGoal(g.id)));
 }
 
 export async function getGoal(id: string): Promise<Goal | null> {
   resolveExpired();
   const local = getGoals().find((g) => g.id === id) ?? null;
   if (local && !local.noJudge && !TERMINAL_STATUSES.includes(local.status)) {
-    await pullGoal(id, local.judge.acceptToken);
+    await pullGoal(id);
     resolveExpired();
   }
   return getGoals().find((g) => g.id === id) ?? local;
@@ -947,8 +990,12 @@ export interface CreateGoalInput {
   deadlineAt: string; // ISO
   messageTone: MessageTone;
   ackNotifyConsent: boolean;
-  /** Omit the judge entirely to create a solo (self-tracked) goal. */
-  judge?: { name: string; channel: Channel; contact?: string; judgeUserId?: string };
+  /**
+   * The friend who will judge this goal. Omit it entirely for a solo, self-
+   * tracked goal. A judge is an ACCOUNT now — there is no address to type and
+   * nobody to invite: you pick someone you are already friends with.
+   */
+  judge?: { judgeUserId: string; name: string };
   recipients: RecipientInput[];
   /** Penalty: block an app for a while if the goal is not completed. */
   appBlock?: AppBlockPenalty;
@@ -1002,15 +1049,6 @@ function buildPlannedActions(input: CreateGoalInput): PlannedAction[] {
   }));
 }
 
-/**
- * The stored form of a contact. Only email addresses reach this now — a judge's
- * address — and lower-casing is what makes "Kasia@x.com" and "kasia@x.com" the
- * same judge rather than two.
- */
-function normalizeContact(_channel: Channel, raw?: string): string | undefined {
-  if (!raw) return undefined;
-  return raw.trim().toLowerCase();
-}
 
 /** How many recipient invites this owner has sent in the last 24h. */
 function invitesSentToday(ownerUserId: string): number {
@@ -1196,13 +1234,16 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   const consents = recips.map((r) => upsertConsent(input.userId, r));
 
   const noJudge = !input.judge;
+  if (input.judge && input.judge.judgeUserId === input.userId) {
+    throw new Error('You cannot be the judge of your own goal.');
+  }
   const judge: GoalJudge = input.judge
     ? {
         name: input.judge.name.trim() || 'Judge',
-        channel: input.judge.channel,
-        judgeContact: normalizeContact(input.judge.channel, input.judge.contact),
+        channel: 'internal',
         judgeUserId: input.judge.judgeUserId,
         status: 'pending',
+        // Written, never read: see the note on `GoalJudge.acceptToken`.
         acceptToken: uuid(),
       }
     : {
@@ -1214,18 +1255,6 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
         acceptedAt: new Date().toISOString(),
         acceptToken: uuid(),
       };
-
-  // Standing acceptance: if THIS owner has already had this judge accept a role
-  // (and set a code), the judge does not need to re-consent, pre-accept them.
-  if (input.judge) {
-    const standing = findJudgeCredential(input.userId, judgeKeyFor(judge));
-    if (standing) {
-      judge.status = 'accepted';
-      judge.acceptedAt = new Date().toISOString();
-      judge.codeSet = true;
-      if (standing.judgeAccountUserId) judge.judgeAccountUserId = standing.judgeAccountUserId;
-    }
-  }
 
   const goals = getGoals();
   const goal: Goal = {
@@ -1260,29 +1289,26 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
   goals.push(recompute(goal));
   saveGoals(goals);
 
-  // Notification #2: ask the chosen judge to accept the role (unless pre-accepted).
-  // Carries the goal NUMBER only: never the title or the details.
-  if (input.judge && judge.status !== 'accepted') {
-    queueOutbox({
-      goalId: goal.id,
-      kind: 'judge_invite',
-      to: 'judge',
-      channel: judge.channel,
-      contact: judge.judgeContact,
-      body:
-        `${goal.creatorName} asks you to be the judge for their ${goalRef(goal)}. Open your judge ` +
-        `link to accept the role, set your secret code, and later say whether they completed it. ` +
-        `Comitra does not show you what the goal is. ${goal.creatorName} tells you that themselves.`,
-    });
-  }
 
   if (recips.length > 0) {
     logLegalAcceptance({ type: 'goal_notify_ack', userId: input.userId, goalId: goal.id });
   }
   logAudit({ actorId: input.userId, actionType: 'goal_created', entityType: 'goal', entityId: goal.id, metadata: { tone: goal.messageTone, recipients: consents.length } });
-  // The judge link is offered on the very next screen, so the goal has to be in
-  // the shared store before the owner can send it anywhere.
+
+  // The judge has to be able to open this the moment they are asked, so it must
+  // reach the shared store BEFORE the message that tells them about it.
   await flushGoalSync();
+
+  // Asking them is a message in their conversation, with the accept/decline
+  // buttons on it. It carries the goal NUMBER and nothing else — the same rule
+  // as everywhere: the owner tells their judge what the goal is themselves.
+  if (input.judge) {
+    await sendChatMessage({
+      toUserId: input.judge.judgeUserId,
+      kind: 'request',
+      payload: { request: 'judge_invite', goalId: goal.id, goalNumber: goal.goalNumber },
+    });
+  }
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -1540,222 +1566,6 @@ function resolveExpired() {
 
 /* ─────────────────────────────────── Judge codes / credentials ── */
 
-function getJudgeCredentials(): JudgeCredential[] {
-  return read<JudgeCredential[]>(KEYS.judgeCredentials, []);
-}
-function saveJudgeCredentials(list: JudgeCredential[]) {
-  write(KEYS.judgeCredentials, list);
-}
-
-/** Minimum length of a judge's secret verification code. */
-export const JUDGE_CODE_MIN = 4;
-
-/**
- * Placeholder hash stored for a judge whose acceptance was synced from another
- * device. The real password hash never leaves the judge's own device, so on the
- * owner's device we only need a marker that a standing acceptance EXISTS (used by
- * `createGoal` to pre-accept). This value can never match a real code hash, which
- * is fine: the owner is device-blocked from ever verifying a code themselves.
- */
-const SYNCED_CODE_SENTINEL = 'synced:remote';
-
-/** Non-cryptographic hash so codes are never stored in the clear (MVP only). */
-function hashCode(code: string): string {
-  const s = `comitra:judge:${code.trim()}`;
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return `h${(h >>> 0).toString(36)}`;
-}
-
-/** Stable identity of a judge for one owner (account id, else contact). */
-function judgeKeyFor(judge: Pick<GoalJudge, 'judgeUserId' | 'judgeContact'>): string {
-  if (judge.judgeUserId) return `u:${judge.judgeUserId}`;
-  if (judge.judgeContact) return `c:${judge.judgeContact}`;
-  return '';
-}
-
-function findJudgeCredential(ownerUserId: string, judgeKey: string): JudgeCredential | undefined {
-  if (!judgeKey) return undefined;
-  return getJudgeCredentials().find((c) => c.ownerUserId === ownerUserId && c.judgeKey === judgeKey);
-}
-
-/** Create or update a judge's standing credential (acceptance + code) for an owner. */
-function upsertJudgeCredential(ownerUserId: string, judgeKey: string, code: string, judgeAccountUserId?: string): void {
-  upsertJudgeCredentialHash(ownerUserId, judgeKey, hashCode(code), judgeAccountUserId);
-}
-
-/**
- * Same as `upsertJudgeCredential` but takes an already-hashed code. Used when a
- * standing acceptance arrives from the shared store (another device), where only
- * the hash: never the raw password: is available.
- */
-function upsertJudgeCredentialHash(ownerUserId: string, judgeKey: string, codeHash: string, judgeAccountUserId?: string): void {
-  if (!judgeKey || !codeHash) return;
-  const list = getJudgeCredentials();
-  const existing = list.find((c) => c.ownerUserId === ownerUserId && c.judgeKey === judgeKey);
-  if (existing) {
-    existing.codeHash = codeHash;
-    if (judgeAccountUserId) existing.judgeAccountUserId = judgeAccountUserId;
-  } else {
-    list.push({ id: uid('jc'), ownerUserId, judgeKey, codeHash, judgeAccountUserId, createdAt: new Date().toISOString() });
-  }
-  saveJudgeCredentials(list);
-}
-
-/** Whether this owner has an existing standing acceptance for this judge. */
-export function hasStandingJudgeAcceptance(ownerUserId: string, judge: Pick<GoalJudge, 'judgeUserId' | 'judgeContact'>): boolean {
-  return !!findJudgeCredential(ownerUserId, judgeKeyFor(judge));
-}
-
-/* ─────────────────────────── Invite friends as judges ── */
-
-function getJudgeInvites(): JudgeInvite[] {
-  return read<JudgeInvite[]>(KEYS.judgeInvites, []);
-}
-function getInvitedJudges(): InvitedJudge[] {
-  return read<InvitedJudge[]>(KEYS.invitedJudges, []);
-}
-
-/**
- * The identity an invite link carries in itself. Because everything the judge
- * needs is embedded here (not looked up in the inviter's LocalStorage), the link
- * opens on ANY device: this is what makes cross-device invites work without a
- * shared backend. `d` (the inviter's device id) also powers the "accept from a
- * different device" anti-cheat check.
- */
-interface JudgeInvitePayload {
-  v: 1;
-  t: string; // reusable invite token (per owner)
-  o: string; // ownerUserId
-  n: string; // owner display name (fallback when the owner isn't on this device)
-  d: string; // inviter device id
-}
-
-/** UTF-8-safe base64url so owner names with accents survive the round-trip. */
-function b64urlEncode(s: string): string {
-  const bytes = new TextEncoder().encode(s);
-  let bin = '';
-  bytes.forEach((b) => (bin += String.fromCharCode(b)));
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function b64urlDecode(s: string): string {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
-  const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-function encodeInvitePayload(p: JudgeInvitePayload): string {
-  return b64urlEncode(JSON.stringify(p));
-}
-function decodeInvitePayload(token: string): JudgeInvitePayload | null {
-  try {
-    const p = JSON.parse(b64urlDecode(token)) as JudgeInvitePayload;
-    return p && p.v === 1 && p.o ? p : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Get (or create) the owner's reusable invite token and return a **self-contained
- * link token** that embeds who is inviting + which device generated it, so the
- * link resolves on any device the friend opens it on.
- */
-export async function getOrCreateJudgeInvite(
-  ownerUserId: string,
-): Promise<JudgeInvite & { inviteToken: string }> {
-  await delay(60);
-  const list = getJudgeInvites();
-  const deviceId = getDeviceId();
-  let invite = list.find((i) => i.ownerUserId === ownerUserId);
-  if (invite) {
-    // Backfill the inviter device on older invites so the device check works.
-    if (!invite.inviterDeviceId) {
-      invite.inviterDeviceId = deviceId;
-      write(KEYS.judgeInvites, list);
-    }
-  } else {
-    invite = { ownerUserId, token: uuid(), inviterDeviceId: deviceId, createdAt: new Date().toISOString() };
-    list.push(invite);
-    write(KEYS.judgeInvites, list);
-  }
-  const owner = getUsers().find((u) => u.id === ownerUserId);
-  const inviteToken = encodeInvitePayload({
-    v: 1,
-    t: invite.token,
-    o: ownerUserId,
-    n: owner?.name ?? 'A Comitra user',
-    d: invite.inviterDeviceId ?? deviceId,
-  });
-  return { ...invite, inviteToken };
-}
-
-/** Why an invite can't be accepted here (so we never show a bare "invalid"). */
-export type JudgeInviteBlockReason = 'unreadable' | 'same-device' | 'same-account';
-
-/** What the public accept page can resolve from an invite token. */
-export interface JudgeInviteInfo {
-  /** `false` when the token is missing/corrupted/from an old version. */
-  ok: boolean;
-  reason?: JudgeInviteBlockReason;
-  ownerName: string;
-  ownerUserId: string;
-  /** True when opened on the same device that generated the link (must be blocked). */
-  sameDevice: boolean;
-  /** True when the person opening it is logged in as the inviter (must be blocked). */
-  sameAccount: boolean;
-}
-
-/**
- * Resolve an invite token for the public accept page. Never returns null now:
- * an unreadable token comes back as `{ ok:false, reason:'unreadable' }` so the
- * page can explain the problem instead of just saying "invalid".
- */
-export async function getJudgeInvite(token: string): Promise<JudgeInviteInfo> {
-  await delay(60);
-  const sessionId = read<string | null>(KEYS.session, null);
-  const deviceId = getDeviceId();
-
-  const resolve = (ownerUserId: string, ownerName: string, inviterDeviceId?: string): JudgeInviteInfo => {
-    const sameDevice = !!inviterDeviceId && deviceId === inviterDeviceId;
-    const sameAccount = !!sessionId && sessionId === ownerUserId;
-    return {
-      ok: !sameDevice && !sameAccount,
-      reason: sameDevice ? 'same-device' : sameAccount ? 'same-account' : undefined,
-      ownerName,
-      ownerUserId,
-      sameDevice,
-      sameAccount,
-    };
-  };
-
-  const payload = decodeInvitePayload(token);
-  if (payload) {
-    // Self-contained link: valid on any device.
-    const owner = getUsers().find((u) => u.id === payload.o);
-    return resolve(payload.o, owner?.name ?? payload.n ?? 'A Comitra user', payload.d);
-  }
-  // Legacy raw token (same-browser only).
-  const invite = token ? getJudgeInvites().find((i) => i.token === token) : undefined;
-  if (invite) {
-    const owner = getUsers().find((u) => u.id === invite.ownerUserId);
-    return resolve(invite.ownerUserId, owner?.name ?? 'A Comitra user', invite.inviterDeviceId);
-  }
-  // Token missing / corrupted / from an old app version, explain, don't say "invalid".
-  return { ok: false, reason: 'unreadable', ownerName: '', ownerUserId: '', sameDevice: false, sameAccount: false };
-}
-
-/** Resolve the inviting owner (+ device) for a token, self-contained or legacy. */
-function resolveInvite(token: string): { ownerUserId: string; inviterDeviceId?: string } | null {
-  const payload = decodeInvitePayload(token);
-  if (payload) return { ownerUserId: payload.o, inviterDeviceId: payload.d };
-  const invite = getJudgeInvites().find((i) => i.token === token);
-  if (!invite) return null;
-  return { ownerUserId: invite.ownerUserId, inviterDeviceId: invite.inviterDeviceId };
-}
-
-/* ────────────────────────────────── Email verification ── */
-
 /** Loose on purpose: the authority on whether an address works is the mailbox. */
 const EMAIL_SHAPE = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]{2,}$/;
 
@@ -1826,421 +1636,6 @@ export async function verifyEmailCode(
  * emailed you a code" screen no backend can follow through on would strand
  * every judge at a code that never arrives.
  */
-export async function judgeEmailVerificationAvailable(): Promise<boolean> {
-  return (await emailVerificationMode()) === 'required';
-}
-
-/**
- * The friend submits the invite form: their name, email and judge password, and
- * consents to Comitra messages about this owner's goals. This registers them as
- * a pickable judge for that owner and stores their standing acceptance + password.
- * The name must be unique among this owner's judges, and the link must be opened
- * on a different device than the one that created it. `emailVerified` records
- * that they passed the code check (the UI only sets it after `verifyEmailCode`
- * succeeds).
- */
-export async function submitJudgeInvite(
-  token: string,
-  input: { name: string; email: string; code: string; emailVerified?: boolean },
-): Promise<InvitedJudge> {
-  await delay();
-  const invite = resolveInvite(token);
-  if (!invite) throw new Error("We couldn't read this invite link. Ask your friend to send you a fresh one.");
-  // Anti-cheat: the inviter must not register as their own judge from their device.
-  if (invite.inviterDeviceId && getDeviceId() === invite.inviterDeviceId) {
-    throw new Error('Open this invite on a different device than the one that created it.');
-  }
-  // Anti-cheat: the inviter must not register as their own judge from their account.
-  const sessionId = read<string | null>(KEYS.session, null);
-  if (sessionId && sessionId === invite.ownerUserId) {
-    throw new Error('You are signed in as the person who created this invite. A judge has to be someone else.');
-  }
-  const email = normalizeEmail(input.email);
-  if (!emailLooksValid(email)) throw new Error('Enter a valid email address.');
-  const code = (input.code ?? '').trim();
-  if (code.length < JUDGE_CODE_MIN) throw new Error(`Set a judge password of at least ${JUDGE_CODE_MIN} characters.`);
-  const name = input.name.trim();
-  if (name.length < 2) throw new Error('Enter your name (at least 2 characters).');
-
-  const list = getInvitedJudges();
-  const now = new Date().toISOString();
-  // The name must be unique among this owner's judges (a different person can't
-  // reuse a name already taken for this owner).
-  const nameKey = name.toLowerCase();
-  const nameTaken = list.some(
-    (j) => j.ownerUserId === invite.ownerUserId && j.name.trim().toLowerCase() === nameKey && j.email !== email,
-  );
-  if (nameTaken) {
-    throw new Error('That name is already used by one of this person’s judges. Please choose a different name.');
-  }
-
-  let record = list.find((j) => j.ownerUserId === invite.ownerUserId && j.email === email);
-  if (record) {
-    record.name = name;
-    record.consentedAt = now;
-    if (input.emailVerified) record.emailVerifiedAt = now;
-  } else {
-    record = {
-      id: uid('ij'),
-      ownerUserId: invite.ownerUserId,
-      name,
-      email,
-      consentedAt: now,
-      emailVerifiedAt: input.emailVerified ? now : undefined,
-      createdAt: now,
-    };
-    list.push(record);
-  }
-  write(KEYS.invitedJudges, list);
-
-  // Store the standing acceptance + judge password for this owner+judge.
-  const codeHash = hashCode(code);
-  upsertJudgeCredentialHash(invite.ownerUserId, judgeKeyFor({ judgeContact: email }), codeHash);
-  logLegalAcceptance({ type: 'judge_role_ack', contact: email, meta: { ownerUserId: invite.ownerUserId, source: 'invite' } });
-  logAudit({ actorContact: email, actionType: 'judge_invite_accepted', entityType: 'user', entityId: invite.ownerUserId });
-
-  // Publish to the shared store so the inviter sees this judge on THEIR device.
-  // This is the whole point of the invite: without it, the registration would
-  // only ever live on the judge's phone. If Supabase is configured we require
-  // the sync to succeed (and tell the judge to retry on failure); if it isn't
-  // configured we keep the old same-browser-only behaviour.
-  //
-  // SECURITY: `codeHash` is deliberately NOT sent, the judge's password stays on
-  // this device only. The owner never verifies it (they can't judge their own
-  // goal), so they only need to know the judge exists (see mergeRemoteInvitedJudges).
-  if (supabaseEnabled()) {
-    try {
-      await remoteUpsertInvitedJudge({
-        id: record.id,
-        owner_user_id: record.ownerUserId,
-        name: record.name,
-        email: record.email,
-        judge_account_user_id: null,
-        consented_at: record.consentedAt ?? now,
-        created_at: record.createdAt,
-      });
-    } catch (err) {
-      // `SyncError` messages are already written for the person on the invite
-      // page (and deliberately carry no server internals, those go to the
-      // console). Anything else gets a plain retry prompt.
-      if (err instanceof SyncError) throw err;
-      // `cause` keeps the original for the console/devtools; the message stays
-      // the friendly one, since the judge can't act on a network stack trace.
-      throw new Error(
-        "You're almost set, but we couldn't reach the server to finish registering you. " +
-          'Check your connection and tap “Become a judge” again.',
-        { cause: err },
-      );
-    }
-  }
-  return record;
-}
-
-/**
- * Pull the judges registered for this owner from the shared store into the local
- * cache, and materialise each one's standing credential so `createGoal` can
- * pre-accept them. This is what makes a judge who signed up on another device
- * actually appear in the owner's picker.
- */
-function mergeRemoteInvitedJudges(ownerUserId: string, remote: RemoteInvitedJudge[]): void {
-  if (remote.length === 0) return;
-  const local = getInvitedJudges();
-  let changed = false;
-  for (const r of remote) {
-    if (r.owner_user_id !== ownerUserId) continue;
-    const existing = local.find((j) => j.ownerUserId === ownerUserId && j.email === r.email);
-    if (existing) {
-      if (existing.name !== r.name) {
-        existing.name = r.name;
-        changed = true;
-      }
-    } else {
-      local.push({
-        id: r.id,
-        ownerUserId,
-        name: r.name,
-        email: r.email,
-        consentedAt: r.consented_at ?? r.created_at,
-        createdAt: r.created_at,
-      });
-      changed = true;
-    }
-    // Materialise a standing acceptance so a picked judge's goal skips
-    // waiting-for-judge. We only have a sentinel (never the real password hash),
-    // which is all the owner needs: they can't verify a code themselves anyway.
-    // Don't clobber a real local hash if one somehow already exists.
-    const existingCred = findJudgeCredential(ownerUserId, judgeKeyFor({ judgeContact: r.email }));
-    if (!existingCred) {
-      upsertJudgeCredentialHash(
-        ownerUserId,
-        judgeKeyFor({ judgeContact: r.email }),
-        SYNCED_CODE_SENTINEL,
-        r.judge_account_user_id ?? undefined,
-      );
-    }
-  }
-  if (changed) write(KEYS.invitedJudges, local);
-}
-
-/**
- * Whether cross-device judge sync is actually live, so the Invite-friends screen
- * can say so before the owner sends a link to a friend. `off` = no shared store
- * configured (invites then only work inside this browser).
- */
-export async function getJudgeSyncHealth(): Promise<SyncHealth> {
-  return remoteSyncHealth();
-}
-
-/** Friends the owner invited who can be picked as a judge (synced across devices). */
-export async function listInvitedJudges(ownerUserId: string): Promise<InvitedJudge[]> {
-  await delay(60);
-  if (supabaseEnabled()) {
-    // Best-effort: remoteListInvitedJudges returns [] on any failure, so a dead
-    // network just falls back to whatever is already cached locally.
-    const remote = await remoteListInvitedJudges();
-    mergeRemoteInvitedJudges(ownerUserId, remote);
-  }
-  return getInvitedJudges()
-    .filter((j) => j.ownerUserId === ownerUserId)
-    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
-}
-
-/* ───────────────────────────────────────────────── Judge acceptance ── */
-
-export type JudgeAccess =
-  | { state: 'not-found' }
-  | { state: 'invalid-token' }
-  /** The shared store isn't configured, so a link can only open on the owner's own device. */
-  | { state: 'sync-off' }
-  /** The shared store exists but couldn't be asked (offline, dead address, missing SQL). */
-  | { state: 'sync-unavailable'; reason: SyncErrorKind }
-  | { state: 'creator-blocked'; goal: Goal }
-  | { state: 'pending-acceptance'; goal: Goal }
-  | { state: 'declined'; goal: Goal }
-  | { state: 'awaiting-decision'; goal: Goal }
-  | { state: 'decided'; goal: Goal };
-
-/** Resolve what the /verify (judge) panel may show for a token. */
-export async function getJudgeAccess(goalId: string, token: string): Promise<JudgeAccess> {
-  await delay(80);
-  resolveExpired();
-  // The judge is on their own phone, where this goal has never existed: fetch it
-  // from the shared store with the token out of the link. Refreshed even when a
-  // copy is already here, so a deadline the owner moved is the one shown.
-  if (supabaseEnabled()) {
-    try {
-      await pullGoal(goalId, token, true);
-    } catch (err) {
-      const kind = err instanceof SyncError ? err.kind : 'unknown';
-      // Only fatal when there's nothing local to fall back on.
-      if (!getGoals().some((g) => g.id === goalId)) return { state: 'sync-unavailable', reason: kind };
-    }
-  }
-  resolveExpired();
-  const goal = getGoals().find((g) => g.id === goalId);
-  if (!goal) return { state: supabaseEnabled() ? 'not-found' : 'sync-off' };
-  if (goal.judge.acceptToken !== token && goal.shareToken !== token) return { state: 'invalid-token' };
-  // Device isolation: the creator can never act as their own judge.
-  if (getDeviceId() === goal.creatorDeviceId) return { state: 'creator-blocked', goal };
-
-  if (goal.judge.status === 'declined') return { state: 'declined', goal };
-  if (goal.judge.decision) return { state: 'decided', goal };
-  // A goal the judge cancelled (at the user's request) is closed.
-  if (goal.status === 'cancelled') return { state: 'decided', goal };
-  if (goal.judge.status !== 'accepted') return { state: 'pending-acceptance', goal };
-  return { state: 'awaiting-decision', goal };
-}
-
-/** What the owner asked their judge for, carried by the link they sent. */
-export type JudgeLinkRequest = 'decision' | 'edit';
-
-/**
- * Record what the owner asked for, from the link the judge just opened.
- *
- * The link IS the request: Comitra never messages a judge by itself, so a judge
- * can only be looking at `?ask=decision` / `?ask=edit` because the owner sent
- * them that link. Opening it unlocks exactly one panel — the decision one, or
- * the change/cancel one — and nothing else. Best-effort: a link for a goal that
- * is finished (or on a device that doesn't have it) simply changes nothing.
- */
-export async function applyJudgeLinkRequest(
-  goalId: string,
-  token: string,
-  ask: JudgeLinkRequest,
-): Promise<void> {
-  await delay(40);
-  const goals = getGoals();
-  const goal = goals.find((g) => g.id === goalId);
-  if (!goal) return;
-  if (goal.judge.acceptToken !== token && goal.shareToken !== token) return;
-  if (goal.noJudge || goal.judge.decision) return;
-  if (!CANCELLABLE_STATUSES.includes(goal.status)) return;
-
-  if (ask === 'decision' && !goal.earlyDecisionRequested) {
-    goal.earlyDecisionRequested = true;
-  } else if (ask === 'edit' && !goal.cancelRequested) {
-    goal.cancelRequested = true;
-  } else {
-    return; // already recorded, don't rewrite storage on every page load
-  }
-  saveGoals(goals);
-  logAudit({
-    actorContact: goal.judge.judgeContact,
-    actionType: ask === 'decision' ? 'judge_asked_to_decide' : 'judge_asked_to_change',
-    entityType: 'goal',
-    entityId: goal.id,
-  });
-  await flushGoalSync();
-}
-
-function authorizeJudge(goalId: string, token: string): { goals: Goal[]; goal: Goal } {
-  const goals = getGoals();
-  const goal = goals.find((g) => g.id === goalId);
-  if (!goal) throw new Error('Goal not found.');
-  if (goal.judge.acceptToken !== token && goal.shareToken !== token) throw new Error('Invalid judge link.');
-  if (getDeviceId() === goal.creatorDeviceId) throw new Error('You cannot judge your own goal.');
-  return { goals, goal };
-}
-
-/**
- * Judge accepts the role and sets their secret code. The acceptance + code are
- * stored as a standing credential for this goal-owner, so the same owner can
- * assign this judge again without re-asking. The code is required to verify any
- * of that owner's goals later.
- */
-export async function acceptJudge(goalId: string, token: string, code: string): Promise<Goal> {
-  await delay();
-  const { goals, goal } = authorizeJudge(goalId, token);
-  const trimmed = (code ?? '').trim();
-  if (trimmed.length < JUDGE_CODE_MIN) {
-    throw new Error(`Set a secret code of at least ${JUDGE_CODE_MIN} characters.`);
-  }
-  // Attribute the role to the judge's logged-in account (if any and not the creator).
-  const sessionId = read<string | null>(KEYS.session, null);
-  const judgeAccountUserId: string | undefined =
-    sessionId && sessionId !== goal.userId ? sessionId : goal.judge.judgeAccountUserId;
-  goal.judge = { ...goal.judge, status: 'accepted', acceptedAt: new Date().toISOString(), codeSet: true, judgeAccountUserId };
-  upsertJudgeCredential(goal.userId, judgeKeyFor(goal.judge), trimmed, judgeAccountUserId ?? undefined);
-  saveGoals(goals);
-  logLegalAcceptance({ type: 'judge_role_ack', contact: goal.judge.judgeContact, goalId: goal.id });
-  logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_accepted', entityType: 'goal', entityId: goal.id });
-  reevaluateGoals((g) => g.id === goal.id);
-  // The owner is not in the room: wait for the acceptance to reach the store, so
-  // "they accepted" is a fact on the server before this screen says so.
-  await flushGoalSync();
-  return getGoals().find((g) => g.id === goal.id)!;
-}
-
-/** Verify a judge's secret code against the owner's standing credential. */
-function verifyJudgeCode(goal: Goal, code: string): void {
-  const cred = findJudgeCredential(goal.userId, judgeKeyFor(goal.judge));
-  if (!cred) throw new Error('No secret code is on file. Accept the judge role first.');
-  if (cred.codeHash !== hashCode((code ?? '').trim())) throw new Error('Incorrect secret code.');
-}
-
-export async function declineJudge(goalId: string, token: string): Promise<Goal> {
-  await delay();
-  const { goals, goal } = authorizeJudge(goalId, token);
-  goal.judge = { ...goal.judge, status: 'declined', declinedAt: new Date().toISOString() };
-  // A declined judge means the goal never becomes active.
-  goal.status = 'cancelled';
-  goal.cancelledAt = new Date().toISOString();
-  saveGoals(goals);
-  logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_declined', entityType: 'goal', entityId: goal.id });
-  await flushGoalSync();
-  return goal;
-}
-
-/**
- * Record the judge's decision. `completed` → completed. `not_completed` →
- * start the app block and dispatch notifications to accepted recipients.
- */
-export async function judgeDecision(
-  goalId: string,
-  token: string,
-  decision: JudgeDecision,
-  comment: string | undefined,
-  code: string,
-): Promise<Goal> {
-  await delay();
-  const { goals, goal } = authorizeJudge(goalId, token);
-  verifyJudgeCode(goal, code);
-  // The judge may decide before the deadline ONLY if the creator asked for it.
-  const pastDeadline = Date.now() > +new Date(goal.deadlineAt);
-  if (goal.status === 'active' && !pastDeadline && !goal.earlyDecisionRequested) {
-    throw new Error('You can decide after the deadline, or once the user asks you to decide early.');
-  }
-  applyJudgeDecision(goals, goal, decision, comment, { actorContact: goal.judge.judgeContact });
-  // A decision the owner never receives is worse than no decision at all.
-  await flushGoalSync();
-  return getGoals().find((g) => g.id === goal.id)!;
-}
-
-/**
- * The judge cancels a goal: used only when the creator asks them to (the
- * creator can no longer cancel an active goal themselves). No code needed:
- * cancelling never sends a message, so it's safe without the secret code.
- */
-export async function judgeCancelGoal(goalId: string, token: string): Promise<Goal> {
-  await delay();
-  const { goals, goal } = authorizeJudge(goalId, token);
-  if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
-  if (!goal.cancelRequested) throw new Error('The user has not asked you to cancel this goal.');
-  if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
-  goal.status = 'cancelled';
-  goal.cancelledAt = new Date().toISOString();
-  liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
-  saveGoals(goals);
-  cancelAppBlock(penaltyBlockId(goal.id)); // cancelled → no penalty
-  logAudit({ actorContact: goal.judge.judgeContact, actionType: 'judge_cancelled_goal', entityType: 'goal', entityId: goal.id });
-  await flushGoalSync();
-  return getGoals().find((g) => g.id === goal.id)!;
-}
-
-/** Shared decision effects for both the link-based judge and a trainer-judge. */
-function applyJudgeDecision(
-  goals: Goal[],
-  goal: Goal,
-  decision: JudgeDecision,
-  comment: string | undefined,
-  actor: { actorId?: string; actorContact?: string },
-) {
-  if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
-  if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
-    throw new Error('This goal is not ready for a decision yet.');
-  }
-  if (goal.judge.decision === 'completed' || goal.status === 'failed_notified') {
-    throw new Error('This goal has already been decided.');
-  }
-
-  const at = new Date().toISOString();
-  goal.judge = {
-    ...goal.judge,
-    decision,
-    decisionAt: at,
-    decisionComment: comment?.trim() || undefined,
-  };
-
-  if (decision === 'completed') {
-    goal.status = 'completed';
-    goal.completedAt = at;
-    liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
-    saveGoals(goals);
-    cancelAppBlock(penaltyBlockId(goal.id)); // completed → no penalty
-    logAudit({ ...actor, actionType: 'goal_completed', entityType: 'goal', entityId: goal.id });
-    return;
-  }
-  goal.status = 'failed_pending_notification';
-  goal.failedAt = at;
-  liftCommitmentBlock(goal); // the goal is over either way
-  // The judge said it was not completed → this is what starts the app block
-  // (the chosen app, for `durationMinutes`, from now).
-  applyAppBlockPenalty(goal);
-  saveGoals(goals);
-  logAudit({ ...actor, actionType: 'goal_not_completed', entityType: 'goal', entityId: goal.id });
-  dispatchFailureNotifications(goal.id);
-}
-
 /* ─────────────────────────────────── Commitment app block ── */
 
 /**
@@ -2385,9 +1780,41 @@ export async function getJudgeRatingSummary(userId: string): Promise<{ avg: numb
   return { avg: Math.round(avg * 100) / 100, count: ratings.length };
 }
 
-/* ── Trainer-authorized judge actions (from the coach panel, no share link) ── */
+/* ─────────────────────────────────────────── Being someone's judge ── */
 
-function authorizeJudgeByUser(goalId: string, userId: string): { goals: Goal[]; goal: Goal } {
+/**
+ * Every goal this account has been asked to judge.
+ *
+ * The judge's phone has never seen these goals, so the list comes from the
+ * shared store, addressed by identity: "the goals whose judge is me". That call
+ * could not exist under the old model — a judge proved nothing but possession of
+ * a link, so a list keyed on anything would have been a list for whoever held
+ * one. It is the reason a judge no longer has to be handed anything at all.
+ */
+export async function listJudgingGoals(userId: string): Promise<Goal[]> {
+  await delay(80);
+  if (supabaseEnabled()) {
+    for (const row of await remoteListJudgingGoals()) {
+      absorbSharedGoal(row.data as SharedGoal);
+    }
+  }
+  return getGoals()
+    .filter((g) => !g.noJudge && g.judge.judgeUserId === userId && g.userId !== userId)
+    .sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
+}
+
+/** The goals waiting on this judge right now — the only ones worth a badge. */
+export function judgeActionNeeded(goals: Goal[], now = Date.now()): Goal[] {
+  return goals.filter((g) => {
+    if (g.judge.decision || TERMINAL_STATUSES.includes(g.status)) return false;
+    if (g.judge.status === 'pending') return true;
+    if (g.judge.status !== 'accepted') return false;
+    if (g.cancelRequested) return true;
+    return g.earlyDecisionRequested || Date.now() > +new Date(g.deadlineAt) ? now > 0 : false;
+  });
+}
+
+function localJudgeGoal(goalId: string, userId: string): { goals: Goal[]; goal: Goal } {
   const goals = getGoals();
   const goal = goals.find((g) => g.id === goalId);
   if (!goal) throw new Error('Goal not found.');
@@ -2396,26 +1823,239 @@ function authorizeJudgeByUser(goalId: string, userId: string): { goals: Goal[]; 
   return { goals, goal };
 }
 
-export async function acceptJudgeByUser(goalId: string, userId: string): Promise<Goal> {
-  await delay();
-  const { goals, goal } = authorizeJudgeByUser(goalId, userId);
-  goal.judge = { ...goal.judge, status: 'accepted', acceptedAt: new Date().toISOString() };
-  saveGoals(goals);
-  logLegalAcceptance({ type: 'judge_role_ack', userId, goalId: goal.id });
-  logAudit({ actorId: userId, actionType: 'judge_accepted', entityType: 'goal', entityId: goal.id });
-  reevaluateGoals((g) => g.id === goal.id);
-  return getGoals().find((g) => g.id === goal.id)!;
+/**
+ * Run one judge action.
+ *
+ * With a backend, the SERVER decides: it re-reads the stored goal, checks every
+ * precondition against it and builds the patch itself, so a judge can write
+ * their verdict and nothing else — not a deadline, not a recipient, not a
+ * penalty. What comes back is the new shared projection, which is then merged in
+ * here like any other pull.
+ *
+ * Without one (a device-local install, and the test suite) the same transition
+ * is applied locally. Both paths have to leave the same state behind, which is
+ * why the local branch goes through the same `applyJudgeDecision` the owner's
+ * device uses.
+ */
+async function runJudgeAction(
+  goalId: string,
+  userId: string,
+  action: JudgeAction,
+  comment?: string,
+): Promise<Goal> {
+  const { goals, goal } = localJudgeGoal(goalId, userId);
+
+  if (supabaseEnabled()) {
+    const row = await remoteJudgeAct(goalId, action, comment);
+    if (row?.data) {
+      const merged = absorbSharedGoal(row.data as SharedGoal);
+      if (merged) return merged;
+    }
+    // The server accepted it but sent nothing back to merge: re-read rather
+    // than reporting a success this device cannot show.
+    return (await getGoal(goalId)) ?? goal;
+  }
+
+  const at = new Date().toISOString();
+  switch (action) {
+    case 'accept':
+      if (goal.judge.status !== 'pending') throw new Error('This role was already answered.');
+      goal.judge = { ...goal.judge, status: 'accepted', acceptedAt: at };
+      saveGoals(goals);
+      reevaluateGoals((g) => g.id === goal.id);
+      break;
+    case 'decline':
+      if (goal.judge.status !== 'pending') throw new Error('This role was already answered.');
+      goal.judge = { ...goal.judge, status: 'declined', declinedAt: at };
+      goal.status = 'cancelled';
+      goal.cancelledAt = at;
+      saveGoals(goals);
+      break;
+    case 'cancel':
+      if (!goal.cancelRequested) throw new Error('The user has not asked you to cancel this goal.');
+      if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal cannot be cancelled now.');
+      goal.status = 'cancelled';
+      goal.cancelledAt = at;
+      liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
+      saveGoals(goals);
+      cancelAppBlock(penaltyBlockId(goal.id));
+      break;
+    default: {
+      const pastDeadline = Date.now() > +new Date(goal.deadlineAt);
+      if (goal.status === 'active' && !pastDeadline && !goal.earlyDecisionRequested) {
+        throw new Error('You can decide after the deadline, or once they ask you to decide early.');
+      }
+      applyJudgeDecision(goals, goal, action, comment, { actorId: userId });
+      break;
+    }
+  }
+  return getGoals().find((g) => g.id === goal.id) ?? goal;
 }
 
-export async function judgeDecisionByUser(
+/**
+ * Tell the owner, in their conversation, what their judge just did.
+ *
+ * Best-effort and deliberately un-awaited for failure: the decision is already
+ * recorded and will reach them through the goal itself. A message that could not
+ * be sent must never make a recorded verdict look like it failed.
+ */
+async function tellOwner(
+  goal: Goal,
+  event: 'accepted' | 'declined' | 'completed' | 'not_completed' | 'cancelled',
+): Promise<void> {
+  if (!goal.userId) return;
+  await sendChatMessage({
+    toUserId: goal.userId,
+    kind: 'system',
+    payload: { event, goalId: goal.id, goalNumber: goalNumberOf(goal) },
+  });
+}
+
+export async function acceptJudgeRole(goalId: string, userId: string): Promise<Goal> {
+  await delay();
+  const goal = await runJudgeAction(goalId, userId, 'accept');
+  logLegalAcceptance({ type: 'judge_role_ack', userId, goalId });
+  logAudit({ actorId: userId, actionType: 'judge_accepted', entityType: 'goal', entityId: goalId });
+  await tellOwner(goal, 'accepted');
+  return goal;
+}
+
+export async function declineJudgeRole(goalId: string, userId: string): Promise<Goal> {
+  await delay();
+  const goal = await runJudgeAction(goalId, userId, 'decline');
+  logAudit({ actorId: userId, actionType: 'judge_declined', entityType: 'goal', entityId: goalId });
+  await tellOwner(goal, 'declined');
+  return goal;
+}
+
+/** The verdict. No secret code: being signed in as the judge is the proof. */
+export async function judgeDecide(
   goalId: string,
   userId: string,
   decision: JudgeDecision,
   comment?: string,
 ): Promise<Goal> {
   await delay();
-  const { goals, goal } = authorizeJudgeByUser(goalId, userId);
-  applyJudgeDecision(goals, goal, decision, comment, { actorId: userId });
+  const goal = await runJudgeAction(goalId, userId, decision, comment);
+  logAudit({
+    actorId: userId,
+    actionType: decision === 'completed' ? 'goal_completed' : 'goal_not_completed',
+    entityType: 'goal',
+    entityId: goalId,
+  });
+  await tellOwner(goal, decision);
+  return goal;
+}
+
+/** Cancel, but only because the owner asked. */
+export async function judgeCancel(goalId: string, userId: string): Promise<Goal> {
+  await delay();
+  const goal = await runJudgeAction(goalId, userId, 'cancel');
+  logAudit({ actorId: userId, actionType: 'judge_cancelled_goal', entityType: 'goal', entityId: goalId });
+  await tellOwner(goal, 'cancelled');
+  return goal;
+}
+
+/**
+ * What a `completed` / `not_completed` verdict does to a goal.
+ *
+ * With a backend this same transition is computed in SQL and arrives as a
+ * merged row; this is the device-local path (no server configured, and the test
+ * suite). Both have to agree, so anything added here has to be added there.
+ */
+function applyJudgeDecision(
+  goals: Goal[],
+  goal: Goal,
+  decision: JudgeDecision,
+  comment: string | undefined,
+  actor: { actorId?: string; actorContact?: string },
+) {
+  if (goal.judge.status !== 'accepted') throw new Error('Accept the judge role first.');
+  if (!['active', 'proof_pending', 'judge_review'].includes(goal.status)) {
+    throw new Error('This goal is not ready for a decision yet.');
+  }
+  if (goal.judge.decision === 'completed' || goal.status === 'failed_notified') {
+    throw new Error('This goal has already been decided.');
+  }
+
+  const at = new Date().toISOString();
+  goal.judge = {
+    ...goal.judge,
+    decision,
+    decisionAt: at,
+    decisionComment: comment?.trim() || undefined,
+  };
+
+  if (decision === 'completed') {
+    goal.status = 'completed';
+    goal.completedAt = at;
+    liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
+    saveGoals(goals);
+    cancelAppBlock(penaltyBlockId(goal.id)); // completed → no penalty
+    logAudit({ ...actor, actionType: 'goal_completed', entityType: 'goal', entityId: goal.id });
+    return;
+  }
+  goal.status = 'failed_pending_notification';
+  goal.failedAt = at;
+  liftCommitmentBlock(goal); // the goal is over either way
+  // The judge said it was not completed → this is what starts the app block.
+  applyAppBlockPenalty(goal);
+  saveGoals(goals);
+  logAudit({ ...actor, actionType: 'goal_not_completed', entityType: 'goal', entityId: goal.id });
+  dispatchFailureNotifications(goal.id);
+}
+
+/* ────────────────────────────────── Asking your judge for something ── */
+
+/**
+ * Ask the judge to decide the goal, or to change/cancel it.
+ *
+ * This is what the two share links used to be. Opening a link WAS the request,
+ * which meant the owner had to get one to their judge by hand and the app could
+ * honestly say it never messaged anyone. Now the request is a message in their
+ * conversation with a button on it — so the flag and the notification are the
+ * same act, and neither can happen without the other.
+ *
+ * The flag is set locally and published first: a judge who taps the button in
+ * the message must find a goal that already says they were asked.
+ */
+export async function askJudge(goalId: string, userId: string, ask: ChatRequest): Promise<Goal> {
+  await delay(60);
+  const goals = getGoals();
+  const goal = goals.find((g) => g.id === goalId);
+  if (!goal) throw new Error('Goal not found.');
+  if (goal.userId !== userId) throw new Error('Only the goal owner can ask their judge.');
+  if (goal.noJudge || !goal.judge.judgeUserId) throw new Error('This goal has no judge.');
+  if (goal.judge.decision) throw new Error('Your judge has already decided this goal.');
+  if (!CANCELLABLE_STATUSES.includes(goal.status)) throw new Error('This goal is finished.');
+
+  if (ask === 'decision') {
+    if (goal.judge.status !== 'accepted') throw new Error('Your judge has not accepted the role yet.');
+    goal.earlyDecisionRequested = true;
+  } else if (ask === 'edit') {
+    if (goal.judge.status !== 'accepted') throw new Error('Your judge has not accepted the role yet.');
+    goal.cancelRequested = true;
+  }
+  saveGoals(goals);
+  await flushGoalSync();
+
+  // On a device-local install there is nobody to message — the flag on the goal
+  // is the whole record, and the judge reads it from the same phone. Only a
+  // configured backend that could not be reached is a real failure to report.
+  const sent = await sendChatMessage({
+    toUserId: goal.judge.judgeUserId,
+    kind: 'request',
+    payload: { request: ask, goalId: goal.id, goalNumber: goalNumberOf(goal) },
+  });
+  if (chatEnabled() && !sent.sent && sent.reason === 'offline') {
+    throw new SyncError('offline', "We couldn't reach your judge. Check your connection and try again.");
+  }
+  logAudit({
+    actorId: userId,
+    actionType: ask === 'decision' ? 'judge_asked_to_decide' : 'judge_asked_to_change',
+    entityType: 'goal',
+    entityId: goal.id,
+  });
   return getGoals().find((g) => g.id === goal.id)!;
 }
 
@@ -2846,6 +2486,8 @@ const FAKE_PROFILES: {
 ];
 
 const POPULARITY = new Map(FAKE_PROFILES.map((p) => [p.id, p.popularity]));
+/** The demo profiles' ids: local-only, and never governed by the shared graph. */
+const FAKE_IDS = new Set(FAKE_PROFILES.map((p) => p.id));
 
 function blankFakeUser(p: (typeof FAKE_PROFILES)[number]): User {
   return {
@@ -2989,6 +2631,114 @@ function visibilityOf(u: User): ProfileVisibility {
   return u.profileVisibility ?? (u.isPrivate ? 'private' : 'public');
 }
 
+/**
+ * Write a person the server told us about into the local user list.
+ *
+ * Everything downstream — profiles, friend lists, the judge picker, goal
+ * history — reads `getUsers()`, so this is the one place a real account from
+ * another phone becomes visible to all of it. Only the public half is stored:
+ * a name, an avatar, a bio. There is no password, no email and no goals.
+ */
+function upsertRemotePerson(person: DirectoryPerson, followsMe: boolean, meId: string): void {
+  const users = getUsers();
+  const existing = users.find((u) => u.id === person.id);
+  const following = existing?.following ?? [];
+  const nextFollowing = followsMe
+    ? (following.includes(meId) ? following : [...following, meId])
+    : following.filter((id) => id !== meId);
+
+  if (existing) {
+    existing.name = person.name || existing.name;
+    existing.avatar = person.avatar || existing.avatar;
+    existing.bio = person.bio || existing.bio;
+    existing.following = nextFollowing;
+  } else {
+    users.push({
+      id: person.id,
+      name: person.name || 'Someone',
+      // Deliberately blank: the directory does not carry an address, and this
+      // device has no business holding one for somebody else.
+      email: '',
+      password: '',
+      accountType: 'standard',
+      subscription: { status: 'none', priceUsd: SUBSCRIPTION_PRICE_MONTHLY, provider: 'placeholder' },
+      plan: 'free',
+      isPremium: false,
+      theme: 'default',
+      createdAt: new Date().toISOString(),
+      bio: person.bio,
+      avatar: person.avatar,
+      following: nextFollowing,
+      profileVisibility: 'public',
+      isPrivate: false,
+    });
+  }
+  saveUsers(users);
+}
+
+/**
+ * Pull the shared graph and make this device agree with it.
+ *
+ * The server is the truth for who exists and who follows whom, because those
+ * are the only two facts two different phones have to agree on. This account's
+ * own `following` is rewritten from it rather than merged: a follow removed on
+ * another device has to disappear here too, and a local list that only ever
+ * grows would quietly resurrect it.
+ */
+export async function syncSocialGraph(currentUserId: string): Promise<void> {
+  if (!socialSyncEnabled()) return;
+  const people = await fetchGraph();
+  const me = getUsers().find((u) => u.id === currentUserId);
+  if (!me) return;
+
+  for (const person of people) upsertRemotePerson(person, person.followsMe, currentUserId);
+
+  // Demo profiles keep whatever the seed gave them; only real ids are governed
+  // by the server, so a device with both keeps working either way.
+  const remoteIds = new Set(people.map((p) => p.id));
+  const iFollowRemotely = people.filter((p) => p.iFollow).map((p) => p.id);
+  const keptLocal = (getUsers().find((u) => u.id === currentUserId)?.following ?? [])
+    .filter((id) => !remoteIds.has(id) && FAKE_IDS.has(id));
+  persistUser({ ...me, following: [...new Set([...keptLocal, ...iFollowRemotely])] });
+}
+
+/** Publish this account's public profile so other people can find it. */
+export async function publishMyProfile(user: User): Promise<void> {
+  if (!socialSyncEnabled() || user.isGuest) return;
+  await publishProfile({ name: user.name, avatar: user.avatar ?? '', bio: user.bio ?? '' });
+}
+
+/**
+ * Find real accounts by name, and remember them locally so the rest of the app
+ * can show and follow them.
+ */
+export async function searchProfiles(currentUserId: string, query: string): Promise<SocialProfile[]> {
+  if (!socialSyncEnabled()) return [];
+  const found = await searchPeople(query);
+  for (const person of found) {
+    const followsMe = (getUsers().find((u) => u.id === person.id)?.following ?? []).includes(currentUserId);
+    upsertRemotePerson(person, followsMe, currentUserId);
+  }
+  const users = getUsers();
+  const me = users.find((u) => u.id === currentUserId);
+  if (!me) return [];
+  const fc = buildFollowerCounts(users);
+  return found
+    .map((person) => users.find((u) => u.id === person.id))
+    .filter((u): u is User => !!u)
+    .map((u) => toSocialProfile(u, me, fc));
+}
+
+/** Fill in the name and avatar for ids this device has but has never seen. */
+export async function hydratePeople(currentUserId: string, ids: string[]): Promise<void> {
+  if (!socialSyncEnabled()) return;
+  const unknown = ids.filter((id) => id && !getUsers().some((u) => u.id === id));
+  if (unknown.length === 0) return;
+  for (const person of await fetchPeople(unknown)) {
+    upsertRemotePerson(person, false, currentUserId);
+  }
+}
+
 export async function listProfiles(currentUserId: string): Promise<SocialProfile[]> {
   await delay(80);
   seedSocial(currentUserId);
@@ -3115,9 +2865,18 @@ export async function toggleFollow(currentUserId: string, targetId: string): Pro
   const me = getUsers().find((u) => u.id === currentUserId);
   if (!me) throw new Error('User not found.');
   if (me.isGuest) throw new Error('Create an account to follow people.');
-  const following = me.following.includes(targetId)
+  const wasFollowing = me.following.includes(targetId);
+  const following = wasFollowing
     ? me.following.filter((id) => id !== targetId)
     : [...me.following, targetId];
+
+  // A follow only means anything if the OTHER person's phone can see it, which
+  // is the whole reason the graph moved to the server. A demo profile has no
+  // account, so it stays local and simply never reaches one.
+  if (socialSyncEnabled() && !FAKE_IDS.has(targetId)) {
+    const ok = await setFollow(targetId, !wasFollowing);
+    if (!ok) throw new SyncError('offline', "We couldn't reach the server. Try again in a moment.");
+  }
   return normalizeUser(persistUser({ ...me, following }));
 }
 

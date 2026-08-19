@@ -28,6 +28,8 @@
  */
 
 import { maskEmail, normalizeEmail } from './address.ts';
+import { chatList, chatRead, chatSend, chatThreads, goalGet, goalJudgeAct, goalPut, goalsJudging } from './chat.ts';
+import { directoryGet, directoryPublish, directorySearch, followSet, socialGraph } from './social.ts';
 import {
   accountByEmail,
   accountForToken,
@@ -557,15 +559,14 @@ async function statePush(req: Request): Promise<unknown> {
 /* ──────────────────────────────────────── the shared store, behind a session ── */
 
 /**
- * The judge list and the in-app inbox, moved here from the phone.
+ * The in-app inbox and the judge list, moved here from the phone.
  *
  * WHY THEY MOVED. Both used to be RPCs the app called directly with the
  * publishable key, authorised by nothing but a user id passed as an argument.
  * That is fine against a stranger — ids are uuids — but friends know each
  * other's ids by design: that is how one of them sends the other a message. So
- * any friend could pull somebody else's whole inbox, or list the name and EMAIL
- * ADDRESS of every judge they had invited. An id is an address, not a password,
- * and it was being used as one.
+ * any friend could pull somebody else's whole inbox. An id is an address, not a
+ * password, and it was being used as one.
  *
  * Here the id is not taken from the caller at all. It comes from the session
  * token, which is the one thing a person cannot get for somebody else, and the
@@ -653,6 +654,86 @@ async function pushPull(req: Request): Promise<unknown> {
   return { messages: Array.isArray(rows) ? rows : [] };
 }
 
+/* ──────────────────────────────────── chat + the goals two people share ──── */
+
+/**
+ * Everything the judge flow used to do with links and codes.
+ *
+ * Each handler does the same two things: take the acting account from the
+ * session, and hand the rest to `chat.ts`, which owns the validation. The body
+ * is never trusted for identity — see the note at the top of that file.
+ */
+async function chatSendRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  // A generous per-IP backstop under the per-thread daily cap: that cap is the
+  // product rule, this one only stops a script from hammering the endpoint.
+  await limitByIp(req, 'ip-chat-send', 200, 10 * 60_000);
+  return await chatSend(account.id, await readJson(req));
+}
+
+async function chatListRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await chatList(account.id, await readJson(req));
+}
+
+async function chatThreadsRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await chatThreads(account.id);
+}
+
+async function chatReadRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await chatRead(account.id, await readJson(req));
+}
+
+async function goalPutRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await goalPut(account.id, await readJson(req));
+}
+
+async function goalGetRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await goalGet(account.id, await readJson(req));
+}
+
+async function goalsJudgingRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await goalsJudging(account.id);
+}
+
+async function goalJudgeActRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await goalJudgeAct(account.id, await readJson(req));
+}
+
+/* ────────────────────────────────────────────────────────── the social graph ── */
+
+async function usersPublishRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await directoryPublish(account.id, await readJson(req));
+}
+
+async function usersSearchRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  await limitByIp(req, 'ip-user-search', 120, 10 * 60_000);
+  return await directorySearch(account.id, await readJson(req));
+}
+
+async function usersGetRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await directoryGet(account.id, await readJson(req));
+}
+
+async function followRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await followSet(account.id, await readJson(req));
+}
+
+async function socialGraphRoute(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  return await socialGraph(account.id);
+}
+
 async function pushRead(req: Request): Promise<unknown> {
   const account = await requireAccount(req);
   const body = await readJson(req);
@@ -702,6 +783,24 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
   'POST /api/push/send': { method: 'POST', route: 'push:send', handler: pushSend },
   'POST /api/push/pull': { method: 'POST', route: 'push:pull', handler: pushPull },
   'POST /api/push/read': { method: 'POST', route: 'push:read', handler: pushRead },
+
+  // In-app chat, and the goal rows an owner and their judge share.
+  'POST /api/chat/send': { method: 'POST', route: 'chat:send', handler: chatSendRoute },
+  'POST /api/chat/list': { method: 'POST', route: 'chat:list', handler: chatListRoute },
+  'POST /api/chat/threads': { method: 'POST', route: 'chat:threads', handler: chatThreadsRoute },
+  'POST /api/chat/read': { method: 'POST', route: 'chat:read', handler: chatReadRoute },
+  'POST /api/goals/put': { method: 'POST', route: 'goals:put', handler: goalPutRoute },
+  'POST /api/goals/get': { method: 'POST', route: 'goals:get', handler: goalGetRoute },
+  'POST /api/goals/judging': { method: 'POST', route: 'goals:judging', handler: goalsJudgingRoute },
+  'POST /api/goals/judge-act': { method: 'POST', route: 'goals:judge-act', handler: goalJudgeActRoute },
+
+  // The social graph: who exists, and who follows whom. A FRIEND is a mutual
+  // follow, which is what the judge picker offers.
+  'POST /api/users/publish': { method: 'POST', route: 'users:publish', handler: usersPublishRoute },
+  'POST /api/users/search': { method: 'POST', route: 'users:search', handler: usersSearchRoute },
+  'POST /api/users/get': { method: 'POST', route: 'users:get', handler: usersGetRoute },
+  'POST /api/social/follow': { method: 'POST', route: 'social:follow', handler: followRoute },
+  'POST /api/social/graph': { method: 'POST', route: 'social:graph', handler: socialGraphRoute },
 };
 
 /** Refuse early, and in a way the frontend can tell apart from a failure. */

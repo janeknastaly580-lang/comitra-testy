@@ -33,6 +33,9 @@ export default function Social() {
   const navigate = useNavigate();
   const [profiles, setProfiles] = useState<SocialProfile[]>([]);
   const [query, setQuery] = useState('');
+  // People found on the server for the current query. Merged into the local
+  // list, so somebody on another phone is followable like anybody else.
+  const [remote, setRemote] = useState<api.SocialProfile[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [tab, setTab] = useState<'discover' | 'leaderboard'>('discover');
@@ -51,11 +54,35 @@ export default function Social() {
 
   const searching = query.trim().length > 0;
 
+  // Two characters minimum, and debounced: a directory lookup on every
+  // keystroke is a request per letter for a result nobody has read yet.
+  useEffect(() => {
+    const term = query.trim();
+    if (!user || term.length < 2) {
+      setRemote([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void api.searchProfiles(user.id, term).then((found) => {
+        if (!cancelled) setRemote(found);
+      });
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [query, user]);
+
   // Default (no query): the 15 most-followed profiles. Search: smart ranked, full set.
   const displayed = useMemo(() => {
-    if (searching) return smartSearch(profiles, query);
+    if (searching) {
+      const local = smartSearch(profiles, query);
+      const seen = new Set(local.map((p) => p.id));
+      return [...local, ...remote.filter((p) => !seen.has(p.id))];
+    }
     return [...profiles].sort((a, b) => b.followers - a.followers).slice(0, DEFAULT_LIMIT);
-  }, [profiles, query, searching]);
+  }, [profiles, query, searching, remote]);
 
   const friends = useMemo(() => profiles.filter((p) => p.status === 'friends'), [profiles]);
 
