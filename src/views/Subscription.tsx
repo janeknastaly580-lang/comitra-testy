@@ -53,7 +53,7 @@ export default function Subscription() {
 
   return (
     <div className="px-4 py-5">
-      <PageHeader title="Subscription" subtitle="Manage your plan." back />
+      <PageHeader title="Subscription" back />
 
       <div className="mb-4 flex items-center justify-between">
         <span className="font-mono text-xs uppercase tracking-widest text-muted">Status</span>
@@ -69,18 +69,11 @@ export default function Subscription() {
           {usd(SUBSCRIPTION_PRICE_MONTHLY)}
           <span className="text-sm text-muted">/mo</span>
         </p>
-        <p className="mt-2 text-sm text-muted">
-          {s.status === 'active'
-            ? 'Your subscription is active.'
-            : trialing
-              ? `You're on a free trial with ${daysLeft} day(s) left. Subscribe to keep creating goals after it ends.`
-              : 'Create goals, track your steps, and use social commitment for $4.99 a month.'}
-        </p>
-        {s.status !== 'active' && (
-          <p className="mt-1 text-[11px] text-muted">
-            Works for any personal goal: habits, projects, studying and weekly challenges.
-          </p>
-        )}
+        {s.status === 'active' ? (
+          <p className="mt-2 text-sm text-muted">Your subscription is active.</p>
+        ) : trialing ? (
+          <p className="mt-2 text-sm text-muted">Free trial · {daysLeft} day(s) left.</p>
+        ) : null}
 
         <ul className="mt-3 space-y-1.5">
           {FEATURES.map((f) => (
@@ -103,15 +96,14 @@ export default function Subscription() {
       )}
 
       <p className="mb-4 mt-2 text-center text-[11px] text-muted">
-        Payment is a placeholder in this build (ready to connect Stripe, RevenueCat, App Store or
-        Google Play). The fee only unlocks app features.
+        Payment is a placeholder in this build.
       </p>
 
       <Card className="p-4">
         <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Free trial</p>
         <p className="mt-1 text-[12px] text-muted">
-          New accounts start with a {TRIAL_DAYS}-day free trial. Without an active subscription you
-          can still log in, see your goals, finish an already-active goal, and manage your data.
+          {TRIAL_DAYS} days, free. After that you can still log in, finish an active goal and manage your
+          data — just not start new ones.
         </p>
       </Card>
 
@@ -119,7 +111,6 @@ export default function Subscription() {
         open={authOpen}
         onClose={() => setAuthOpen(false)}
         title="Log in to subscribe"
-        subtitle="You need to be logged in to have an account and buy a subscription."
       />
     </div>
   );

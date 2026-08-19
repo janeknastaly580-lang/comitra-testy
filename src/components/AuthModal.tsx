@@ -179,7 +179,7 @@ export default function AuthModal({
         <p className="mb-4 mt-0.5 text-xs text-muted">
           {step === 'verify'
             ? 'One last step, then your account is created.'
-            : (subtitle ?? 'Your goals are ready. Sign in or sign up to save them for good.')}
+            : (subtitle ?? 'Sign in or sign up to save your goals for good.')}
         </p>
 
         {step === 'verify' ? (

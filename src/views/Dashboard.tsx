@@ -5,6 +5,7 @@ import * as api from '../lib/api';
 import type { Goal } from '../lib/types';
 import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { PRE_ACTIVE, TERMINAL } from '../lib/status';
+import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { toLocalInputValue } from '../lib/format';
 import GoalCard from '../components/GoalCard';
 import Inbox from '../components/Inbox';
@@ -20,6 +21,20 @@ const deadlineInDays = (days: number) => {
   return toLocalInputValue(d);
 };
 
+/** The inline solo form, kept across navigation. See src/lib/draft.ts. */
+interface SoloDraft {
+  open: boolean;
+  title: string;
+  desc: string;
+  deadline: string;
+  app: string;
+  duration: number;
+}
+
+/** A deadline that expired while the draft was sitting there is not worth restoring. */
+const restoreDeadline = (saved: string | undefined): string =>
+  saved && new Date(saved).getTime() > Date.now() ? saved : deadlineInDays(7);
+
 export default function Dashboard() {
   const { user } = useApp();
   const navigate = useNavigate();
@@ -32,14 +47,25 @@ export default function Dashboard() {
 
   // Quick "goal without a judge" (solo) creator, kept here so it doesn't clutter
   // the full goal-creation screen.
-  const [soloOpen, setSoloOpen] = useState(false);
-  const [soloTitle, setSoloTitle] = useState('');
-  const [soloDesc, setSoloDesc] = useState('');
-  const [soloDeadline, setSoloDeadline] = useState(() => deadlineInDays(7));
-  const [soloApp, setSoloApp] = useState(APP_BLOCK_TARGETS[0].packageName);
-  const [soloDuration, setSoloDuration] = useState(BLOCK_DURATIONS[1].minutes);
+  const draftKey = `solo:${user?.id ?? 'guest'}`;
+  const [saved] = useState(() => loadDraft<SoloDraft>(draftKey));
+  const [soloOpen, setSoloOpen] = useState(saved.open ?? false);
+  const [soloTitle, setSoloTitle] = useState(saved.title ?? '');
+  const [soloDesc, setSoloDesc] = useState(saved.desc ?? '');
+  const [soloDeadline, setSoloDeadline] = useState(() => restoreDeadline(saved.deadline));
+  const [soloApp, setSoloApp] = useState(saved.app ?? APP_BLOCK_TARGETS[0].packageName);
+  const [soloDuration, setSoloDuration] = useState(saved.duration ?? BLOCK_DURATIONS[1].minutes);
   const [soloBusy, setSoloBusy] = useState(false);
   const [soloErr, setSoloErr] = useState('');
+  // False from the moment the goal is created, so the last render cannot write
+  // the form back after it has been cleared.
+  const [soloDone, setSoloDone] = useState(false);
+
+  useDraft<SoloDraft>(
+    draftKey,
+    { open: soloOpen, title: soloTitle, desc: soloDesc, deadline: soloDeadline, app: soloApp, duration: soloDuration },
+    !soloDone,
+  );
 
   async function reload() {
     if (!user) return;
@@ -79,6 +105,8 @@ export default function Dashboard() {
         // owner later marks it not completed (nothing else ever starts it).
         appBlock: { packageName: app.packageName, appLabel: app.label, durationMinutes: soloDuration },
       });
+      setSoloDone(true);
+      clearDraft(draftKey);
       setSoloOpen(false);
       setSoloTitle('');
       setSoloDesc('');
@@ -139,9 +167,7 @@ export default function Dashboard() {
           <p className="mt-1 text-base font-semibold text-ink">A goal just for you</p>
           <p className="mt-1 text-[12px] text-muted">
             No judge, no one else.{' '}
-            <span className="font-medium text-active">
-              If you mark it as not completed, a chosen app gets blocked on your phone for a while.
-            </span>
+            <span className="font-medium text-active">Mark it not completed and a chosen app gets blocked.</span>
           </p>
           {!soloOpen ? (
             <Button
@@ -174,7 +200,7 @@ export default function Dashboard() {
                   <option key={d.minutes} value={d.minutes}>{d.label}</option>
                 ))}
               </Select>
-              <p className="mb-3 text-[11px] font-medium text-active">The block runs on your phone (Android). It starts only when you mark this goal as not completed — the deadline going by does nothing on its own, the goal just waits for your answer.</p>
+              <p className="mb-3 text-[11px] text-muted">Android only.</p>
 
               {soloErr && <p className="mb-2 font-mono text-xs text-danger">{soloErr}</p>}
               <Button className="w-full" disabled={soloBusy} onClick={createSolo}>
@@ -189,9 +215,8 @@ export default function Dashboard() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">With a judge</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal someone verifies</p>
           <p className="mt-1 text-[12px] text-muted">
-            A judge you choose confirms whether you did it. They only ever see your goal’s number, so you tell
-            them what it is yourself.{' '}
-            <span className="text-active">You can also add someone who’ll be told if you don’t do it.</span>
+            A friend confirms whether you did it.{' '}
+            <span className="text-active">Someone else can be told if you don’t.</span>
           </p>
           <Button variant="info" className="mt-3 w-full" disabled={blocked} onClick={() => navigate('/create')}>
             {blocked ? 'Answer the questions above first' : 'Set a goal with a judge'}
@@ -203,8 +228,7 @@ export default function Dashboard() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Renewing goal</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal that comes back</p>
           <p className="mt-1 text-[12px] text-muted">
-            Pick the days it should be due — or every day — and mark each one. Comitra keeps the streak and
-            the full record.
+            The days you pick, every week. Comitra keeps the streak.
           </p>
           <Button variant="purple" className="mt-3 w-full" onClick={() => navigate('/renewing')}>
             Renewing goals

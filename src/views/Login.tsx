@@ -49,10 +49,7 @@ export default function Login() {
           <span className="font-mono text-lg font-bold tracking-[0.25em]">Comitra</span>
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Following through is the hard part.</h1>
-        <p className="mt-1 text-sm text-muted">
-          Setting a goal is easy. Following through is the hard part. Comitra helps you stay
-          accountable and build the habit.
-        </p>
+        <p className="mt-1 text-sm text-muted">Comitra keeps you accountable for it.</p>
         <ul className="mt-4 space-y-1.5">
           {[
             'Set a simple, realistic goal, like a few steps this week.',

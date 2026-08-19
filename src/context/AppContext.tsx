@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import * as api from '../lib/api';
+import { clearAllDrafts } from '../lib/draft';
 import * as googleAuth from '../lib/google';
 import { clearInbox, listInbox, markRead, registerDevice, syncInbox, type PushMessage } from '../lib/push';
 import type { ThemeId, User } from '../lib/types';
@@ -193,8 +194,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     await api.logout();
     // The pulled messages belong to the account that is leaving, not to the
-    // device: whoever signs in next must not find them sitting there.
+    // device: whoever signs in next must not find them sitting there. Half-typed
+    // forms go for the same reason (src/lib/draft.ts).
     clearInbox();
+    clearAllDrafts();
     setInbox([]);
     const g = await api.createGuest();
     setUser(g);
@@ -204,6 +207,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteAccount = useCallback(async () => {
     if (!user) return;
     await api.deleteAccount(user.id);
+    clearAllDrafts();
     const g = await api.createGuest();
     setUser(g);
     applyTheme(g.theme);

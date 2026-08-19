@@ -114,7 +114,7 @@ export default function Social() {
         open={authOpen}
         onClose={() => setAuthOpen(false)}
         title="Create an account to follow"
-        subtitle="Guests can browse profiles, but following people needs an account."
+        subtitle="Following someone needs an account."
       />
     </div>
   );

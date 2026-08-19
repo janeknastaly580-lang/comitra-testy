@@ -61,8 +61,8 @@ export default function Inbox() {
             {message.kind === 'recipient_consent_request' ? (
               <>
                 <p className="mt-2 text-[11px] leading-relaxed text-muted">
-                  If you agree, you'll be told in the app when one of their goals is not completed — never
-                  what the goal is, only its number. You can say no, and you can stop later.
+                  You'd be told when one of their goals is not completed — its number, never what it is.
+                  You can stop later.
                 </p>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <Button

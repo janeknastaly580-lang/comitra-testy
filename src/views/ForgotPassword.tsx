@@ -55,11 +55,9 @@ export default function ForgotPassword() {
           <span className="font-semibold text-ink">{api.normalizeEmail(email)}</span>, a reset link
           is on its way. It works once and expires in 30 minutes.
         </p>
-        <p className="mt-3 text-[13px] text-muted">
-          Open it wherever it's easiest — the link works on any device, and choosing a new password
-          logs you in there.
+        <p className="mt-2 text-[13px] text-muted">
+          It works on any device. Nothing arrived? Check your spam folder.
         </p>
-        <p className="mt-2 text-[13px] text-muted">Nothing arrived? Check your spam folder.</p>
 
         <Button className="mt-6 w-full" onClick={() => navigate('/login')}>
           Back to log in

@@ -1,22 +1,35 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import * as api from '../lib/api';
+import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { shortDate } from '../lib/format';
 import type { FeatureRequestView } from '../lib/types';
 import PageHeader from '../components/PageHeader';
 import { Badge, Button, Card, Input, Label, Textarea } from '../components/ui';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
+interface IdeaDraft {
+  open: boolean;
+  title: string;
+  description: string;
+}
+
 export default function FeatureRequests() {
   const { user } = useApp();
   const [items, setItems] = useState<FeatureRequestView[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  // A half-written idea survives leaving the screen. See src/lib/draft.ts.
+  const draftKey = `idea:${user?.id ?? 'guest'}`;
+  const [saved] = useState(() => loadDraft<IdeaDraft>(draftKey));
+  const [showForm, setShowForm] = useState(saved.open ?? false);
+  const [title, setTitle] = useState(saved.title ?? '');
+  const [description, setDescription] = useState(saved.description ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [votingId, setVotingId] = useState<string | null>(null);
+  const [posted, setPosted] = useState(false);
+
+  useDraft<IdeaDraft>(draftKey, { open: showForm, title, description }, !posted);
 
   async function load() {
     if (!user) return;
@@ -38,6 +51,8 @@ export default function FeatureRequests() {
     setBusy(true);
     try {
       await api.createFeatureRequest(user!.id, user!.name, title, description);
+      setPosted(true);
+      clearDraft(draftKey);
       setTitle('');
       setDescription('');
       setShowForm(false);

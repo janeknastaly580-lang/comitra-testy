@@ -325,8 +325,7 @@ export default function RenewingGoalDetail() {
           {archived ? (
             <>
               <p className="text-[12px] text-muted">
-                Retired — its record is kept. Starting it again counts from today, so the gap is not held
-                against you.
+                Retired, record kept. Starting it again counts from today.
               </p>
               <Button
                 className="mt-3 w-full"

@@ -206,8 +206,7 @@ export default function Verifier() {
         Did {goal.creatorName} complete {goalRef(goal)}?
       </h1>
       <p className="mb-4 text-[12px] text-muted">
-        Comitra doesn’t show you what the goal is. {goal.creatorName} tells you that themselves. You
-        only decide whether they did it.
+        Comitra doesn’t show you what the goal is — {goal.creatorName} tells you that.
       </p>
 
       <Card className="mb-4 p-4">
@@ -256,9 +255,7 @@ export default function Verifier() {
           <Card className="p-4">
             <Label>Judge role</Label>
             <p className="mb-3 text-sm text-ink">
-              You've been chosen to decide whether {goal.creatorName} completed {goalRef(goal)}.
-              You should decide honestly, based on what they told you the goal is and on what you know
-              yourself. Comitra shows you nothing about it.
+              Decide honestly, from what {goal.creatorName} told you the goal is.
             </p>
             <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
               <input
@@ -281,9 +278,8 @@ export default function Verifier() {
                 autoComplete="off"
               />
               <p className="mt-1.5 text-[11px] text-muted">
-                Keep this code secret. You'll enter it every time you verify a goal, and it proves
-                the decision is really from you. Accepting also means {goal.creatorName} can pick you
-                as their judge again without asking each time.
+                Keep it secret. You enter it every time you decide one of {goal.creatorName}'s goals, and it
+                proves the decision is yours.
               </p>
             </div>
 
@@ -307,17 +303,12 @@ export default function Verifier() {
             <Badge tone="accent">You are the judge · {goal.judge.name}</Badge>
           </div>
 
-          <Card className="mb-4 p-4">
-            <p className="text-sm text-ink">
-              {`${goal.creatorName} committed to complete ${goalRef(goal)} within this period. Decide whether they did it, because you know what the goal is because they told you.`}
-            </p>
-          </Card>
-
           {!pastDeadline && !goal.earlyDecisionRequested ? (
             <Card className="p-4 text-center">
-              <p className="text-sm text-ink">You've accepted. Come back after the deadline to decide.</p>
+              <p className="text-sm text-ink">
+                You've accepted. Come back after the deadline — or sooner, if {goal.creatorName} asks you to.
+              </p>
               <p className="mt-1 text-[11px] text-muted">Deadline: {dateTime(goal.deadlineAt)}</p>
-              <p className="mt-1 text-[11px] text-muted">You can only decide early if {goal.creatorName} asks you to.</p>
             </Card>
           ) : (
             <Card className="p-4">
@@ -353,12 +344,6 @@ export default function Verifier() {
                   {goalRefTitle(goal)} not completed
                 </Button>
               </div>
-              <p className="mt-3 text-[11px] text-active">
-                “Not completed” messages the recipients who accepted.
-              </p>
-              <p className="mt-1 text-[11px] font-medium text-active">
-                It also starts any app block {goal.creatorName} set for themselves.
-              </p>
             </Card>
           )}
 
@@ -369,9 +354,8 @@ export default function Verifier() {
             {goal.cancelRequested ? (
               <>
                 <p className="mb-2 text-[11px] text-muted">
-                  {goal.creatorName} is asking you to change or cancel {goalRef(goal)}. Cancelling ends
-                  the goal with no decision and no message to anyone, so no code is needed. If they only
-                  need more time, they can move the deadline themselves — you don't have to do anything.
+                  {goal.creatorName} asked you to cancel {goalRef(goal)}. No code needed. If they only need
+                  more time, they can move the deadline themselves.
                 </p>
                 <Button variant="outline" className="w-full" disabled={busy} onClick={() => setConfirmCancel(true)}>
                   Cancel this goal
@@ -379,8 +363,7 @@ export default function Verifier() {
               </>
             ) : (
               <p className="text-[11px] text-muted">
-                You can only cancel this goal if {goal.creatorName} asks you to, by sending you their
-                “ask for a change” link. If they do, a cancel button appears here.
+                Only if {goal.creatorName} asks you to. A button appears here if they do.
               </p>
             )}
           </Card>
@@ -397,19 +380,13 @@ export default function Verifier() {
         message={
           confirmDecision === 'completed' ? (
             <>
-              You confirm {goal.creatorName} did what they told you {goalRef(goal)} was. This is final
-              and cannot be changed afterwards.
+              You confirm {goal.creatorName} did what they told you {goalRef(goal)} was. This is final.
             </>
           ) : (
             <>
-              <span className="text-active">
-                Recipients who accepted get the message about {goalRef(goal)}.
-              </span>{' '}
-              <span className="font-medium text-active">
-                Any app block they set for themselves starts now — this decision is the only thing that
-                starts it.
-              </span>{' '}
-              This is final and cannot be changed afterwards.
+              <span className="text-active">Recipients who accepted get the message.</span>{' '}
+              <span className="font-medium text-active">Any app block they set starts now.</span>{' '}
+              This is final.
             </>
           )
         }
@@ -424,7 +401,7 @@ export default function Verifier() {
       <ConfirmDialog
         open={confirmCancel}
         title={`Cancel ${goalRef(goal)}?`}
-        message={`This ends ${goal.creatorName}'s goal with no decision. No message is sent to anyone, and no app is blocked.`}
+        message={`Ends ${goal.creatorName}'s goal with no decision. Nobody is told, nothing is blocked.`}
         confirmLabel="I confirm"
         cancelLabel="Go back"
         danger

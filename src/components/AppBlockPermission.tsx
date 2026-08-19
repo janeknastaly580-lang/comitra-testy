@@ -36,16 +36,12 @@ export default function AppBlockPermission({ appLabel }: { appLabel?: string }) 
     <Card className="mb-4 border-warn/50 bg-warn/5 p-4">
       <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Blocking is not active yet</p>
       <p className="mt-1 text-[12px] leading-relaxed text-ink">
-        {appLabel ? `${appLabel} is set to be blocked` : 'Your block is set'}, but Android needs your
-        permission before Comitra can actually hold it shut. Turn on{' '}
-        <span className="font-semibold">Comitra app blocking</span> under Accessibility.
+        {appLabel ? `${appLabel} is set to be blocked` : 'Your block is set'}, but Android has to allow it.
+        Turn on <span className="font-semibold">Comitra app blocking</span> under Accessibility.
       </p>
       <Button className="mt-3 w-full" onClick={openAppBlockSettings}>
         Open Android settings
       </Button>
-      <p className="mt-2 text-[11px] text-muted">
-        This is also how you would turn blocking off later. There is no switch inside Comitra.
-      </p>
     </Card>
   );
 }

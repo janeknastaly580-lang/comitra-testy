@@ -12,6 +12,7 @@ import {
   TONE_OPTIONS,
   type GoalTemplate,
 } from '../lib/constants';
+import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { buildFailureMessage, checkGoalContent, SENSITIVE_CONTENT_MESSAGE } from '../lib/messages';
 import { toLocalInputValue } from '../lib/format';
 import { isReachable, REACHABLE_DAYS } from '../lib/push';
@@ -29,23 +30,49 @@ const deadlineInDays = (days: number) => {
   return toLocalInputValue(d);
 };
 
+/** Everything on this screen that is worth not having to type twice. */
+interface GoalDraft {
+  title: string;
+  description: string;
+  deadline: string;
+  judgeId: string;
+  recipientIds: string[];
+  tone: MessageTone;
+  ackNotify: boolean;
+  blockOn: boolean;
+  blockApp: string;
+  blockDuration: number;
+}
+
+/**
+ * A deadline stored days ago may have gone by while the draft sat there. Falling
+ * back to the default is kinder than restoring a form that cannot be submitted.
+ */
+const restoreDeadline = (saved: string | undefined): string =>
+  saved && new Date(saved).getTime() > Date.now() ? saved : deadlineInDays(7);
+
 export default function CreateGoal() {
   const { user } = useApp();
   const navigate = useNavigate();
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [deadline, setDeadline] = useState(() => deadlineInDays(7));
+  // Switching tab unmounts this screen, so what has been typed is restored from
+  // the draft rather than thrown away. See src/lib/draft.ts.
+  const draftKey = `goal:${user?.id ?? 'guest'}`;
+  const [saved] = useState(() => loadDraft<GoalDraft>(draftKey));
+
+  const [title, setTitle] = useState(saved.title ?? '');
+  const [description, setDescription] = useState(saved.description ?? '');
+  const [deadline, setDeadline] = useState(() => restoreDeadline(saved.deadline));
 
   // The judge must be chosen from friends the user invited (Profile &gt; Invite friends).
   const [invitedJudges, setInvitedJudges] = useState<InvitedJudge[]>([]);
-  const [judgeId, setJudgeId] = useState('');
+  const [judgeId, setJudgeId] = useState(saved.judgeId ?? '');
   /**
    * The recipient is picked from FRIENDS — people the user follows who follow
    * back. There is no contact field any more: the message goes to their app.
    */
   const [friends, setFriends] = useState<api.SocialProfile[]>([]);
-  const [recipientIds, setRecipientIds] = useState<string[]>([]);
+  const [recipientIds, setRecipientIds] = useState<string[]>(saved.recipientIds ?? []);
   /**
    * Whether the chosen friend has opened Comitra recently. `false` is not an
    * error — the message is still queued and delivered if they come back — but
@@ -86,17 +113,26 @@ export default function CreateGoal() {
     };
   }, [chosenRecipientId]);
 
-  const [tone, setTone] = useState<MessageTone>('neutral');
-  const [ackNotify, setAckNotify] = useState(false);
+  const [tone, setTone] = useState<MessageTone>(saved.tone ?? 'neutral');
+  const [ackNotify, setAckNotify] = useState(saved.ackNotify ?? false);
 
   // Optional penalty: block an app when the judge marks the goal not completed.
-  const [blockOn, setBlockOn] = useState(false);
-  const [blockApp, setBlockApp] = useState(APP_BLOCK_TARGETS[0].packageName);
-  const [blockDuration, setBlockDuration] = useState(BLOCK_DURATIONS[1].minutes);
+  const [blockOn, setBlockOn] = useState(saved.blockOn ?? false);
+  const [blockApp, setBlockApp] = useState(saved.blockApp ?? APP_BLOCK_TARGETS[0].packageName);
+  const [blockDuration, setBlockDuration] = useState(saved.blockDuration ?? BLOCK_DURATIONS[1].minutes);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Stops the draft being written again by the last render after a successful
+  // create, which would resurrect the form the user just submitted.
+  const [submitted, setSubmitted] = useState(false);
+
+  useDraft<GoalDraft>(
+    draftKey,
+    { title, description, deadline, judgeId, recipientIds, tone, ackNotify, blockOn, blockApp, blockDuration },
+    !submitted,
+  );
 
   const contentCheck = useMemo(() => checkGoalContent(title, description), [title, description]);
 
@@ -213,6 +249,8 @@ export default function CreateGoal() {
           ? { packageName: app.packageName, appLabel: app.label, durationMinutes: blockDuration }
           : undefined,
       });
+      setSubmitted(true);
+      clearDraft(draftKey);
       setConfirmOpen(false);
       navigate(`/goal/${goal.id}`, { replace: true });
     } catch (err) {
@@ -225,17 +263,7 @@ export default function CreateGoal() {
 
   return (
     <div className="px-4 py-5">
-      <PageHeader title="Set a goal" subtitle="Pick a template or build your own. Then pick a judge." back />
-
-      {/* The one place the privacy rule is stated up front. */}
-      <Card className="mb-5 border-accent/30 bg-accent/5 p-4">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Your goal stays private</p>
-        <p className="mt-1 text-[12px] leading-relaxed text-ink">
-          The link you send your judge does not contain your goal’s content. They are only asked
-          whether you completed {goalNumber ? `goal #${goalNumber}` : 'your goal'}. Telling them what
-          the goal is, is up to you.
-        </p>
-      </Card>
+      <PageHeader title="Set a goal" back />
 
       <div className="mb-5">
         <Label>Starter goals</Label>
@@ -258,9 +286,8 @@ export default function CreateGoal() {
           <Label>Goal</Label>
           <Input required value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Finish the project by Friday" />
           <p className="mt-2 text-[11px] text-muted">
-            Only you can read this. Everyone else sees{' '}
+            Only you see this. Everyone else sees{' '}
             <span className="font-semibold text-ink">{goalNumber ? `goal #${goalNumber}` : 'the goal number'}</span>.
-            Once the goal is finished you can choose to show it on your profile.
           </p>
         </div>
 
@@ -301,23 +328,13 @@ export default function CreateGoal() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-danger">Required</span>
           </div>
           <p className="mb-3 text-[11px] text-muted">
-            Pick a friend who confirms whether you completed the goal. You can only choose people who
-            accepted your invite (they set their own judge password). You cannot judge your own goal.
-          </p>
-          <p className="mb-3 rounded-lg border border-line bg-elevated p-3 text-[12px] leading-relaxed text-ink">
-            Comitra never messages your judge by itself. When you want their decision, you send them a
-            link, and it asks only: “Did {user.name.split(' ')[0]} complete{' '}
-            {goalNumber ? `goal #${goalNumber}` : 'this goal'}?”
+            A friend who accepted your invite. They confirm whether you did it.
           </p>
 
           {invitedJudges.length === 0 ? (
-            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3">
-              <p className="text-[12px] text-ink">You haven't invited anyone yet.</p>
-              <p className="mt-1 text-[11px] text-muted">
-                Invite a friend in{' '}
-                <Link to="/invite-friends" className="text-accent underline">Profile &gt; Invite friends</Link>
-                {' '}and once they join, they'll appear here.
-              </p>
+            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3 text-[12px] text-ink">
+              Nobody invited yet —{' '}
+              <Link to="/invite-friends" className="text-accent underline">invite a friend</Link>.
             </div>
           ) : (
             <Select value={judgeId} onChange={(e) => setJudgeId(e.target.value)}>
@@ -336,10 +353,7 @@ export default function CreateGoal() {
             <span className="text-sm font-semibold text-ink">If you don’t do it</span>
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
           </div>
-          <p className="mb-3 text-[11px] font-medium text-active">
-            Block an app on your phone when your judge marks this goal as not completed.
-          </p>
-          <ToggleRow label="Block an app if I miss this goal" checked={blockOn} onChange={setBlockOn} />
+          <ToggleRow label="Block an app if my judge marks this not completed" checked={blockOn} onChange={setBlockOn} />
           {blockOn && (
             <div className="mt-3">
               <Label>Block this app…</Label>
@@ -354,10 +368,7 @@ export default function CreateGoal() {
                   <option key={d.minutes} value={d.minutes}>{d.label}</option>
                 ))}
               </Select>
-              <p className="mt-2 text-[11px] font-medium text-active">
-                The block runs on your phone (Android). It starts the moment your judge marks the goal
-                as not completed.
-              </p>
+              <p className="mt-2 text-[11px] text-muted">Android only.</p>
             </div>
           )}
         </Card>
@@ -371,20 +382,13 @@ export default function CreateGoal() {
             <span className="font-mono text-[10px] uppercase tracking-widest text-muted">Optional</span>
           </div>
           <p className="mb-3 text-[11px] text-active">
-            If the judge marks the goal not completed, this person (once they accept) is told in the app.
-          </p>
-          <p className="mb-3 text-[11px] text-muted">
-            Only friends can be chosen — people you follow who follow you back. They are told in Comitra
-            itself, so nobody needs your phone number and Comitra needs neither theirs nor their email.
+            Told in the app, once they accept, if this goal is marked not completed.
           </p>
 
           {friends.length === 0 ? (
-            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3">
-              <p className="text-[12px] text-ink">You don't have any friends on Comitra yet.</p>
-              <p className="mt-1 text-[11px] text-muted">
-                A friend is someone you follow who follows you back. Find people in{' '}
-                <Link to="/social" className="text-accent underline">Social</Link>, and they'll appear here.
-              </p>
+            <div className="rounded-xl border border-warn/40 bg-warn/5 p-3 text-[12px] text-ink">
+              No friends yet — find people in{' '}
+              <Link to="/social" className="text-accent underline">Social</Link>. A friend follows you back.
             </div>
           ) : chosenRecipients.length === 0 ? (
             <Select value="" onChange={(e) => pickRecipient(e.target.value)}>
@@ -412,9 +416,8 @@ export default function CreateGoal() {
                 </div>
               ))}
               {recipientReachable === false && (
-                <p className="text-[11px] leading-relaxed text-warn">
-                  They haven't opened Comitra in the last {REACHABLE_DAYS} days, so they may have removed the
-                  app. The message is kept and reaches them if they come back — but don't count on it arriving.
+                <p className="text-[11px] text-warn">
+                  Not seen in Comitra for {REACHABLE_DAYS} days. A message would wait for them.
                 </p>
               )}
             </div>
@@ -426,8 +429,7 @@ export default function CreateGoal() {
         {/* Message tone */}
         <Card className="p-4">
           <Label>Message tone</Label>
-          <p className="mb-3 text-[11px] text-muted">Choose how the message reads. All tones stay respectful.</p>
-          <div className="space-y-2">
+          <div className="mt-2 space-y-2">
             {TONE_OPTIONS.map((t) => (
               <label key={t.id} className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition ${tone === t.id ? 'border-accent bg-accent/5' : 'border-line'}`}>
                 <input type="radio" name="tone" checked={tone === t.id} onChange={() => setTone(t.id)} className="mt-1 h-4 w-4 accent-[color:rgb(var(--c-accent))]" />
@@ -443,7 +445,6 @@ export default function CreateGoal() {
         {/* Preview */}
         <Card className="p-4">
           <Label>Message preview</Label>
-          <p className="mb-2 text-[11px] text-active">Sent only if the judge marks the goal not completed.</p>
           <div className="whitespace-pre-line rounded-xl border border-line bg-elevated p-3 text-sm text-ink">{preview}</div>
         </Card>
 
@@ -469,16 +470,15 @@ export default function CreateGoal() {
         message={
           hasRecipients ? (
             <>
-              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge. Your recipient{' '}
-              <span className="text-ink">{chosenRecipients[0]?.name ?? '—'}</span> must accept before it starts. If it is later
-              marked not completed, they get a <span className="text-ink">{tone}</span> notification about{' '}
-              <span className="text-ink">goal #{goalNumber ?? 1}</span>, never its content.
+              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> judges{' '}
+              <span className="text-ink">goal #{goalNumber ?? 1}</span>.{' '}
+              <span className="text-ink">{chosenRecipients[0]?.name ?? '—'}</span> must accept before it starts, and
+              gets a <span className="text-ink">{tone}</span> message if it is marked not completed.
             </>
           ) : (
             <>
-              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> is set as your judge and the goal starts right
-              away. They will be asked only whether you completed <span className="text-ink">goal #{goalNumber ?? 1}</span>; no one
-              sees what the goal is.
+              <span className="text-ink">{selectedJudge?.name ?? 'Your judge'}</span> judges{' '}
+              <span className="text-ink">goal #{goalNumber ?? 1}</span>. It starts right away.
             </>
           )
         }

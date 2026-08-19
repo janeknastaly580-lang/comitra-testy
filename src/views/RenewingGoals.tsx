@@ -54,9 +54,7 @@ export default function RenewingGoals() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Renewing goal</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal that comes back</p>
           <p className="mt-1 text-[12px] text-muted">
-            Pick the days of the week it should be due — or every day — and mark each one done or not done.
-            Comitra keeps the streak and the whole record, so you can see what you actually did rather than
-            what you meant to.
+            The days you pick, every week. Comitra keeps the streak and the record.
           </p>
           <Button className="mt-3 w-full" onClick={() => navigate('/renewing/new')}>
             Set a renewing goal

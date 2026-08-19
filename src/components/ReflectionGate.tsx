@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import * as api from '../lib/api';
+import { clearDraft, loadDraft, useDraft } from '../lib/draft';
 import { goalRefTitle } from '../lib/goal';
 import type { Goal } from '../lib/types';
 import { Button, Card, Label, Textarea } from './ui';
@@ -36,10 +37,17 @@ export function usePendingReflections(userId: string | undefined) {
  * The answers are private: no judge and no recipient ever sees them.
  */
 export default function ReflectionForm({ goal, onDone }: { goal: Goal; onDone: () => void }) {
-  const [why, setWhy] = useState('');
-  const [next, setNext] = useState('');
+  // The same form appears on Dashboard, Set-a-goal and the goal itself, keyed by
+  // goal, so answers started in one place are there in the others too.
+  const draftKey = `reflection:${goal.id}`;
+  const [saved] = useState(() => loadDraft<{ why: string; next: string }>(draftKey));
+  const [why, setWhy] = useState(saved.why ?? '');
+  const [next, setNext] = useState(saved.next ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [saveDone, setSaveDone] = useState(false);
+
+  useDraft(draftKey, { why, next }, !saveDone);
 
   const valid = why.trim().length >= MIN && next.trim().length >= MIN;
 
@@ -48,6 +56,8 @@ export default function ReflectionForm({ goal, onDone }: { goal: Goal; onDone: (
     setBusy(true);
     try {
       await api.submitGoalReflection(goal.id, goal.userId, why, next);
+      setSaveDone(true);
+      clearDraft(draftKey);
       setWhy('');
       setNext('');
       onDone();
@@ -63,7 +73,7 @@ export default function ReflectionForm({ goal, onDone }: { goal: Goal; onDone: (
       <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Before your next goal</p>
       <p className="mt-1 text-base font-semibold text-ink">{goalRefTitle(goal)} was not completed</p>
       <p className="mt-1 text-[12px] text-muted">
-        Answer both questions to unlock creating goals again. Only you can see these answers.
+        Answer both to set goals again. Only you see them.
       </p>
 
       <div className="mt-4">

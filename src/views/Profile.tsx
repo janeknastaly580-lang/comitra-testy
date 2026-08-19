@@ -276,10 +276,7 @@ export default function Profile() {
         <div className="mb-1 flex items-center gap-2">
           <span className="font-mono text-xs uppercase tracking-widest text-muted">Who can see your goals</span>
         </div>
-        <p className="mb-3 text-[11px] text-muted">
-          This covers the Profile tab: your finished goals and your success rate. You can change it
-          back at any time.
-        </p>
+        <p className="mb-3 text-[11px] text-muted">Your finished goals and your success rate.</p>
         <div className="space-y-2">
           {VISIBILITY_OPTIONS.map((o) => (
             <label
@@ -342,19 +339,11 @@ export default function Profile() {
         cancelLabel="Keep it as it is"
         busy={busy}
         message={
-          confirmVisibility === 'friends' ? (
-            <>
-              People you follow who also follow you back will be able to see your finished goals and
-              your success rate. Goals you haven't published still show only as{' '}
-              <span className="text-ink">“Goal #N”</span>. You can switch back whenever you like.
-            </>
-          ) : (
-            <>
-              <span className="text-ink">Anyone</span> will be able to see your finished goals and your
-              success rate. Goals you haven't published still show only as{' '}
-              <span className="text-ink">“Goal #N”</span>. You can switch back whenever you like.
-            </>
-          )
+          <>
+            <span className="text-ink">{confirmVisibility === 'friends' ? 'Your friends' : 'Anyone'}</span> will
+            see your finished goals and your success rate. Goals you haven't published still show as{' '}
+            <span className="text-ink">“Goal #N”</span>.
+          </>
         }
         onConfirm={() => applyVisibility(confirmVisibility!)}
         onCancel={() => setConfirmVisibility(null)}

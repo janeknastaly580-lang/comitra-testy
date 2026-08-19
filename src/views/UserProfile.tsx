@@ -141,9 +141,7 @@ export default function UserProfile() {
                 </button>
               </div>
               {profile.isPrivate && !isOwner && (
-                <p className="mt-2 text-[11px] text-muted">
-                  This account is private, so its follower lists are hidden.
-                </p>
+                <p className="mt-2 text-[11px] text-muted">Private account — its lists are hidden.</p>
               )}
 
               {isOwner ? (
@@ -187,7 +185,7 @@ export default function UserProfile() {
         open={authOpen}
         onClose={() => setAuthOpen(false)}
         title="Create an account to follow"
-        subtitle="Guests can browse profiles, but following people needs an account."
+        subtitle="Following someone needs an account."
       />
     </div>
   );

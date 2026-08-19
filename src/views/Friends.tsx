@@ -59,8 +59,7 @@ export default function Friends() {
       ) : friends.length === 0 ? (
         <Card className="p-6 text-center">
           <p className="font-mono text-[10px] uppercase tracking-widest text-muted">No friends yet</p>
-          <p className="mt-2 text-sm text-ink">Friends are people you follow who also follow you back.</p>
-          <p className="mt-1 text-[12px] text-muted">Follow people in the Social tab. Once it's mutual, they show up here.</p>
+          <p className="mt-2 text-sm text-ink">A friend is someone you follow who follows you back.</p>
           <Button className="mt-4 w-full" onClick={() => navigate('/social')}>Find people</Button>
         </Card>
       ) : (

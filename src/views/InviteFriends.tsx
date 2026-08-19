@@ -21,24 +21,22 @@ const HEALTH: Record<SyncHealth, { label: string; note: string; tone: string }> 
   },
   setup: {
     label: 'Sync · not ready',
-    note: "The server isn't set up yet, so friends can't finish the invite. Sending the link now won't work.",
+    note: "The server isn't set up, so nobody can finish an invite.",
     tone: 'text-danger',
   },
   unreachable: {
     label: 'Sync · offline',
-    note: "This device is offline, so the server can't be checked. Friends may not be able to finish the invite.",
+    note: 'This device is offline, so the server could not be checked.',
     tone: 'text-warn',
   },
   'no-server': {
     label: 'Sync · no server',
-    note:
-      "The address Comitra is configured with doesn't answer, so nobody can finish an invite. " +
-      'The Supabase project has to be restored or recreated, and VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY pointed at it.',
+    note: "The configured server doesn't answer, so nobody can finish an invite. Check VITE_SUPABASE_URL.",
     tone: 'text-danger',
   },
   off: {
     label: 'Sync · this device only',
-    note: 'No server is configured, so a friend can only join from this same browser.',
+    note: 'No server configured — a friend can only join from this same browser.',
     tone: 'text-muted',
   },
 };
@@ -78,12 +76,6 @@ export default function InviteFriends() {
     <div className="px-4 py-5">
       <PageHeader title="Invite friends" subtitle="Add people who can judge your goals" back />
 
-      <p className="mb-4 text-[13px] text-muted">
-        Send this link to a friend. On <span className="font-semibold text-ink">their own device</span> they'll
-        pick a name, give an email address, set a judge password, and agree to receive goal messages from
-        Comitra. Once they've done that, you can pick them as a judge when you set a goal.
-      </p>
-
       {health && (
         <div className="mb-4 rounded-xl border border-line bg-elevated px-3.5 py-2.5">
           <p className={`font-mono text-[10px] uppercase tracking-widest ${HEALTH[health].tone}`}>
@@ -100,8 +92,8 @@ export default function InviteFriends() {
           </p>
           <p className="mt-1 text-[12px] text-muted">
             {codeOn
-              ? 'Your friend gets a 6-digit code by email and has to enter it, so the address is proven to be theirs.'
-              : 'Email verification is not switched on yet, so a friend can register any address without proving it. See SES_SETUP.md.'}
+              ? 'Your friend confirms their address with a 6-digit code.'
+              : 'Off, so a friend can register any address without proving it. See SES_SETUP.md.'}
           </p>
         </div>
       )}
@@ -109,7 +101,7 @@ export default function InviteFriends() {
       {token && (
         <ShareLink
           title="Your invite link"
-          hint="Anyone with this link can register as one of your judges, but only from a different device than this one."
+          hint="It registers them as one of your judges. Only works on a different device."
           link={judgeInviteLink(token)}
         />
       )}

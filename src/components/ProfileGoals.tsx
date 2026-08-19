@@ -44,7 +44,7 @@ export default function ProfileGoals({
         </p>
         <p className="mt-1 text-[12px] text-muted">
           {view.blockedBy === 'friends-only'
-            ? `${ownerName} shows their goals to friends only, meaning people they follow who follow them back.`
+            ? `${ownerName} shows these to friends only.`
             : `${ownerName} keeps their goals to themselves.`}
         </p>
       </Card>

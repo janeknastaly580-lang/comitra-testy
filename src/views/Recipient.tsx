@@ -133,12 +133,7 @@ export default function Recipient() {
           <Card className="p-5">
             <Badge tone="accent">You're accepting notifications</Badge>
             <p className="mt-3 text-sm text-ink">
-              You agreed to receive notifications about the result of {ownerName}'s goals.
-              You can stop at any time.
-            </p>
-            <p className="mt-2 text-[11px] text-muted">
-              You'll only ever be messaged if one of their goals is marked not completed,
-              never marketing.
+              You're told only when one of {ownerName}'s goals is marked not completed. Never marketing.
             </p>
             <Button variant="outline" className="mt-4 w-full" disabled={busy} onClick={revoke}>
               I don't want to receive messages anymore

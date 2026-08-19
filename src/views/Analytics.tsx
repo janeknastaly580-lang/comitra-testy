@@ -39,7 +39,7 @@ export default function Analytics() {
         <PageHeader title="Pro Analytics & Export" back />
         <PremiumGate
           title="Comitra Premium Analytics"
-          blurb="Deterministic insight into your motivation peaks, willpower price, judges and vulnerable hours, plus a downloadable report. Premium feature."
+          blurb="Your motivation peaks, your judges and your vulnerable hours, plus a downloadable report."
         />
       </div>
     );
@@ -76,8 +76,7 @@ export default function Analytics() {
       {!enoughData && (
         <Card className="mb-4 border-warn/40 p-4">
           <p className="text-sm text-ink">
-            Resolve a few challenges to populate your analytics. The sections below fill in
-            automatically as your history grows. Every figure is computed from your own data.
+            The sections below fill in as your goal history grows.
           </p>
         </Card>
       )}
@@ -90,15 +89,11 @@ export default function Analytics() {
       <Card className="mb-4 p-4">
         <Label>Download report</Label>
         <p className="mb-3 text-xs text-muted">
-          Export a full Comitra analytics report with all four sections, ready to print to PDF for a
-          coach, therapist or your own records.
+          All four sections as a .txt file. Open it and print to PDF.
         </p>
         <Button className="w-full" onClick={exportReport}>
           {exported ? <><Check className="h-4 w-4" aria-hidden /> Downloaded</> : 'Export Comitra report'}
         </Button>
-        <p className="mt-2 text-[11px] text-muted">
-          Exports a formatted .txt summary. Open and print to PDF.
-        </p>
       </Card>
     </div>
   );

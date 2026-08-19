@@ -109,12 +109,10 @@ export default function InviteAccept() {
         <Card className="p-6">
           <Badge tone="danger">Same device, can't continue here</Badge>
           <p className="mt-3 text-sm text-ink">
-            This invite was created on <span className="font-semibold">this device</span>, so the form is
-            hidden here. To keep things fair, {ownerName || 'the person'} can't be their own judge.
+            Nobody can be their own judge, and this invite was made on this device.
           </p>
           <p className="mt-2 text-[13px] text-muted">
-            Open this same link on a <span className="font-semibold text-ink">different device</span>, the
-            judge's own phone or computer, and the form will appear.
+            Open the link on the judge's own <span className="font-semibold text-ink">phone or computer</span>.
           </p>
           <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
         </Card>
@@ -129,12 +127,11 @@ export default function InviteAccept() {
           <Badge tone="danger">Same account, can't continue here</Badge>
           <p className="mt-3 text-sm text-ink">
             You're signed in as <span className="font-semibold">{ownerName || 'the person who created this invite'}</span>,
-            the person this invite belongs to, so the form is hidden. A judge has to be someone else.
+            and a judge has to be someone else.
           </p>
           <p className="mt-2 text-[13px] text-muted">
-            Ask the person you want as your judge to open this link on{' '}
-            <span className="font-semibold text-ink">their own device and account</span> (they can also just be
-            logged out). Then the form will appear.
+            Ask your judge to open the link on{' '}
+            <span className="font-semibold text-ink">their own device</span>, or while logged out.
           </p>
           <Link to="/login" className="mt-4 inline-block text-sm text-accent hover:underline">Go to Comitra</Link>
         </Card>
@@ -151,8 +148,7 @@ export default function InviteAccept() {
             <p className="mt-3 font-mono text-[10px] uppercase tracking-widest text-accent"><Check className="mr-1 inline h-3 w-3" aria-hidden /> Email address verified</p>
           )}
           <p className="mt-3 text-sm text-ink">
-            {ownerName} can now pick you as a judge for their goals. Keep your judge password safe, because you'll
-            need it every time you mark a goal completed or not completed.
+            {ownerName} can now pick you as a judge. Keep your judge password safe — you need it every time.
           </p>
         </Card>
       </Shell>
@@ -260,16 +256,14 @@ export default function InviteAccept() {
     <Shell>
       <h1 className="mb-1 text-xl font-bold text-ink">{ownerName} invited you</h1>
       <p className="mb-4 text-sm text-muted">
-        {ownerName} wants to be able to choose you as the judge of their goals, the person who confirms
-        whether they did what they set out to do.
+        {ownerName} wants you as the judge of their goals — the person who confirms they did it.
       </p>
 
       <Card className="p-4">
         <Label>Your name</Label>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
         <p className="mb-3 mt-1.5 text-[11px] text-muted">
-          Pick a name {ownerName} will recognise. It has to be different from every other judge {ownerName}{' '}
-          already has.
+          A name {ownerName} will recognise, different from their other judges.
         </p>
 
         <Label>Your email address</Label>
@@ -283,7 +277,7 @@ export default function InviteAccept() {
         />
         {codeRequired ? (
           <p className="mb-3 mt-1.5 text-[11px] text-muted">
-            We'll email a 6-digit code to this address so you can confirm it's really yours.
+            We'll email a 6-digit code to confirm it's yours.
           </p>
         ) : (
           <div className="mb-3" />
@@ -298,12 +292,10 @@ export default function InviteAccept() {
           autoComplete="new-password"
         />
         <p className="mt-1.5 text-[11px] font-semibold text-accent">
-          Remember this password and keep it secret, and write it down somewhere safe. It can't be recovered.
+          Write it down somewhere safe. It can't be recovered.
         </p>
         <p className="mt-1 text-[11px] text-muted">
-          You'll enter it every single time you decide whether {ownerName} completed a goal. This password is
-          only for {ownerName}'s goals, so you can use a different one with other people. (You can always cancel
-          a goal at their request without it.)
+          You enter it every time you decide one of {ownerName}'s goals. It is only for theirs.
         </p>
 
         <label className="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-line p-3">
@@ -314,8 +306,7 @@ export default function InviteAccept() {
             className="mt-0.5 h-4 w-4 accent-[color:rgb(var(--c-accent))]"
           />
           <span className="text-[12px] leading-relaxed text-ink">
-            I agree to receive messages from Comitra. These are only about {ownerName}'s goals (for example,
-            asking me to decide one), never marketing.
+            I agree to receive messages from Comitra about {ownerName}'s goals. Never marketing.
           </span>
         </label>
 
@@ -327,8 +318,7 @@ export default function InviteAccept() {
             <p className="mt-1.5 text-[13px] leading-relaxed text-ink">{error}</p>
             {errorIsSetup && (
               <p className="mt-1.5 text-[11px] text-muted">
-                Your details were kept on this device, so nothing is lost. Reopen this link and tap the
-                button again once they've sorted it out.
+                Nothing is lost — your details are on this device. Try the button again later.
               </p>
             )}
           </div>
