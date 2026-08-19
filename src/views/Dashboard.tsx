@@ -75,7 +75,8 @@ export default function Dashboard() {
         messageTone: 'neutral',
         ackNotifyConsent: false,
         recipients: [],
-        // No judge → a solo, self-tracked goal. Penalty: block an app if missed.
+        // No judge → a solo, self-tracked goal. Penalty: block an app if the
+        // owner later marks it not completed (nothing else ever starts it).
         appBlock: { packageName: app.packageName, appLabel: app.label, durationMinutes: soloDuration },
       });
       setSoloOpen(false);
@@ -139,7 +140,7 @@ export default function Dashboard() {
           <p className="mt-1 text-[12px] text-muted">
             No judge, no one else.{' '}
             <span className="font-medium text-active">
-              If you miss it, a chosen app gets blocked on your phone for a while.
+              If you mark it as not completed, a chosen app gets blocked on your phone for a while.
             </span>
           </p>
           {!soloOpen ? (
@@ -161,7 +162,7 @@ export default function Dashboard() {
               <Label>Goal end</Label>
               <DateTimeField value={soloDeadline} onChange={setSoloDeadline} className="mb-3" />
 
-              <Label>If I miss it, block this app…</Label>
+              <Label>If I mark it not completed, block this app…</Label>
               <Select value={soloApp} onChange={(e) => setSoloApp(e.target.value)} className="mb-2">
                 {APP_BLOCK_TARGETS.map((a) => (
                   <option key={a.packageName} value={a.packageName}>{a.label}</option>
@@ -173,7 +174,7 @@ export default function Dashboard() {
                   <option key={d.minutes} value={d.minutes}>{d.label}</option>
                 ))}
               </Select>
-              <p className="mb-3 text-[11px] font-medium text-active">The block runs on your phone (Android). It starts if the deadline passes before you mark the goal done, or if you mark it not completed yourself.</p>
+              <p className="mb-3 text-[11px] font-medium text-active">The block runs on your phone (Android). It starts only when you mark this goal as not completed — the deadline going by does nothing on its own, the goal just waits for your answer.</p>
 
               {soloErr && <p className="mb-2 font-mono text-xs text-danger">{soloErr}</p>}
               <Button className="w-full" disabled={soloBusy} onClick={createSolo}>

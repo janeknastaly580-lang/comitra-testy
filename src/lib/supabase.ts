@@ -311,7 +311,7 @@ export async function remoteListInvitedJudges(): Promise<RemoteInvitedJudge[]> {
  * `data` is the ALLOW-LISTED projection built by `src/lib/goalShare.ts` — the
  * goal's title and details are not in it and never reach this file. What is
  * here is what a judge must see to do their job: which numbered goal, whose,
- * by when, the proofs, and the judge's own state.
+ * by when, and the judge's own state.
  *
  * Access is capability-based, never by owner: reads need `(id, token)`, and the
  * token only exists in the link the owner chose to send. There is deliberately

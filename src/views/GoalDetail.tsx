@@ -5,7 +5,6 @@ import * as api from '../lib/api';
 import { APP_BLOCK_TARGETS, BLOCK_DURATIONS } from '../lib/constants';
 import { countdown, countdownClock, dateTime, shortDate, timeOfDay, toLocalInputValue } from '../lib/format';
 import { deadlineElapsedRatio, goalEndedAt, goalRefTitle, goalStart, isSoloGoal } from '../lib/goal';
-import { downscaleImage } from '../lib/image';
 import { useNow } from '../lib/hooks';
 import { failureMessageForGoal } from '../lib/messages';
 import { judgeLink } from '../lib/share';
@@ -17,14 +16,12 @@ import DateTimeField from '../components/DateTimeField';
 import PageHeader from '../components/PageHeader';
 import ReflectionForm from '../components/ReflectionGate';
 import ShareLink from '../components/ShareLink';
-import { Badge, Button, Card, Input, Label, Select, Textarea, Toggle } from '../components/ui';
+import { Badge, Button, Card, Input, Label, Select, Toggle } from '../components/ui';
 import { Lock } from 'lucide-react';
 
 const TONE_LABEL = { neutral: 'Neutral', supportive: 'Supportive', firm: 'Firm' } as const;
 const CONSENT_TONE = { pending: 'warn', accepted: 'accent', revoked: 'danger' } as const;
 const JUDGE_TONE = { pending: 'warn', accepted: 'accent', declined: 'danger' } as const;
-
-const todayISO = () => new Date().toISOString().slice(0, 10);
 
 export default function GoalDetail() {
   const { id } = useParams();
@@ -59,13 +56,6 @@ export default function GoalDetail() {
   const [rateVal, setRateVal] = useState('');
   const [rateBusy, setRateBusy] = useState(false);
 
-  // Evidence form
-  const [evOpen, setEvOpen] = useState(false);
-  const [evTarget, setEvTarget] = useState<string | undefined>(undefined);
-  const [evDate, setEvDate] = useState(todayISO());
-  const [evNote, setEvNote] = useState('');
-  const [evLink, setEvLink] = useState('');
-  const [evPhoto, setEvPhoto] = useState('');
 
   async function load() {
     if (!id || !user) return;
@@ -106,58 +96,10 @@ export default function GoalDetail() {
   const consentFor = (cid: string) => consents.find((c) => c.id === cid);
   const isPreActive = PRE_ACTIVE.includes(goal.status);
   const isTerminal = TERMINAL.includes(goal.status);
-  const canAddEvidence = ['active', 'proof_pending', 'judge_review'].includes(goal.status);
   const canEditDeadline = !isTerminal && !goal.judge.decision;
   // The two links the owner sends their judge. Comitra messages the judge for
   // nothing, so these are the whole channel.
   const showJudgeAsk = !isSoloGoal(goal) && !isTerminal && goal.judge.status === 'accepted' && !goal.judge.decision;
-
-  function openEvidence(target?: string) {
-    setEvTarget(target);
-    setEvDate(todayISO());
-    setEvNote('');
-    setEvLink('');
-    setEvPhoto('');
-    setEvOpen(true);
-  }
-
-  /**
-   * Shrink before storing. A phone photo is a 5-10 MB data URL, which blows the
-   * LocalStorage quota, and it has to travel to the judge's device as part of
-   * the shared goal. 1024px keeps a photo readable as proof at ~150 KB.
-   */
-  async function onPhoto(file?: File) {
-    if (!file) return;
-    try {
-      setEvPhoto(await downscaleImage(file, 1024, 0.8));
-    } catch {
-      setNotice("That image couldn't be read. Try another one.");
-    }
-  }
-
-  async function removeEvidence(evId: string) {
-    await api.deleteEvidence(goal!.id, evId);
-    await load();
-    setNotice('Proof removed.');
-  }
-
-  async function submitEvidence() {
-    const hasContent = evPhoto || evLink.trim() || evNote.trim();
-    if (!hasContent) return;
-    const type = evPhoto ? 'photo' : evLink.trim() ? 'link' : 'text';
-    await api.addEvidence(goal!.id, {
-      type,
-      content: evPhoto || evLink.trim() || evNote.trim(),
-      note: evNote.trim() || undefined,
-      actionDate: new Date(evDate).toISOString(),
-      plannedActionId: evTarget,
-      photoUrl: evPhoto || undefined,
-      linkUrl: evLink.trim() || undefined,
-    });
-    setEvOpen(false);
-    await load();
-    setNotice('Proof added. The judge can see it.');
-  }
 
   async function submitRating() {
     const v = Number(rateVal);
@@ -395,26 +337,43 @@ export default function GoalDetail() {
         )}
       </Card>
 
-      {/* A judged goal past its deadline is still running: only the judge's
-          decision ends it, however long they take. */}
-      {!isSoloGoal(goal) && isRunning && cd.overdue && (
+      {/* A goal past its deadline is still running. Nothing about the deadline
+          decides it or costs anything: only the verdict does — the owner's on a
+          solo goal, the judge's on a judged one. */}
+      {isRunning && cd.overdue && (
         <Card className="mb-4 border-warn/30 p-4">
           <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Deadline passed</p>
-          <p className="mt-1 text-sm text-ink">
-            This goal stays active until {goal.judge.name} decides whether you completed it. It is not
-            in your history and counts nowhere until then.
-          </p>
-          <p className="mt-1 text-[11px] text-muted">
-            Send them the “ask for a decision” link below when you're ready.
-          </p>
+          {isSoloGoal(goal) ? (
+            <>
+              <p className="mt-1 text-sm text-ink">
+                This goal stays active until you say how it went. Nothing has happened to it yet, and
+                nothing is blocked.
+              </p>
+              <p className="mt-1 text-[11px] text-muted">
+                Mark it completed or not completed below. It is not in your history and counts nowhere
+                until you do.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-ink">
+                This goal stays active until {goal.judge.name} decides whether you completed it. It is not
+                in your history and counts nowhere until then.
+              </p>
+              <p className="mt-1 text-[11px] text-muted">
+                Send them the “ask for a decision” link below when you're ready.
+              </p>
+            </>
+          )}
         </Card>
       )}
 
-      {/* Penalty: app block. Solo goals fire it on a missed deadline, judged goals
-          when the judge marks the goal as not completed. */}
+      {/* Penalty: app block. One trigger only — the goal being marked NOT
+          completed, by its owner on a solo goal or by the judge on a judged one.
+          A passing deadline never starts it. */}
       {goal.appBlock && (
         <Card className="mb-4 border-active/30 p-4">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">If you miss this goal</p>
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted">If you mark this not completed</p>
           <p className="mt-1 text-sm font-medium text-active">
             {goal.appBlock.appLabel} gets blocked on your phone for{' '}
             {blockDurationLabel(goal.appBlock.durationMinutes)}.
@@ -427,8 +386,8 @@ export default function GoalDetail() {
           ) : (
             <p className="mt-1 text-[11px] font-medium text-active">
               {isSoloGoal(goal)
-                ? 'The block runs on Android; it starts if the deadline passes before you mark the goal done.'
-                : `The block runs on Android; it starts if ${goal.judge.name} marks this goal as not completed.`}
+                ? 'The block runs on Android; it starts only if you mark this goal as not completed. The deadline passing does nothing on its own.'
+                : `The block runs on Android; it starts only if ${goal.judge.name} marks this goal as not completed. The deadline passing does nothing on its own.`}
             </p>
           )}
         </Card>
@@ -485,65 +444,6 @@ export default function GoalDetail() {
             </Button>
           </Card>
         )
-      )}
-
-      {/* Add proof button (global) */}
-      {canAddEvidence && !evOpen && (
-        <Button className="mb-4 w-full" onClick={() => openEvidence(undefined)}>
-          Add proof of completion
-        </Button>
-      )}
-
-      {/* Evidence form */}
-      {evOpen && (
-        <Card className="mb-4 border-accent/30 p-4">
-          <div className="mb-2 flex items-center justify-between">
-            <Label>Proof of completion</Label>
-            <button onClick={() => setEvOpen(false)} className="text-[11px] text-muted hover:text-ink">Close</button>
-          </div>
-
-          <div className="mb-2">
-            <Label>Date</Label>
-            <Input type="date" value={evDate} onChange={(e) => setEvDate(e.target.value)} />
-          </div>
-
-          <Label>Description</Label>
-          <Textarea rows={2} value={evNote} onChange={(e) => setEvNote(e.target.value)} placeholder="What did you do?" className="mb-2" />
-
-          <Label>Link (optional)</Label>
-          <Input value={evLink} onChange={(e) => setEvLink(e.target.value)} placeholder="https://… (e.g. a screenshot from another app)" className="mb-2" />
-
-          <Label>Photo (optional)</Label>
-          <input type="file" accept="image/*" onChange={(e) => void onPhoto(e.target.files?.[0])} className="mb-2 block w-full text-sm text-muted" />
-          {evPhoto && <img src={evPhoto} alt="preview" className="mb-2 max-h-40 rounded-lg" />}
-
-          <Button className="w-full" onClick={submitEvidence} disabled={!evPhoto && !evLink.trim() && !evNote.trim()}>
-            Add proof
-          </Button>
-        </Card>
-      )}
-
-      {/* Your proofs */}
-      {goal.evidence.length > 0 && (
-        <Card className="mb-4 p-4">
-          <Label>Your proofs</Label>
-          <div className="mt-1 space-y-2">
-            {goal.evidence.map((ev) => (
-              <div key={ev.id} className="rounded-lg border border-line bg-elevated p-3">
-                <div className="flex items-center justify-between">
-                  <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                    {shortDate(ev.actionDate ?? ev.addedAt)}
-                  </p>
-                  {canAddEvidence && (
-                    <button onClick={() => removeEvidence(ev.id)} className="text-[11px] text-muted hover:text-danger">Delete</button>
-                  )}
-                </div>
-                {ev.photoUrl && <img src={ev.photoUrl} alt="proof" className="mt-2 max-h-40 rounded-lg" />}
-                {ev.note && <p className="mt-1 text-sm text-ink">{ev.note}</p>}
-              </div>
-            ))}
-          </div>
-        </Card>
       )}
 
       {/* Judge */}
@@ -733,7 +633,7 @@ export default function GoalDetail() {
       {(goal.status === 'proof_pending' || goal.status === 'judge_review') && (
         <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/5 p-4">
           <p className="text-sm font-bold text-ink">Awaiting the judge's decision</p>
-          <p className="mt-0.5 text-[12px] text-muted">Only {goal.judge.name} can mark this completed or not completed. Add proof above to help them decide.</p>
+          <p className="mt-0.5 text-[12px] text-muted">Only {goal.judge.name} can mark this completed or not completed. Tell them yourself how it went.</p>
         </div>
       )}
 
@@ -819,8 +719,8 @@ export default function GoalDetail() {
                 <span className="font-medium text-active">
                   {' '}
                   {goal.appBlock.appLabel} gets blocked on your phone for{' '}
-                  {blockDurationLabel(goal.appBlock.durationMinutes)}, exactly as if you'd let the
-                  deadline pass.
+                  {blockDurationLabel(goal.appBlock.durationMinutes)}, starting the moment you
+                  confirm. This is the only thing that starts it.
                 </span>
               )}
             </>

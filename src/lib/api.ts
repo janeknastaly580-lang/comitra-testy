@@ -68,7 +68,6 @@ import type {
   FeatureRequest,
   FeatureRequestView,
   Goal,
-  GoalEvidence,
   GoalJudge,
   GoalReflection,
   GoalStatus,
@@ -1252,7 +1251,6 @@ export async function createGoal(input: CreateGoalInput): Promise<Goal> {
     // The app-block penalty works for solo AND judged goals: a judged goal fires
     // it when the judge marks the goal not completed (see applyJudgeDecision).
     appBlock: input.appBlock,
-    evidence: [],
     judge,
     recipients: consents.map((c) => ({ consentId: c.id })),
     shareToken: judge.acceptToken,
@@ -1313,45 +1311,6 @@ function recompute(goal: Goal): Goal {
 function reevaluateGoals(predicate: (g: Goal) => boolean) {
   const goals = getGoals().map((g) => (predicate(g) ? recompute(g) : g));
   saveGoals(goals);
-}
-
-/**
- * Add proof of completion. Links the proof to a planned step, the one given, or
- * otherwise the next open step: and advances that step's status. Updates
- * progress via the count of evidence items.
- */
-export async function addEvidence(
-  goalId: string,
-  evidence: Omit<GoalEvidence, 'id' | 'addedAt'>,
-): Promise<Goal> {
-  await delay();
-  const goals = getGoals();
-  const goal = goals.find((g) => g.id === goalId);
-  if (!goal) throw new Error('Goal not found.');
-  const now = new Date().toISOString();
-  const item: GoalEvidence = { ...evidence, id: uid('ev'), addedAt: now };
-
-  // Attach to a planned step: the chosen one, else the next open one.
-  let paId = evidence.plannedActionId;
-  if (!paId) {
-    paId = goal.plannedActions.find(
-      (p) => p.status === 'planned' || p.status === 'rescheduled',
-    )?.id;
-  }
-  if (paId) {
-    goal.plannedActions = goal.plannedActions.map((p) =>
-      p.id === paId ? { ...p, status: 'evidence_added', evidenceId: item.id, updatedAt: now } : p,
-    );
-    item.plannedActionId = paId;
-  }
-
-  goal.evidence = [item, ...goal.evidence];
-  saveGoals(goals);
-  // Comitra never messages the judge on its own, not even "there's proof now":
-  // the owner sends the judge one of the two links from the goal screen when
-  // they want something from them. See `applyJudgeLinkRequest`.
-  logAudit({ actorId: goal.userId, actionType: 'evidence_added', entityType: 'goal', entityId: goal.id, metadata: { type: item.type } });
-  return goal;
 }
 
 /**
@@ -1492,9 +1451,8 @@ export async function failSoloGoal(goalId: string, userId: string): Promise<Goal
   goal.failedAt = at;
   goal.judge = { ...goal.judge, decision: 'not_completed', decisionAt: at };
   liftCommitmentBlock(goal); // must mutate BEFORE the save, or it is not persisted
-  // Admitting the miss costs exactly what letting the deadline pass costs: the
-  // app block the user chose when they set the goal. Otherwise "I failed" would
-  // be the cheap way out of the penalty.
+  // Saying "I didn't do it" is what costs the app block the user chose when they
+  // set the goal. Nothing else starts it — not even the deadline running out.
   applyAppBlockPenalty(goal);
   saveGoals(goals);
   logAudit({ actorId: userId, actionType: 'solo_goal_failed', entityType: 'goal', entityId: goal.id });
@@ -1565,34 +1523,19 @@ export async function deleteGoal(id: string): Promise<void> {
 }
 
 /**
- * Resolve goals whose deadline has passed.
+ * Housekeeping pass run before goals are read.
  *
- * Solo (judge-less) goals end here: missing the deadline is the failure, and the
- * app-block penalty starts.
+ * A passing deadline decides NOTHING, for a solo goal as much as a judged one.
+ * Both stay `active` past it until somebody says how it went — the owner on a
+ * solo goal, the judge on a judged one — so they keep showing under Active
+ * goals and stay out of the history and every leaderboard until then. Nothing
+ * here ever starts an app block: that is the verdict's job alone, in
+ * `applyAppBlockPenalty`, which is what "not completed" costs.
  *
- * A JUDGED goal does not. Nothing about a passing deadline decides it, so it
- * stays `active` until its judge says completed or not completed: it keeps
- * showing under Active goals, and stays out of the history and every
- * leaderboard, however long that takes. There is deliberately no timeout that
- * would close it without a decision.
+ * All that is left to do here is back-fill goal numbers on old rows.
  */
 function resolveExpired() {
   ensureGoalNumbers();
-  const now = Date.now();
-  const goals = getGoals();
-  let changed = false;
-  for (const g of goals) {
-    if (g.status === 'active' && now > +new Date(g.deadlineAt) && g.noJudge) {
-      // Solo goal missed → apply the app-block penalty (blocks the chosen app
-      // for `durationMinutes` starting now). See src/lib/appBlock.ts.
-      g.status = 'failed_notified';
-      g.failedAt = new Date().toISOString();
-      liftCommitmentBlock(g); // the goal is over, so its commitment block ends
-      applyAppBlockPenalty(g, now);
-      changed = true;
-    }
-  }
-  if (changed) saveGoals(goals);
 }
 
 /* ─────────────────────────────────── Judge codes / credentials ── */
@@ -2210,7 +2153,7 @@ export async function declineJudge(goalId: string, token: string): Promise<Goal>
 
 /**
  * Record the judge's decision. `completed` → completed. `not_completed` →
- * dispatch notifications to accepted recipients. `needs_proof` → judge_review.
+ * start the app block and dispatch notifications to accepted recipients.
  */
 export async function judgeDecision(
   goalId: string,
@@ -2276,15 +2219,8 @@ function applyJudgeDecision(
     decision,
     decisionAt: at,
     decisionComment: comment?.trim() || undefined,
-    decisionEvidence: goal.evidence.slice(),
   };
 
-  if (decision === 'needs_proof') {
-    goal.status = 'judge_review';
-    saveGoals(goals);
-    logAudit({ ...actor, actionType: 'judge_needs_proof', entityType: 'goal', entityId: goal.id });
-    return;
-  }
   if (decision === 'completed') {
     goal.status = 'completed';
     goal.completedAt = at;
@@ -2297,8 +2233,8 @@ function applyJudgeDecision(
   goal.status = 'failed_pending_notification';
   goal.failedAt = at;
   liftCommitmentBlock(goal); // the goal is over either way
-  // Judged goal marked not completed → apply the same app-block penalty a missed
-  // solo goal gets (blocks the chosen app for `durationMinutes` starting now).
+  // The judge said it was not completed → this is what starts the app block
+  // (the chosen app, for `durationMinutes`, from now).
   applyAppBlockPenalty(goal);
   saveGoals(goals);
   logAudit({ ...actor, actionType: 'goal_not_completed', entityType: 'goal', entityId: goal.id });
@@ -2387,9 +2323,11 @@ function liftCommitmentBlock(goal: Goal): void {
 }
 
 /**
- * Start the app-block penalty for a goal that was not completed. Shared by the
- * missed-solo-goal path (`resolveExpired`) and the judge's `not_completed`
- * decision, so both behave identically. Caller persists the goal.
+ * Start the app-block penalty for a goal that was MARKED not completed. This is
+ * the only thing that ever starts it: the owner's own verdict on a solo goal
+ * (`failSoloGoal`) or the judge's `not_completed` decision. A deadline going by
+ * does not, so an unanswered goal blocks nothing until somebody decides it.
+ * Caller persists the goal.
  */
 function applyAppBlockPenalty(goal: Goal, now = Date.now()): void {
   if (!goal.appBlock) return;
@@ -2494,22 +2432,6 @@ export async function reschedulePlannedAction(goalId: string, actionId: string, 
   );
   saveGoals(goals);
   logAudit({ actorId: goal.userId, actionType: 'step_rescheduled', entityType: 'goal', entityId: goal.id, metadata: { actionId, to: newDateISO } });
-  return goal;
-}
-
-/** Delete a proof/confirmation before the judge decides. */
-export async function deleteEvidence(goalId: string, evidenceId: string): Promise<Goal> {
-  await delay(60);
-  const goals = getGoals();
-  const goal = goals.find((g) => g.id === goalId);
-  if (!goal) throw new Error('Goal not found.');
-  goal.evidence = goal.evidence.filter((e) => e.id !== evidenceId);
-  // Free any planned action that was linked to this proof.
-  goal.plannedActions = goal.plannedActions.map((p) =>
-    p.evidenceId === evidenceId ? { ...p, status: 'planned', evidenceId: undefined, updatedAt: new Date().toISOString() } : p,
-  );
-  saveGoals(goals);
-  logAudit({ actorId: goal.userId, actionType: 'evidence_deleted', entityType: 'goal', entityId: goal.id, metadata: { evidenceId } });
   return goal;
 }
 
@@ -2970,7 +2892,6 @@ function fakeTerminalGoal(
     status,
     messageTone: 'neutral',
     ackNotifyConsent: true,
-    evidence: [],
     judge: { name: 'Seed', channel: 'internal', status: decision ? 'accepted' : 'pending', acceptToken: uuid(), decision, decisionAt: decision ? at : undefined },
     recipients: [],
     shareToken: uuid(),
@@ -3216,32 +3137,6 @@ export async function getStreak(userId: string): Promise<{ goals: number }> {
     else break;
   }
   return { goals };
-}
-
-/** Progress-journal entries: every proof the user added, newest first. */
-export interface JournalEntry {
-  goalId: string;
-  goalTitle: string;
-  evidence: GoalEvidence;
-  judgeStatus: string;
-}
-
-export async function listJournal(userId: string): Promise<JournalEntry[]> {
-  await delay(80);
-  const entries: JournalEntry[] = [];
-  for (const g of getGoals().filter((g) => g.userId === userId)) {
-    for (const ev of g.evidence) {
-      entries.push({
-        goalId: g.id,
-        goalTitle: g.title,
-        evidence: ev,
-        judgeStatus: g.judge?.decision ?? g.judge?.status ?? 'pending',
-      });
-    }
-  }
-  return entries.sort(
-    (a, b) => +new Date(b.evidence.actionDate ?? b.evidence.addedAt) - +new Date(a.evidence.actionDate ?? a.evidence.addedAt),
-  );
 }
 
 /** A user's finished (terminal) goals, newest first, for their public profile. */

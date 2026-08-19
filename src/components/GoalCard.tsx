@@ -15,17 +15,12 @@ export default function GoalCard({ goal }: { goal: Goal }) {
   const cd = countdown(goal.deadlineAt, now);
   const meta = statusMeta(goal.status);
   const pct = deadlineElapsedRatio(goal, now);
-  const photo = goal.evidence.find((e) => e.type === 'photo')?.content;
 
   return (
     <Card onClick={() => navigate(`/goal/${goal.id}`)} className="p-4">
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          {photo ? (
-            <img src={photo} alt="" className="h-9 w-9 shrink-0 rounded-lg object-cover" />
-          ) : (
-            <Avatar avatar={goal.creatorAvatar} name={goal.creatorName} size={36} />
-          )}
+          <Avatar avatar={goal.creatorAvatar} name={goal.creatorName} size={36} />
           <div className="min-w-0">
             <p className="truncate font-semibold text-ink">{goal.title}</p>
           </div>
@@ -51,9 +46,6 @@ export default function GoalCard({ goal }: { goal: Goal }) {
               Due {shortDate(goal.deadlineAt)} · {timeOfDay(goal.deadlineAt)}
             </p>
           </>
-        )}
-        {goal.evidence.length > 0 && (
-          <p className="mt-1 font-mono text-[10px] text-muted">{goal.evidence.length} proof(s) added</p>
         )}
       </div>
     </Card>

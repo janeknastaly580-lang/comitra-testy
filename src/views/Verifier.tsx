@@ -215,7 +215,6 @@ export default function Verifier() {
           <div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Goal</p>
             <p className="font-mono text-sm text-ink">{goalRefTitle(goal)}</p>
-            <p className="text-[11px] text-muted">{goal.evidence.length} proof(s) added</p>
           </div>
           <div>
             <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Deadline</p>
@@ -258,8 +257,8 @@ export default function Verifier() {
             <Label>Judge role</Label>
             <p className="mb-3 text-sm text-ink">
               You've been chosen to decide whether {goal.creatorName} completed {goalRef(goal)}.
-              You should decide honestly, based on what they told you the goal is and on any proof
-              they add here.
+              You should decide honestly, based on what they told you the goal is and on what you know
+              yourself. Comitra shows you nothing about it.
             </p>
             <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-warn/40 bg-warn/5 p-3">
               <input
@@ -314,33 +313,6 @@ export default function Verifier() {
             </p>
           </Card>
 
-          <Card className="mb-4 p-4">
-            <Label>Proof {goal.creatorName} chose to share</Label>
-            {goal.evidence.length === 0 ? (
-              <p className="text-[12px] text-muted">No proof has been added yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {goal.evidence.map((ev) => (
-                  <div key={ev.id} className="rounded-lg border border-line bg-elevated p-3">
-                    <p className="font-mono text-[10px] uppercase tracking-widest text-muted">
-                      {ev.type} · {dateTime(ev.actionDate ?? ev.addedAt)}
-                    </p>
-                    {ev.photoUrl && <img src={ev.photoUrl} alt="proof" className="mt-2 max-h-48 rounded-lg" />}
-                    {ev.linkUrl && (
-                      <a href={ev.linkUrl} target="_blank" rel="noopener noreferrer" className="mt-1 block break-all text-sm text-accent underline">
-                        {ev.linkUrl}
-                      </a>
-                    )}
-                    {ev.note && <p className="mt-1 whitespace-pre-line text-sm text-ink">{ev.note}</p>}
-                    {!ev.photoUrl && !ev.linkUrl && !ev.note && ev.type === 'text' && (
-                      <p className="mt-1 whitespace-pre-line text-sm text-ink">{ev.content}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
-
           {!pastDeadline && !goal.earlyDecisionRequested ? (
             <Card className="p-4 text-center">
               <p className="text-sm text-ink">You've accepted. Come back after the deadline to decide.</p>
@@ -379,9 +351,6 @@ export default function Verifier() {
                 </Button>
                 <Button variant="danger" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => setConfirmDecision('not_completed')}>
                   {goalRefTitle(goal)} not completed
-                </Button>
-                <Button variant="outline" className="w-full" disabled={busy || !decideCode.trim()} onClick={() => setConfirmDecision('needs_proof')}>
-                  Need proof / can't decide
                 </Button>
               </div>
               <p className="mt-3 text-[11px] text-active">
@@ -423,9 +392,7 @@ export default function Verifier() {
         title={
           confirmDecision === 'completed'
             ? `Mark ${goalRef(goal)} completed?`
-            : confirmDecision === 'not_completed'
-              ? `Mark ${goalRef(goal)} not completed?`
-              : 'Ask for more proof?'
+            : `Mark ${goalRef(goal)} not completed?`
         }
         message={
           confirmDecision === 'completed' ? (
@@ -433,20 +400,16 @@ export default function Verifier() {
               You confirm {goal.creatorName} did what they told you {goalRef(goal)} was. This is final
               and cannot be changed afterwards.
             </>
-          ) : confirmDecision === 'not_completed' ? (
+          ) : (
             <>
               <span className="text-active">
                 Recipients who accepted get the message about {goalRef(goal)}.
               </span>{' '}
               <span className="font-medium text-active">
-                Any app block they set for themselves starts now.
+                Any app block they set for themselves starts now — this decision is the only thing that
+                starts it.
               </span>{' '}
               This is final and cannot be changed afterwards.
-            </>
-          ) : (
-            <>
-              You tell {goal.creatorName} you can't decide yet and need more proof. Nothing is sent to
-              anyone, and you can decide later.
             </>
           )
         }

@@ -10,12 +10,17 @@ interface StatusMeta {
   tone: Tone;
 }
 
+/**
+ * `proof_pending` and `judge_review` are legacy: proof of completion was removed
+ * from the app, so nothing produces them now. They stay here so goals saved
+ * before that still render a sensible badge.
+ */
 export const STATUS_META: Record<GoalStatus, StatusMeta> = {
   draft: { label: 'Draft', short: 'Draft', tone: 'neutral' },
   waiting_for_judge_acceptance: { label: 'Waiting for judge', short: 'Judge?', tone: 'warn' },
   waiting_for_recipients_acceptance: { label: 'Waiting for recipients', short: 'Recipients?', tone: 'warn' },
   active: { label: 'Active', short: 'Active', tone: 'active' },
-  proof_pending: { label: 'Proof pending', short: 'Proof', tone: 'warn' },
+  proof_pending: { label: 'Awaiting decision', short: 'Waiting', tone: 'warn' },
   judge_review: { label: 'Judge review', short: 'Review', tone: 'warn' },
   completed: { label: 'Completed', short: 'Done', tone: 'accent' },
   failed_pending_notification: { label: 'Not completed', short: 'Missed', tone: 'danger' },

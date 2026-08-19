@@ -15,7 +15,6 @@ function goal(over: Partial<Goal> = {}): Goal {
     deadlineAt: '2026-09-01T10:00:00.000Z',
     status: 'active',
     messageTone: 'neutral',
-    evidence: [],
     judge: { name: 'Kasia', channel: 'email', judgeContact: 'kasia@example.com', status: 'accepted', acceptToken: 'tok-1' },
     recipients: [{ consentId: 'c1' }],
     ackNotifyConsent: true,
@@ -51,16 +50,6 @@ describe('what a goal looks like off its owner’s device', () => {
   it('a field added to Goal later is not shared unless it is opted in', () => {
     const withSecret = goal({ someFutureNote: 'private' } as unknown as Partial<Goal>);
     expect(JSON.stringify(toSharedGoal(withSecret))).not.toContain('private');
-  });
-
-  it('drops photo payloads rather than failing on an oversized goal', () => {
-    const huge = 'data:image/jpeg;base64,' + 'A'.repeat(1_600_000);
-    const shared = toSharedGoal(
-      goal({ evidence: [{ id: 'e1', type: 'photo', content: huge, photoUrl: huge, addedAt: '2026-08-02T10:00:00.000Z', note: 'Week one' }] }),
-    );
-    expect(JSON.stringify(shared).length).toBeLessThan(200_000);
-    expect(shared.evidence[0].photoUrl).toBeUndefined();
-    expect(shared.evidence[0].note).toBe('Week one');
   });
 
   it('the fingerprint ignores the timestamp, so a re-save is not a change', () => {

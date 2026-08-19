@@ -14,7 +14,7 @@
  * deliberately absent, so the goal's content is never uploaded anywhere — not to
  * the judge's phone, not to the database row, not to a backup of it.
  */
-import type { Goal, GoalEvidence } from './types';
+import type { Goal } from './types';
 
 /**
  * The only fields that leave the owner's device.
@@ -33,7 +33,6 @@ const SHARED_FIELDS = [
   'startsAt',
   'deadlineAt',
   'messageTone',
-  'evidence',
   'judge',
   'recipients',
   'ackNotifyConsent',
@@ -57,35 +56,12 @@ const SHARED_FIELDS = [
 
 export type SharedGoal = Pick<Goal, (typeof SHARED_FIELDS)[number]>;
 
-/** Roughly the biggest row we're willing to push (Base64 photos add up fast). */
-const MAX_SHARED_BYTES = 1_500_000;
-
 export function toSharedGoal(goal: Goal): SharedGoal {
   const out: Partial<Record<(typeof SHARED_FIELDS)[number], unknown>> = {};
   for (const key of SHARED_FIELDS) {
     if (goal[key] !== undefined) out[key] = goal[key];
   }
-  return capPhotos(out as SharedGoal);
-}
-
-/**
- * Drop photo payloads when the row would be too big to push. The judge keeps the
- * note, the date and any link; the photo simply stays on the owner's phone
- * rather than the whole sync failing and the judge seeing no goal at all.
- */
-function capPhotos(shared: SharedGoal): SharedGoal {
-  if (JSON.stringify(shared).length <= MAX_SHARED_BYTES) return shared;
-  const evidence = (shared.evidence ?? []).map((ev): GoalEvidence => {
-    const isPhotoData = ev.photoUrl?.startsWith('data:') || ev.content?.startsWith('data:');
-    if (!isPhotoData) return ev;
-    return {
-      ...ev,
-      photoUrl: undefined,
-      content: ev.note ?? '',
-      note: ev.note ?? 'Photo too large to share; ask them to show you.',
-    };
-  });
-  return { ...shared, evidence };
+  return out as SharedGoal;
 }
 
 /**

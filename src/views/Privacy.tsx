@@ -77,7 +77,7 @@ export default function Privacy() {
               'Account data: email address and a display name.',
               'Authentication data: a password (when you register with email) that you set yourself.',
               'Profile data: optional bio and a profile photo (either a preset avatar or an image you upload).',
-              'Content you enter: goals (title, description, deadline), the message tone you choose, any proof of completion you add, and the answers you write after a goal you did not complete. A goal’s title and description, and those answers, are shown only to you. Your judge and your recipients receive the goal’s number (e.g. “goal #3”) and nothing else.',
+              'Content you enter: goals (title, description, deadline), the message tone you choose, and the answers you write after a goal you did not complete. A goal’s title and description, and those answers, are shown only to you. Your judge and your recipients receive the goal’s number (e.g. “goal #3”) and nothing else.',
               'Judge data: the name and email address of the judge you nominate. The address is used once, to send them a 6-digit code confirming it is theirs. You are responsible for having a lawful basis to share another person’s details with us, and they must accept before taking part.',
               'Recipient data: only the Comitra account of a friend you choose to be notified — someone you follow who follows you back. We hold no phone number and no email address for them: they are told inside the app, on their own account, and must accept before anything can be sent.',
               'Support and community data: messages you send us, feature requests you post, votes you cast, and tester applications you submit.',

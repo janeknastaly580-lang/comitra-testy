@@ -14,7 +14,7 @@ const FEATURES = [
   'Assign a judge to confirm your results',
   'Choose 1-3 people to be notified if you miss a goal',
   'Pick the message tone and preview it first',
-  'Add proof (text, link or photo) for your judge',
+  'Block an app on your phone until you finish',
 ];
 
 export default function Subscription() {

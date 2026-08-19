@@ -20,7 +20,9 @@ export type GoalStatus =
   | 'waiting_for_judge_acceptance'
   | 'waiting_for_recipients_acceptance'
   | 'active'
+  /** @deprecated proof of completion was removed; only old rows carry these. */
   | 'proof_pending'
+  /** @deprecated see `proof_pending`. */
   | 'judge_review'
   | 'completed'
   | 'failed_pending_notification'
@@ -48,7 +50,6 @@ export type PlannedActionStatus =
   | 'rescheduled'
   | 'completed'
   | 'skipped'
-  | 'evidence_added'
   | 'pending_judge';
 
 /**
@@ -64,8 +65,6 @@ export interface PlannedAction {
   /** e.g. "Step 1: prepare materials". */
   actionName: string;
   status: PlannedActionStatus;
-  /** Evidence attached to this action, if any. */
-  evidenceId?: string;
   /** Original planned date, when this action has been rescheduled. */
   rescheduledFrom?: string;
   createdAt: string;
@@ -84,33 +83,10 @@ export interface PlannedAction {
  */
 export type Channel = 'email' | 'phone' | 'internal';
 
-/* ─────────────────────────────────────────────────────────── Evidence ── */
-
-export type EvidenceType = 'text' | 'photo' | 'link';
-
-export interface GoalEvidence {
-  id: string;
-  type: EvidenceType;
-  /** Text body, a data-URL for a photo, or a URL string for a link. */
-  content: string;
-  addedAt: string;
-
-  /** Links this evidence to a specific planned step. */
-  plannedActionId?: string;
-  /** Free-form note. */
-  note?: string;
-  /** ISO date the action took place. */
-  actionDate?: string;
-
-  /** Convenience mirrors of `content` when a photo/link is attached. */
-  photoUrl?: string;
-  linkUrl?: string;
-}
-
 /* ─────────────────────────────────────────────────────────────── Judge ── */
 
 export type JudgeStatus = 'pending' | 'accepted' | 'declined';
-export type JudgeDecision = 'completed' | 'not_completed' | 'needs_proof';
+export type JudgeDecision = 'completed' | 'not_completed';
 
 /** The single judge assigned to a goal, plus their acceptance + decision. */
 export interface GoalJudge {
@@ -135,8 +111,6 @@ export interface GoalJudge {
   decision?: JudgeDecision;
   decisionAt?: string;
   decisionComment?: string;
-  /** Evidence that was visible to the judge at decision time (audit trail). */
-  decisionEvidence?: GoalEvidence[];
   /** The 0-5 rating the goal owner gave this judge after the decision. */
   judgeRating?: number;
 }
@@ -245,8 +219,10 @@ export interface GoalRecipient {
 }
 
 /**
- * The app-block penalty attached to a goal. It fires when a solo goal passes its
- * deadline unfinished, or when a judge marks a judged goal as not completed.
+ * The app-block penalty attached to a goal. It fires on exactly one event: the
+ * goal being marked NOT COMPLETED — by its owner on a solo goal, by the judge on
+ * a judged one. A passing deadline never starts it; an undecided goal simply
+ * stays open until somebody says how it went.
  */
 export interface AppBlockPenalty {
   /** Android package name of the app to block. */
@@ -336,7 +312,6 @@ export interface Goal {
   /** @deprecated goal content is never shared, the message carries only the number. */
   includeGoalDescriptionInFailureMessage?: boolean;
 
-  evidence: GoalEvidence[];
   judge: GoalJudge;
   recipients: GoalRecipient[];
 

@@ -3,7 +3,7 @@ import * as api from '../api';
 import { KEYS, write } from '../storage';
 import type { CreateGoalInput } from '../api';
 import type { PushMessage } from '../push';
-import { buildGoalReport, goalDone, goalRequired } from '../goal';
+import { goalRequired } from '../goal';
 import { checkGoalContent } from '../messages';
 
 /** Simulate acting from a device different from the goal creator's. */
@@ -416,13 +416,28 @@ describe('commitment app block (blocks an app while the goal runs)', () => {
   it('lifts when the goal is missed, and when it is cancelled', async () => {
     const missed = await activeSoloGoal(7);
     await api.setCommitmentBlock(missed.goal.id, missed.owner.id, 'com.discord', 'Discord');
-    // Force the deadline into the past so resolveExpired marks it missed.
-    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
-    for (const g of stored) if (g.id === missed.goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
-    localStorage.setItem('fineline:goals', JSON.stringify(stored));
+    await api.failSoloGoal(missed.goal.id, missed.owner.id);
     const after = (await api.getGoal(missed.goal.id))!;
     expect(after.status).toBe('failed_notified');
     expect(after.commitmentBlock?.liftedAt).toBeTruthy();
+
+    // A deadline that simply arrives leaves the goal alone: the block stops
+    // being live because its own hard stop IS the deadline, and the goal waits
+    // for its owner's verdict.
+    const overdue = await activeSoloGoal(7);
+    await api.setCommitmentBlock(overdue.goal.id, overdue.owner.id, 'com.discord', 'Discord');
+    const past = new Date(Date.now() - 1000).toISOString();
+    const rows = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
+    for (const g of rows) {
+      if (g.id !== overdue.goal.id) continue;
+      // `untilAt` tracks the deadline (see updateGoalDeadline), so move both.
+      g.deadlineAt = past;
+      g.commitmentBlock.untilAt = past;
+    }
+    localStorage.setItem('fineline:goals', JSON.stringify(rows));
+    const still = (await api.getGoal(overdue.goal.id))!;
+    expect(still.status).toBe('active');
+    expect(api.isCommitmentBlockLive(still)).toBe(false);
 
     const cancelled = await activeSoloGoal(7);
     await api.setCommitmentBlock(cancelled.goal.id, cancelled.owner.id, 'com.discord', 'Discord');
@@ -466,15 +481,14 @@ describe('commitment app block (blocks an app while the goal runs)', () => {
 });
 
 describe('a missed goal must be reflected on before a new one', () => {
-  /** Create a solo goal and force it past its deadline so it is "missed". */
+  /** Create a solo goal and have its owner mark it not completed. */
   async function missedSoloGoal() {
     setDevice('creator-device');
     const owner = await freshOwner();
     const goal = await api.createGoal(goalInput(owner.id, { recipients: [], judge: undefined }));
-    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
-    for (const g of stored) if (g.id === goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
-    localStorage.setItem('fineline:goals', JSON.stringify(stored));
-    expect((await api.getGoal(goal.id))!.status).toBe('failed_notified');
+    // A goal is only ever missed by being SAID to be missed: the deadline going
+    // by leaves it active.
+    expect((await api.failSoloGoal(goal.id, owner.id)).status).toBe('failed_notified');
     return { owner, goal };
   }
 
@@ -532,28 +546,14 @@ describe('app-block penalty on a judged goal', () => {
 });
 
 describe('goals', () => {
-  it('generates planned steps and tracks proof + report', async () => {
+  it('generates one planned step per required action', async () => {
     const { goal } = await activatedGoal();
     expect(goalRequired(goal)).toBe(3);
     expect(goal.plannedActions).toHaveLength(3);
     expect(goal.plannedActions.every((p) => p.actionType === 'step')).toBe(true);
-
-    const g2 = await api.addEvidence(goal.id, {
-      type: 'text',
-      content: 'session',
-      note: 'Good session',
-      actionDate: new Date().toISOString(),
-    });
-    expect(goalDone(g2)).toBe(1);
-    expect(g2.plannedActions.some((p) => p.status === 'evidence_added')).toBe(true);
-
-    const report = buildGoalReport(g2);
-    expect(report.plannedCount).toBe(3);
-    expect(report.completedCount).toBe(1);
-    expect(report.evidenceCount).toBe(1);
   });
 
-  it('builds one planned step per required action', async () => {
+  it('honours a custom required-action count', async () => {
     setDevice('creator-device');
     const owner = await freshOwner();
     const goal = await api.createGoal(
@@ -564,13 +564,12 @@ describe('goals', () => {
     expect(goalRequired(goal)).toBe(5);
   });
 
-  it('rescheduling a step does NOT increase progress', async () => {
+  it('a rescheduled step keeps the same deadline', async () => {
     const { goal } = await activatedGoal();
-    const before = goalDone(goal);
     const action = goal.plannedActions.find((p) => p.status === 'planned')!;
     const g2 = await api.reschedulePlannedAction(goal.id, action.id, future());
     expect(g2.plannedActions.find((p) => p.id === action.id)!.status).toBe('rescheduled');
-    expect(goalDone(g2)).toBe(before); // unchanged
+    expect(g2.deadlineAt).toBe(goal.deadlineAt);
   });
 });
 
@@ -728,7 +727,7 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     expect(cancelled.status).toBe('cancelled');
   });
 
-  it('a missed solo goal applies the app-block penalty', async () => {
+  it('a solo goal past its deadline is NOT failed and blocks nothing', async () => {
     setDevice('creator-device');
     const owner = await freshOwner();
     const goal = await api.createGoal(
@@ -738,14 +737,36 @@ describe('recipients optional / solo goals / active-goal protection', () => {
         appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
       }),
     );
-    // Force the deadline into the past, then let resolveExpired run.
+    // Force the deadline into the past: nothing about it decides the goal.
     const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
     for (const g of stored) if (g.id === goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
     localStorage.setItem('fineline:goals', JSON.stringify(stored));
     const after = (await api.getGoal(goal.id))!;
-    expect(after.status).toBe('failed_notified');
-    expect(after.appBlockUntil).toBeTruthy();
-    expect(+new Date(after.appBlockUntil!)).toBeGreaterThan(Date.now());
+    expect(after.status).toBe('active');
+    expect(after.appBlockUntil).toBeUndefined();
+
+    // Only the owner's own verdict starts the block.
+    const failed = await api.failSoloGoal(goal.id, owner.id);
+    expect(failed.status).toBe('failed_notified');
+    expect(+new Date(failed.appBlockUntil!)).toBeGreaterThan(Date.now());
+  });
+
+  it('an overdue solo goal can still be marked completed, and blocks nothing', async () => {
+    setDevice('creator-device');
+    const owner = await freshOwner();
+    const goal = await api.createGoal(
+      goalInput(owner.id, {
+        recipients: [],
+        judge: undefined,
+        appBlock: { packageName: 'com.instagram.android', appLabel: 'Instagram', durationMinutes: 60 },
+      }),
+    );
+    const stored = JSON.parse(localStorage.getItem('fineline:goals') || '[]');
+    for (const g of stored) if (g.id === goal.id) g.deadlineAt = new Date(Date.now() - 1000).toISOString();
+    localStorage.setItem('fineline:goals', JSON.stringify(stored));
+    const done = await api.completeSoloGoal(goal.id, owner.id);
+    expect(done.status).toBe('completed');
+    expect(done.appBlockUntil).toBeUndefined();
   });
 
   it('a judge cannot decide before the deadline unless the user asks', async () => {
@@ -773,7 +794,7 @@ describe('recipients optional / solo goals / active-goal protection', () => {
     );
     const failed = await api.failSoloGoal(goal.id, owner.id);
     expect(failed.status).toBe('failed_notified');
-    // Owning up costs exactly what missing the deadline costs.
+    // Saying so is the one and only thing that costs the app block.
     expect(+new Date(failed.appBlockUntil!)).toBeGreaterThan(Date.now());
     // No message goes anywhere: a solo goal has no recipients and no judge.
     expect(await api.listGoalNotifications(goal.id)).toHaveLength(0);
