@@ -187,8 +187,15 @@ body {
   margin: 0;
   background: #dfe4e6;
   color: rgb(var(--c-ink));
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'DM Sans', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* `font-mono` no longer means a monospaced FACE (see tailwind.config.js), but
+   the columns of figures it marks still have to line up — so it keeps the one
+   property that was doing that work. */
+.font-mono {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Thin, technical scrollbars inside the phone frame. */

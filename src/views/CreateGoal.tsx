@@ -75,7 +75,7 @@ export default function CreateGoal() {
   const [friends, setFriends] = useState<api.SocialProfile[]>([]);
   const [recipientIds, setRecipientIds] = useState<string[]>(saved.recipientIds ?? []);
   /**
-   * Whether the chosen friend has opened Comitra recently. `false` is not an
+   * Whether the chosen friend has opened Pactista recently. `false` is not an
    * error — the message is still queued and delivered if they come back — but
    * the owner should know before they build a commitment on it.
    */
@@ -96,7 +96,7 @@ export default function CreateGoal() {
 
   // Ask the shared store whether the chosen friend still has the app. Runs on
   // every change of choice; a failure answers "reachable", because not being
-  // able to check is not evidence that somebody uninstalled Comitra.
+  // able to check is not evidence that somebody uninstalled Pactista.
   const chosenRecipientId = recipientIds[0] ?? '';
   useEffect(() => {
     if (!chosenRecipientId) {
@@ -417,7 +417,7 @@ export default function CreateGoal() {
               ))}
               {recipientReachable === false && (
                 <p className="text-[11px] text-warn">
-                  Not seen in Comitra for {REACHABLE_DAYS} days. A message would wait for them.
+                  Not seen in Pactista for {REACHABLE_DAYS} days. A message would wait for them.
                 </p>
               )}
             </div>

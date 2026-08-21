@@ -14,7 +14,7 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="phone-scroll flex h-full flex-col overflow-y-auto px-5 pb-8 pt-10">
       <div className="mb-6 flex items-center gap-2">
         <BrandMark className="h-7 w-7" />
-        <span className="font-mono text-sm font-bold tracking-[0.2em]">Comitra</span>
+        <span className="font-mono text-sm font-bold tracking-[0.2em]">Pactista</span>
         <span className="ml-auto font-mono text-[10px] uppercase tracking-widest text-muted">Notifications</span>
       </div>
       {children}
@@ -64,7 +64,7 @@ export default function Recipient() {
         <Card className="p-6 text-center">
           <p className="text-sm text-danger">This invite link is not valid.</p>
           <Link to="/login" className="mt-3 inline-block text-sm text-accent hover:underline">
-            Go to Comitra
+            Go to Pactista
           </Link>
         </Card>
       </Shell>

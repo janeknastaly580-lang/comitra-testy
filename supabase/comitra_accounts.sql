@@ -1,5 +1,5 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- Comitra · ACCOUNTS, SESSIONS and per-account STATE  (run ONCE — re-runnable)
+-- Pactista · ACCOUNTS, SESSIONS and per-account STATE  (run ONCE — re-runnable)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
 -- Independent of comitra_goals.sql and comitra_invited_judges.sql; run all three.

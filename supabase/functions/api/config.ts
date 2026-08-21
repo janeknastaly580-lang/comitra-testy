@@ -51,7 +51,7 @@ function readSes(): SesConfig {
   const problems: string[] = [];
 
   const off: SesConfig = {
-    configured: false, problems: [], region: null, fromEmail: null, fromName: 'Comitra',
+    configured: false, problems: [], region: null, fromEmail: null, fromName: 'Pactista',
     replyTo: null, configurationSet: null, templateName: null, templateVar: 'code',
     accessKeyId: null, secretAccessKey: null,
   };
@@ -83,7 +83,7 @@ function readSes(): SesConfig {
 
   const rawName = clean('SES_FROM_NAME') ?? '';
   // A quote or angle bracket could break out of the `Name <addr>` header.
-  const fromName = !rawName || /["<>\r\n]/.test(rawName) ? 'Comitra' : rawName.slice(0, 60);
+  const fromName = !rawName || /["<>\r\n]/.test(rawName) ? 'Pactista' : rawName.slice(0, 60);
 
   if (problems.length > 0) return { ...off, problems };
 
@@ -96,6 +96,60 @@ function readSes(): SesConfig {
     accessKeyId, secretAccessKey,
   };
 }
+
+/* ─────────────────────────────────────────── Firebase Cloud Messaging ──── */
+
+export interface FcmConfig {
+  configured: boolean;
+  problems: string[];
+  projectId: string | null;
+  clientEmail: string | null;
+  privateKey: string | null;
+}
+
+/**
+ * The service account that lets the backend push a notification to a phone.
+ *
+ * Same all-or-nothing rule as SES, and the same reason for it: half a
+ * credential is not a degraded feature, it is a feature that fails at the worst
+ * moment. Unset entirely, push is simply off — every message still lands in the
+ * inbox and is shown when the app is next opened, which is exactly how Pactista
+ * behaved before FCM existed. Half-set, `problems` says which half.
+ *
+ * These are secrets and belong in Edge Function secrets, never in a VITE_ value:
+ * the private key can mint notifications to every user of the project, and a
+ * VITE_ variable is compiled into the APK for anyone to unzip.
+ */
+function readFcm(): FcmConfig {
+  const projectId = clean('FCM_PROJECT_ID');
+  const clientEmail = clean('FCM_CLIENT_EMAIL');
+  const privateKey = clean('FCM_PRIVATE_KEY');
+
+  const off: FcmConfig = {
+    configured: false, problems: [], projectId: null, clientEmail: null, privateKey: null,
+  };
+
+  // None of the three set: push is off on purpose, not misconfigured.
+  if (!projectId && !clientEmail && !privateKey) return off;
+
+  const problems: string[] = [];
+  if (!projectId) problems.push('FCM_PROJECT_ID is empty.');
+  if (!clientEmail) problems.push('FCM_CLIENT_EMAIL is empty.');
+  if (!privateKey) problems.push('FCM_PRIVATE_KEY is empty.');
+  if (clientEmail && !EMAIL.test(clientEmail)) {
+    problems.push('FCM_CLIENT_EMAIL is not an address — copy `client_email` from the service-account JSON.');
+  }
+  // Checked here because the failure it causes otherwise is a silent one: the
+  // JWT simply never signs, and no notification is ever sent by any isolate.
+  if (privateKey && !privateKey.includes('BEGIN PRIVATE KEY')) {
+    problems.push('FCM_PRIVATE_KEY does not look like a PEM — paste `private_key` whole, BEGIN/END lines included.');
+  }
+
+  if (problems.length > 0) return { ...off, problems };
+  return { configured: true, problems: [], projectId, clientEmail, privateKey };
+}
+
+export const fcmConfig = readFcm();
 
 /* ───────────────────────────────────────────────────────────────── misc ──── */
 
@@ -153,3 +207,8 @@ export const sesConfig = readSes();
 // Logged once per isolate. Problems are configuration mistakes, never secrets.
 if (sesConfig.problems.length > 0) console.error('[config] SES half-configured:', sesConfig.problems.join(' | '));
 if (!OTP_PEPPER) console.error('[config] COMITRA_OTP_PEPPER is not set — verification cannot run.');
+if (fcmConfig.problems.length > 0) console.error('[config] FCM half-configured:', fcmConfig.problems.join(' | '));
+// Info, not an error: an install with no Firebase project is a supported state.
+if (!fcmConfig.configured && fcmConfig.problems.length === 0) {
+  console.info('[config] FCM is not configured — messages will wait in the inbox instead of waking a phone.');
+}

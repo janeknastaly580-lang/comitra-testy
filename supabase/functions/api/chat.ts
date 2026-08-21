@@ -17,6 +17,7 @@
  * goal NUMBER. Neither ever carries a goal's title or description.
  */
 import { ApiError } from './errors.ts';
+import { notifyUser, senderName } from './fcm.ts';
 import { rpc } from './state.ts';
 
 /** The product limits. Enforced again inside the SQL, which is the real gate. */
@@ -64,6 +65,79 @@ function cleanPayload(raw: unknown): Record<string, unknown> {
   return out;
 }
 
+/* ────────────────────────────────────────────── what a message becomes ──── */
+
+/**
+ * The sentence a chat message shows on a lock screen.
+ *
+ * NEVER the text somebody typed, even though the app shows exactly that inside
+ * the conversation. A notification is read by whoever is holding the phone,
+ * which is not always its owner, and a message a friend sent in confidence has
+ * no business being legible from a table. The app's own wording lives in
+ * `chatPreview` (src/lib/chat.ts); this is its lock-screen-safe twin.
+ */
+function pushBody(kind: string, payload: Record<string, unknown>, name: string): string | null {
+  const number = Number(payload.goalNumber);
+  const goal = Number.isFinite(number) && number > 0 ? `goal #${Math.trunc(number)}` : 'a goal';
+
+  if (kind === 'text') return `${name} sent you a message.`;
+
+  switch (payload.request) {
+    case 'judge_invite':
+      return `${name} asked you to judge ${goal}.`;
+    case 'decision':
+      return `${name} asked you to decide ${goal}.`;
+    case 'edit':
+      return `${name} asked to change ${goal}.`;
+    default:
+      break;
+  }
+  switch (payload.event) {
+    case 'accepted':
+      return `${name} accepted judging ${goal}.`;
+    case 'declined':
+      return `${name} declined judging ${goal}.`;
+    case 'completed':
+      return `${name} marked ${goal} completed.`;
+    case 'not_completed':
+      return `${name} marked ${goal} not completed.`;
+    case 'cancelled':
+      return `${name} cancelled ${goal}.`;
+    default:
+      // An event this backend does not know how to word is not worth waking a
+      // phone for — it is still in the thread when they next look.
+      return kind === 'request' ? `${name} needs something from you.` : null;
+  }
+}
+
+/**
+ * Wake the recipient's phone about a message that has just been stored.
+ *
+ * Awaited rather than fired and forgotten, because an Edge Function may be
+ * frozen the moment its response is written — a detached promise here is a
+ * notification that arrives only when the isolate happens to survive, which is
+ * the kind of bug that reproduces once a fortnight. It is bounded by the
+ * timeout in fcm.ts and cannot throw.
+ */
+async function notifyRecipient(
+  fromUserId: string,
+  toUserId: string,
+  kind: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const name = await senderName(fromUserId);
+  const body = pushBody(kind, payload, name);
+  if (!body) return;
+  await notifyUser(toUserId, {
+    title: 'Pactista',
+    body,
+    // One banner per conversation: a friend who sends three lines in a row
+    // should not stack three notifications.
+    tag: `chat:${fromUserId}`,
+    data: { type: 'chat', withUserId: fromUserId },
+  });
+}
+
 export interface ChatRow {
   id: string;
   thread_id: string;
@@ -105,19 +179,25 @@ export async function chatSend(accountId: string, body: Record<string, unknown>)
     throw new ApiError('bad-request', 'Write something first.', 400, 'empty text message');
   }
 
+  const payload = cleanPayload(body.payload);
   const rows = await rpc<{ status: string; remaining: number }[]>('comitra_chat_send', {
     p_id: id,
     p_from: accountId,
     p_to: toUserId,
     p_kind: kind,
     p_body: text,
-    p_payload: cleanPayload(body.payload),
+    p_payload: payload,
     p_max_texts: CHAT_MAX_TEXTS_PER_DAY,
   });
   const result = Array.isArray(rows) ? rows[0] : undefined;
   if (result?.status === 'rate-limited') {
     return { sent: false, reason: 'rate-limited', remaining: 0, limit: CHAT_MAX_TEXTS_PER_DAY };
   }
+
+  // Stored first, notified second, and never the other way round: a banner for
+  // a message that failed to save is a lie the recipient cannot check.
+  await notifyRecipient(accountId, toUserId, kind, payload);
+
   return { sent: true, remaining: result?.remaining ?? 0, limit: CHAT_MAX_TEXTS_PER_DAY };
 }
 

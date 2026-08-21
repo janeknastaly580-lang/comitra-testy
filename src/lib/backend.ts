@@ -1,5 +1,5 @@
 /**
- * The one place that knows how to reach Comitra's backend.
+ * The one place that knows how to reach Pactista's backend.
  *
  * `src/lib/email.ts` grew its own copy of this while the backend only did
  * verification codes; now that accounts and every byte of user data go through

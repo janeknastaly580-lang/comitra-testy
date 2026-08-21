@@ -72,13 +72,13 @@ export interface PlannedAction {
 }
 
 /**
- * How Comitra reaches someone.
+ * How Pactista reaches someone.
  *
  *  • `internal` — an account, reached inside the app. This is the only one now:
  *    judges and recipients are both friends with accounts, so every message is
  *    addressed to a user id (see `src/lib/chat.ts` and `src/lib/push.ts`).
  *  • `email`    — @deprecated. Judges were invited by address before they were
- *    friends; the only thing Comitra emails anyone about now is their own
+ *    friends; the only thing Pactista emails anyone about now is their own
  *    sign-up code.
  *  • `phone`    — @deprecated. SMS is gone.
  *
@@ -388,7 +388,7 @@ export interface User {
   emailVerifiedAt?: string;
 
   /**
-   * @deprecated Comitra no longer asks anyone for a phone number, and nothing
+   * @deprecated Pactista no longer asks anyone for a phone number, and nothing
    * reads this. Kept so accounts saved before SMS was removed still load; it is
    * dropped from any account that signs in again.
    */

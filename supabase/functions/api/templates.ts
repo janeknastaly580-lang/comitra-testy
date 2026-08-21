@@ -29,13 +29,13 @@ function esc(value: unknown): string {
 export function verificationCodeEmail(code: string): { subject: string; text: string; html: string } {
   const safe = esc(code);
   return {
-    subject: `${code} is your Comitra verification code`,
+    subject: `${code} is your Pactista verification code`,
     text: [
-      `${code} is your Comitra verification code.`,
+      `${code} is your Pactista verification code.`,
       '',
       `Type it into the app to confirm this address. It expires in ${EMAIL_TTL_MINUTES} minutes.`,
       '',
-      'Never share this code with anyone. Comitra will never ask you for it.',
+      'Never share this code with anyone. Pactista will never ask you for it.',
       "If you weren't expecting this, you can ignore this email — nothing was created.",
     ].join('\n'),
     html: [
@@ -45,7 +45,7 @@ export function verificationCodeEmail(code: string): { subject: string; text: st
       '<h1 style="margin:0 0 8px;font-size:19px;line-height:1.35;color:#e6edf3">Confirm your email</h1>',
       `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#8b98a5">Type this code into the app to confirm this address. It expires in ${EMAIL_TTL_MINUTES} minutes.</p>`,
       `<p style="margin:0 0 20px;padding:16px;text-align:center;font-size:30px;letter-spacing:.35em;font-weight:700;background:#0b0f14;border:1px solid #1e2a36;border-radius:12px;color:#e6edf3">${safe}</p>`,
-      '<p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#8b98a5">Never share this code with anyone. Comitra will never ask you for it.</p>',
+      '<p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#8b98a5">Never share this code with anyone. Pactista will never ask you for it.</p>',
       "<p style=\"margin:0;font-size:12px;line-height:1.6;color:#8b98a5\">If you weren't expecting this, you can ignore this email — nothing was created.</p>",
       '</div></div>',
     ].join(''),
@@ -63,9 +63,9 @@ export function verificationCodeEmail(code: string): { subject: string; text: st
 export function passwordResetEmail(link: string): { subject: string; text: string; html: string } {
   const safe = esc(link);
   return {
-    subject: 'Reset your Comitra password',
+    subject: 'Reset your Pactista password',
     text: [
-      'You asked to reset your Comitra password.',
+      'You asked to reset your Pactista password.',
       '',
       'Open this link to choose a new one. It works once and expires in 30 minutes:',
       link,

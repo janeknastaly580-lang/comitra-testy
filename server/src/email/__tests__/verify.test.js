@@ -48,7 +48,7 @@ describe('sending a code', () => {
     expect(fake.calls.emails).toHaveLength(1);
     const [mail] = fake.calls.emails;
     expect(mail.Destination.ToAddresses).toEqual([EMAIL]);
-    expect(mail.FromEmailAddress).toBe(`Comitra <${TEST_FROM}>`);
+    expect(mail.FromEmailAddress).toBe(`Pactista <${TEST_FROM}>`);
     expect(mail.Content.Simple.Subject.Data).toMatch(/\b\d{6}\b/);
     expect(mail.Content.Simple.Body.Text.Data).toMatch(/\b\d{6}\b/);
     // The result carries the destination and a status, and no field that could
@@ -138,7 +138,7 @@ describe('sending through a SES-hosted template', () => {
 
     // Still exactly one recipient, still our own From identity.
     expect(mail.Destination.ToAddresses).toEqual([EMAIL]);
-    expect(mail.FromEmailAddress).toBe(`Comitra <${TEST_FROM}>`);
+    expect(mail.FromEmailAddress).toBe(`Pactista <${TEST_FROM}>`);
   });
 
   it('uses the placeholder name the template actually declares', async () => {
@@ -276,7 +276,7 @@ describe('configuration', () => {
   });
 
   it('catches a display name pasted into the From address', () => {
-    const parsed = parseEmailEnv({ SES_REGION: 'eu-central-1', SES_FROM_EMAIL: `Comitra <${TEST_FROM}>` });
+    const parsed = parseEmailEnv({ SES_REGION: 'eu-central-1', SES_FROM_EMAIL: `Pactista <${TEST_FROM}>` });
     expect(parsed.configured).toBe(false);
     expect(parsed.problems.join(' ')).toMatch(/bare email address/);
   });
@@ -340,6 +340,6 @@ describe('configuration', () => {
       SES_FROM_EMAIL: TEST_FROM,
       SES_FROM_NAME: 'Evil" <attacker@elsewhere.test>',
     });
-    expect(parsed.fromName).toBe('Comitra');
+    expect(parsed.fromName).toBe('Pactista');
   });
 });

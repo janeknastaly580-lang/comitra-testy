@@ -6,8 +6,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * working from the file:// origin inside the Android WebView.
  */
 const config: CapacitorConfig = {
-  appId: 'com.fineline.app',
-  appName: 'Comitra',
+  appId: 'com.pactista.app',
+  appName: 'Pactista',
   webDir: 'dist',
   android: {
     // We serve our own bundled assets over https-like file access only; no

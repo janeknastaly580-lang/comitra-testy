@@ -1,4 +1,4 @@
-package com.fineline.app.notify;
+package com.pactista.app.notify;
 
 import android.Manifest;
 import android.app.Notification;
@@ -14,8 +14,8 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 
-import com.fineline.app.MainActivity;
-import com.fineline.app.R;
+import com.pactista.app.MainActivity;
+import com.pactista.app.R;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -25,10 +25,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 /**
  * The native half of `src/lib/localNotify.ts`.
  *
- * Comitra has no push service, so nothing reaches a phone whose app is closed.
+ * Pactista has no push service, so nothing reaches a phone whose app is closed.
  * What this does is turn a message the app has just pulled from the shared inbox
  * into a real system notification, so it is seen even if the person is not
- * looking at Comitra at that moment.
+ * looking at Pactista at that moment.
  *
  * Everything here is best-effort. A missing permission, a stale channel or an
  * OEM that drops the post must never break the sync that produced the message:
@@ -37,6 +37,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "ComitraNotify")
 public class ComitraNotifyPlugin extends Plugin {
 
+    /** Must match `notification_channel_id` in strings.xml and fcm.ts. */
     private static final String CHANNEL_ID = "comitra_goals";
     private static final int PERMISSION_REQUEST = 4711;
 
@@ -50,7 +51,7 @@ public class ComitraNotifyPlugin extends Plugin {
     @PluginMethod
     public void notify(PluginCall call) {
         String id = call.getString("id", "");
-        String title = call.getString("title", "Comitra");
+        String title = call.getString("title", "Pactista");
         String body = call.getString("body", "");
 
         if (body == null || body.isEmpty()) {
@@ -99,7 +100,15 @@ public class ComitraNotifyPlugin extends Plugin {
         try {
             // The inbox id is stable per message, so a re-delivery updates the
             // same notification instead of stacking a second copy.
-            NotificationManagerCompat.from(context).notify(id == null ? "" : id, 1, notification);
+            //
+            // THE ZERO MATTERS. Firebase posts its own notifications with
+            // `notify(tag, 0, ...)` — verified against firebase-messaging, which
+            // passes a literal 0 alongside the message's tag. Using the same id
+            // here means a message that arrived BOTH ways (pushed while the app
+            // was closed, then found again by the sync on open) replaces its own
+            // banner instead of showing the reader two of them. The backend puts
+            // this same string in the tag — see supabase/functions/api/fcm.ts.
+            NotificationManagerCompat.from(context).notify(id == null ? "" : id, 0, notification);
         } catch (SecurityException e) {
             posted = false;
         }
@@ -109,13 +118,26 @@ public class ComitraNotifyPlugin extends Plugin {
         call.resolve(result);
     }
 
-    private void ensureChannel(Context context) {
+    /**
+     * Create the app's one notification channel if it is not there already.
+     *
+     * Static and public because two very different things need it: this plugin,
+     * posting a banner for a message the app has just pulled, and MainActivity
+     * at startup — a notification PUSHED from the backend names this channel by
+     * id, and Android silently drops one whose channel does not exist.
+     *
+     * The strings come from resources so the manifest's
+     * `default_notification_channel_id` and the id used here cannot drift apart.
+     */
+    public static void ensureChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (manager == null || manager.getNotificationChannel(CHANNEL_ID) != null) return;
         NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Goal updates", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setDescription("Messages about goals your friends asked you to be part of.");
+                CHANNEL_ID,
+                context.getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT);
+        channel.setDescription(context.getString(R.string.notification_channel_description));
         manager.createNotificationChannel(channel);
     }
 }

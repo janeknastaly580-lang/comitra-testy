@@ -11,6 +11,7 @@ import {
 import * as api from '../lib/api';
 import { chatPreview, listThreads, type ChatThread } from '../lib/chat';
 import { clearAllDrafts } from '../lib/draft';
+import { forgetPush, initPush, onPushWake } from '../lib/fcm';
 import { postNotification } from '../lib/localNotify';
 import * as googleAuth from '../lib/google';
 import { clearInbox, listInbox, markRead, registerDevice, syncInbox, type PushMessage } from '../lib/push';
@@ -19,10 +20,12 @@ import type { ThemeId, User } from '../lib/types';
 /**
  * How often the app checks for messages while it is open.
  *
- * There is no push service to be woken by, so this poll IS the delivery. Two
- * minutes is a compromise: often enough that a friend's answer feels immediate,
- * rare enough to cost a phone almost nothing. Every open also syncs once, which
- * is what actually catches anything that arrived while the app was closed.
+ * Now the floor rather than the delivery: a real push wakes the app the moment
+ * something is sent (`src/lib/fcm.ts`), and this catches whatever a push could
+ * not — a refused notification permission, a phone with no Play Services, a
+ * dropped message. Two minutes is the compromise it always was: often enough
+ * that a friend's answer feels immediate, rare enough to cost a phone almost
+ * nothing. Every open still syncs once.
  */
 const INBOX_POLL_MS = 120_000;
 
@@ -87,6 +90,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // app polls. Kept in a ref: it must survive a render without causing one.
   const notified = useRef<Set<string>>(new Set());
   const bootstrapped = useRef(false);
+  /**
+   * The two polls, exposed so an arriving push can run them immediately.
+   *
+   * Refs rather than state because a push must reach whatever the CURRENT
+   * effects are, without re-subscribing the FCM listener every time a timer
+   * is rebuilt — and because nothing renders differently for holding them.
+   */
+  const pullInbox = useRef<(() => void) | null>(null);
+  const pullChat = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (bootstrapped.current) return;
@@ -134,6 +146,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
 
     void tick();
+    // File this handset's FCM token against the account that just signed in, so
+    // the backend can wake it while the app is closed. Everything below still
+    // works exactly as before if this fails — see src/lib/fcm.ts.
+    void initPush(id);
+    pullInbox.current = () => void tick();
     const timer = setInterval(() => void tick(), INBOX_POLL_MS);
     // Coming back to the app is the moment something is most likely waiting.
     const onVisible = () => {
@@ -142,6 +159,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       stopped = true;
+      pullInbox.current = null;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
@@ -184,14 +202,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (notified.current.has(key)) continue;
         notified.current.add(key);
         void postNotification({
-          id: key,
-          title: 'Comitra',
+          // Keyed by CONVERSATION, not by message, and deliberately the same tag
+          // the backend pushes under (`chat:<id>` in supabase/functions/api/
+          // chat.ts). A banner already on screen for this friend is replaced,
+          // whether the app or Firebase put it there — `key` above is what stops
+          // the same message being announced twice, and it is a different job.
+          id: `chat:${thread.userId}`,
+          title: 'Pactista',
           body: chatPreview({ kind: thread.lastKind, body: thread.lastBody, payload: {} }),
         });
       }
     };
 
     void tick(true);
+    pullChat.current = () => void tick(true);
     const timer = setInterval(() => void tick(false), CHAT_POLL_MS);
     // Reopening the app, or coming back onto a network, is when a message is
     // most likely already waiting — ask straight away rather than on the beat.
@@ -201,12 +225,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.addEventListener('online', onWake);
     return () => {
       stopped = true;
+      pullChat.current = null;
       clearInterval(timer);
       document.removeEventListener('visibilitychange', onWake);
       window.removeEventListener('focus', onWake);
       window.removeEventListener('online', onWake);
     };
   }, [user]);
+
+  /**
+   * A push that lands while the app is running turns into a pull, not a banner.
+   *
+   * The OS shows nothing for a notification that arrives in the foreground, so
+   * something has to. Letting the two polls above do it — rather than posting
+   * from the push itself — means the banner is raised by the code that already
+   * de-duplicates them by message id, and the screens are up to date by the time
+   * anybody taps it. Registered once, and reads the refs so it always reaches
+   * the current effects.
+   */
+  useEffect(() => {
+    onPushWake(() => {
+      pullInbox.current?.();
+      pullChat.current?.();
+    });
+    return () => onPushWake(null);
+  }, []);
 
   const readMessage = useCallback(
     async (id: string) => {
@@ -288,6 +331,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [claimGuestInto]);
 
   const logout = useCallback(async () => {
+    // Before `api.logout()`, never after: the backend takes the account from the
+    // session token, so once that is gone there is nothing left to say whose
+    // notifications should stop arriving on this phone.
+    await forgetPush();
     await api.logout();
     // The pulled messages belong to the account that is leaving, not to the
     // device: whoever signs in next must not find them sitting there. Half-typed

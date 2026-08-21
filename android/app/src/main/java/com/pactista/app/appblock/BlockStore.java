@@ -1,4 +1,4 @@
-package com.fineline.app.appblock;
+package com.pactista.app.appblock;
 
 import android.content.Context;
 import android.content.SharedPreferences;

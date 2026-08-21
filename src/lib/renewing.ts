@@ -1,7 +1,7 @@
 /**
  * Renewing goals: the same commitment, due again every week on the days you pick.
  *
- * The difference from an ordinary Comitra goal is what "done" means. A normal
+ * The difference from an ordinary Pactista goal is what "done" means. A normal
  * goal is one deadline that either arrives kept or missed, and then it is over.
  * A renewing goal is never over — it asks the same thing every Monday, or every
  * day, and what you get back is a record of how often you actually did it.

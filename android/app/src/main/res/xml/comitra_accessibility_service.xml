@@ -15,4 +15,4 @@
     android:canRetrieveWindowContent="true"
     android:description="@string/accessibility_service_description"
     android:notificationTimeout="200"
-    android:settingsActivity="com.fineline.app.MainActivity" />
+    android:settingsActivity="com.pactista.app.MainActivity" />

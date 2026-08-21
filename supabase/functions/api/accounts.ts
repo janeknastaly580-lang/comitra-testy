@@ -1,7 +1,7 @@
 /**
  * Accounts, sessions, and the per-account state document.
  *
- * This is the file that turned Comitra from "your data is on this phone" into a
+ * This is the file that turned Pactista from "your data is on this phone" into a
  * real account. Everything an account IS now lives in Postgres (see
  * supabase/comitra_accounts.sql), so signing in on a second device reaches the
  * same account and the same goals rather than an empty one.

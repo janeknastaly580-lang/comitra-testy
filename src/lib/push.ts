@@ -1,5 +1,5 @@
 /**
- * In-app push: how Comitra reaches a recipient now that there is no SMS.
+ * In-app push: how Pactista reaches a recipient now that there is no SMS.
  *
  * A recipient is no longer a phone number typed into a form — it is a FRIEND
  * (someone the user follows who follows them back), so every message can be
@@ -9,19 +9,25 @@
  * actually received.
  *
  * ── What "delivered" honestly means ───────────────────────────────────────
- * There is no push service behind this (no Firebase project, no server key), so
- * nothing can wake a phone that has Comitra closed — and the person may not even
- * have the app any more. That is not hidden:
+ * A message now really can wake a closed app: the backend hands it to Firebase
+ * Cloud Messaging when the deployment is configured for it (see PUSH_SETUP.md,
+ * `src/lib/fcm.ts` and `supabase/functions/api/fcm.ts`). But a push is a
+ * doorbell, not the post, and this file is deliberately built as though every
+ * one of them fails:
  *
  *   • every message is stored in the shared inbox and stays there until read, so
- *     an uninstall DELAYS a message rather than losing it;
- *   • the sender's screen reports what really happened — `sent` when the person
- *     has had the app open recently, `no_device` when they have not, which is
- *     what "they probably uninstalled it" looks like from the outside;
- *   • when the app is open (or is opened later) the message arrives and, on
- *     Android, becomes a real system notification via `localNotify.ts`.
+ *     an uninstall, a refused notification permission or a dropped push DELAYS a
+ *     message rather than losing it;
+ *   • the sender's screen still reports reachability rather than delivery —
+ *     `sent` when the person has had the app open recently, `no_device` when
+ *     they have not, which is what "they probably uninstalled it" looks like
+ *     from the outside. Neither claims the notification was seen;
+ *   • the app still pulls on every open and on a timer, so a message arrives
+ *     even where push was never set up, and becomes a real system notification
+ *     via `localNotify.ts`.
  *
- * See `supabase/comitra_push.sql` for the two tables and their locked-down RPCs.
+ * See `supabase/comitra_push.sql` for the two tables and their locked-down RPCs,
+ * and `supabase/comitra_fcm_tokens.sql` for the registration tokens.
  */
 import { Capacitor } from '@capacitor/core';
 import { postNotification } from './localNotify';
@@ -41,7 +47,7 @@ import {
  *
  * Generous on purpose. The cost of being wrong in one direction is a sender told
  * "they may not get this" about a friend who simply had a quiet fortnight; in
- * the other, it is Comitra claiming a message was delivered to an app that was
+ * the other, it is Pactista claiming a message was delivered to an app that was
  * deleted a month ago. Fourteen days is long enough that a normal user never
  * trips it, short enough that a deleted app is noticed within a fortnight.
  */
@@ -182,7 +188,7 @@ export function isVisible(message: PushMessage): boolean {
 
 /** The one-line banner a message becomes. */
 export function pushTitle(kind: PushKind): string {
-  return kind === 'recipient_consent_request' ? 'Comitra · a friend asked you something' : 'Comitra';
+  return kind === 'recipient_consent_request' ? 'Pactista · a friend asked you something' : 'Pactista';
 }
 
 /** The sentence shown for a message, whoever composed it. */

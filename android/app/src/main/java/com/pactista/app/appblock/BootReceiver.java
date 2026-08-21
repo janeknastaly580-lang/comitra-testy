@@ -1,4 +1,4 @@
-package com.fineline.app.appblock;
+package com.pactista.app.appblock;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

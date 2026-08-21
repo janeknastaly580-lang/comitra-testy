@@ -1,5 +1,5 @@
 /**
- * Comitra's backend, as one Edge Function.
+ * Pactista's backend, as one Edge Function.
  *
  * NAMED `api` ON PURPOSE. Supabase routes `/functions/v1/<name>/…` and passes
  * the whole path through, so a function called `api` sees exactly the paths the
@@ -55,12 +55,14 @@ import {
 } from './accounts.ts';
 import {
   ALLOWED_ORIGINS,
+  fcmConfig,
   RESET_TEMPLATE_NAME,
   RESET_TEMPLATE_VAR,
   sesConfig,
 } from './config.ts';
 import { issueResetLink, redeemResetToken } from './reset.ts';
 import { ApiError, failureBody } from './errors.ts';
+import { notifyUser, senderName } from './fcm.ts';
 import { verifyGoogleAccessToken } from './google.ts';
 import {
   abandonCode,
@@ -344,7 +346,7 @@ async function emailResetApply(req: Request): Promise<unknown> {
     // "password changed" screen that changed nothing.
     throw new ApiError(
       'no-account',
-      "There's no Comitra account for that address yet. Create one — it only takes a moment.",
+      "There's no Pactista account for that address yet. Create one — it only takes a moment.",
       404,
       'reset token redeemed for an address with no account',
     );
@@ -602,6 +604,52 @@ async function pushTouch(req: Request): Promise<unknown> {
   return { ok: true };
 }
 
+/**
+ * Record the FCM registration token this phone was issued.
+ *
+ * Separate from `touch` on purpose. Touching happens on every app open and must
+ * stay as cheap as it is; a token arrives once per install and then only when
+ * Firebase rotates it, and it goes through a function the publishable key
+ * cannot reach — a token is a capability to notify that handset, so it is
+ * written by the service role and never read back to any client.
+ *
+ * The account is the session's. A caller cannot register a token against
+ * somebody else and start receiving their notifications.
+ */
+async function pushToken(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const body = await readJson(req);
+  const deviceId = str(body.deviceId, 128);
+  const token = str(body.token, 4096);
+  if (!deviceId || token.length < 20) {
+    throw new ApiError('bad-request', 'Could not register this device.', 400, 'deviceId or token missing');
+  }
+  await rpc<null>('comitra_push_set_token', {
+    p_user_id: account.id,
+    p_device_id: deviceId,
+    p_platform: str(body.platform, 16) || 'web',
+    p_token: token,
+  });
+  return { ok: true };
+}
+
+/**
+ * Point this device away from the account signing out.
+ *
+ * The token stays alive on the handset — it is FCM's, not ours, and the next
+ * person to sign in here will file the same one against themselves. What ends
+ * is this account's claim on it, which is what stops one person's notifications
+ * appearing on a phone they handed back.
+ */
+async function pushForget(req: Request): Promise<unknown> {
+  const account = await requireAccount(req);
+  const body = await readJson(req);
+  const deviceId = str(body.deviceId, 128);
+  if (!deviceId) throw new ApiError('bad-request', 'Could not update this device.', 400, 'deviceId missing');
+  await rpc<null>('comitra_push_forget_device', { p_user_id: account.id, p_device_id: deviceId });
+  return { ok: true };
+}
+
 async function pushReachable(req: Request): Promise<unknown> {
   const account = await requireAccount(req);
   const body = await readJson(req);
@@ -645,7 +693,52 @@ async function pushSend(req: Request): Promise<unknown> {
     p_kind: kind,
     p_payload: body.payload,
   });
+
+  // Stored first, then the doorbell — see `notifyInbox`.
+  await notifyInbox(account.id, toUserId, id, kind, body.payload as Record<string, unknown>);
   return { ok: true };
+}
+
+/**
+ * Turn an inbox message into a notification on the recipient's phone.
+ *
+ * THE WORDING IS THE SERVER'S. The payload carries a `body` the sending app
+ * composed, and the app shows exactly that in its own list — but a lock screen
+ * is read by whoever picks the phone up, and a sentence chosen by another user
+ * is a sentence that can be made to say anything. So the notification is built
+ * here from a name the directory gave us and the goal NUMBER, and never from
+ * text that arrived in a request. The app's version lives in `pushBody`
+ * (src/lib/push.ts) and stays the one a person reads inside Pactista.
+ *
+ * A consent ANSWER is skipped: it is machinery the owner's app applies and
+ * drops (`absorbConsentAnswers`), never something a person is meant to read, so
+ * waking a phone for it would be waking it for nothing.
+ */
+async function notifyInbox(
+  fromUserId: string,
+  toUserId: string,
+  messageId: string,
+  kind: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  if (kind === 'recipient_consent_answer') return;
+
+  const who = await senderName(fromUserId);
+  const number = Number(payload?.goalNumber);
+  const goal = Number.isFinite(number) && number > 0 ? `goal no. ${Math.trunc(number)}` : 'a goal';
+
+  const body = kind === 'recipient_consent_request'
+    ? `${who} wants to be able to tell you how one of their goals ended.`
+    : `${who} did not complete ${goal}.`;
+
+  await notifyUser(toUserId, {
+    title: 'Pactista',
+    body,
+    // The inbox id, so a re-run of a dispatch updates the banner it already
+    // posted instead of adding a second identical one.
+    tag: messageId,
+    data: { type: 'inbox', messageId },
+  });
 }
 
 async function pushPull(req: Request): Promise<unknown> {
@@ -778,7 +871,13 @@ const ROUTES: Record<string, { method: string; handler: Handler; route: string }
   // session, so none of these can be pointed at somebody else. `reachable` is
   // the sole exception and returns one boolean about a person being messaged.
   'POST /api/judges/list': { method: 'POST', route: 'judges:list', handler: judgesList },
+  // Unauthenticated on purpose, and it answers one boolean: whether this
+  // deployment can push at all. It is how the setup in PUSH_SETUP.md is
+  // checked without reading function logs, and it names no secret.
+  'GET /api/push/status': { method: 'GET', route: 'push-status', handler: () => Promise.resolve({ configured: fcmConfig.configured }) },
   'POST /api/push/touch': { method: 'POST', route: 'push:touch', handler: pushTouch },
+  'POST /api/push/token': { method: 'POST', route: 'push:token', handler: pushToken },
+  'POST /api/push/forget': { method: 'POST', route: 'push:forget', handler: pushForget },
   'POST /api/push/reachable': { method: 'POST', route: 'push:reachable', handler: pushReachable },
   'POST /api/push/send': { method: 'POST', route: 'push:send', handler: pushSend },
   'POST /api/push/pull': { method: 'POST', route: 'push:pull', handler: pushPull },

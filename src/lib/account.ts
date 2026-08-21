@@ -1,7 +1,7 @@
 /**
  * The account API: sign-up, log-in, sessions, and the account's data document.
  *
- * This is the file that makes a Comitra account a real account. Before it, an
+ * This is the file that makes a Pactista account a real account. Before it, an
  * account was a row in one browser's LocalStorage — logging in somewhere else
  * could not work, because there was nothing anywhere else to log in TO. Now the
  * account lives in Postgres behind the `api` Edge Function, and this module is
@@ -75,7 +75,7 @@ function requireBackend(): void {
   if (!backendEnabled()) {
     throw new SyncError(
       'not-configured',
-      "Comitra can't reach its server, so accounts aren't available in this build.",
+      "Pactista can't reach its server, so accounts aren't available in this build.",
     );
   }
 }

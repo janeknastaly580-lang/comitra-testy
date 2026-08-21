@@ -32,7 +32,7 @@ export default function ShareLink({
   }
 
   function shareWhatsApp() {
-    // No recipient number to pre-fill: Comitra holds nobody's phone number, so
+    // No recipient number to pre-fill: Pactista holds nobody's phone number, so
     // this opens WhatsApp with the link ready and the person picks the chat.
     window.open(`https://wa.me/?text=${encodeURIComponent(link)}`, '_blank', 'noopener');
   }

@@ -1,4 +1,4 @@
-# FineLine. Secure PayPal Integration (Node.js + React)
+# Pactista. Secure PayPal Integration (Node.js + React)
 
 A production-grade PayPal integration using the **PayPal Orders v2 REST API** on the
 backend and the **PayPal JavaScript SDK** (`@paypal/react-paypal-js`) on the frontend.

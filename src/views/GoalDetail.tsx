@@ -98,14 +98,14 @@ export default function GoalDetail() {
   const isPreActive = PRE_ACTIVE.includes(goal.status);
   const isTerminal = TERMINAL.includes(goal.status);
   const canEditDeadline = !isTerminal && !goal.judge.decision;
-  // The two links the owner sends their judge. Comitra messages the judge for
+  // The two links the owner sends their judge. Pactista messages the judge for
   // nothing, so these are the whole channel.
   const showJudgeAsk = !isSoloGoal(goal) && !isTerminal && goal.judge.status === 'accepted' && !goal.judge.decision;
 
   /**
    * Ask the judge to decide, or to change/cancel.
    *
-   * This used to be a link the owner copied and sent themselves — Comitra could
+   * This used to be a link the owner copied and sent themselves — Pactista could
    * honestly say it never messaged a judge, because it could not. Now the ask
    * IS the message: it lands in their conversation with the button on it, and
    * the goal records that they were asked in the same call.
@@ -532,7 +532,7 @@ export default function GoalDetail() {
                 <div className="flex items-center justify-between">
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-ink">{c.name}</p>
-                    <p className="truncate font-mono text-[11px] text-muted">Friend · in Comitra</p>
+                    <p className="truncate font-mono text-[11px] text-muted">Friend · in Pactista</p>
                   </div>
                   <Badge tone={CONSENT_TONE[c.consentStatus]}>{c.consentStatus}</Badge>
                 </div>
@@ -657,7 +657,7 @@ export default function GoalDetail() {
           Cancel goal
         </button>
       ) : (
-        // Any goal with a judge: the creator can't cancel it, and Comitra won't
+        // Any goal with a judge: the creator can't cancel it, and Pactista won't
         // ask on their behalf. They send the "ask for a change" link above.
         <p className="mt-3 text-center text-[11px] text-muted">
           {showJudgeAsk

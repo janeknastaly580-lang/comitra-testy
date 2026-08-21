@@ -76,7 +76,7 @@ export function parseEmailEnv(env = {}) {
     return {
       configured: false,
       problems: [],
-      fromName: 'Comitra',
+      fromName: 'Pactista',
       replyTo: null,
       configurationSet: null,
       accessKeyId: null,
@@ -99,7 +99,7 @@ export function parseEmailEnv(env = {}) {
   const fromEmail = (env.SES_FROM_EMAIL ?? '').trim();
   if (fromEmail && !EMAIL.test(fromEmail)) {
     // The address is not a secret, so naming it here is the fastest way to spot
-    // that a display name ("Comitra <no-reply@…>") was pasted in whole.
+    // that a display name ("Pactista <no-reply@…>") was pasted in whole.
     problems.push(
       `SES_FROM_EMAIL "${fromEmail}" is not a bare email address. ` +
         'Put the display name in SES_FROM_NAME instead.',
@@ -126,7 +126,7 @@ export function parseEmailEnv(env = {}) {
   const rawName = (env.SES_FROM_NAME ?? '').trim();
   // A display name with a quote or an angle bracket could break out of the
   // `Name <addr>` header, so anything unsafe is dropped rather than escaped.
-  const fromName = !rawName || /["<>\r\n]/.test(rawName) ? 'Comitra' : rawName.slice(0, 60);
+  const fromName = !rawName || /["<>\r\n]/.test(rawName) ? 'Pactista' : rawName.slice(0, 60);
 
   const configurationSetRaw = (env.SES_CONFIGURATION_SET ?? '').trim();
   const configurationSet = isBlank(configurationSetRaw) ? null : configurationSetRaw;

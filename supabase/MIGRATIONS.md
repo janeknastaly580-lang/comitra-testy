@@ -1,4 +1,4 @@
-# Comitra · database migrations
+# Pactista · database migrations
 
 The `.sql` files next to this one are the ORIGINAL, hand-run setup scripts. They
 are kept for the record and for reading, but several are marked superseded: the
@@ -15,6 +15,7 @@ for the full, ordered set. What follows is what each one was for.
 | `comitra_chat` | `comitra_chat_messages` + its RPCs. The in-app conversation that replaced every judge link, with the 300-character and 20-typed-messages-a-day caps enforced inside the insert. |
 | `comitra_goals_by_identity` | `comitra_goals.judge_user_id`, plus `comitra_goal_put` / `comitra_goal_get` / `comitra_goal_list_judging`. A shared goal is now gated on **who you are signed in as** rather than on a token from a link, and the old token-authorised functions were revoked from `anon`. |
 | `comitra_goal_judge_act` | The only write a judge may make: a narrow, server-built patch carrying their acceptance or their verdict. Every precondition is checked in the same statement that writes. |
+| `comitra_fcm_tokens` | `comitra_push_devices.fcm_token`, plus `comitra_push_set_token` / `comitra_push_forget_device` / `comitra_push_tokens_for` / `comitra_push_drop_token`. What turned the inbox into real push: the backend can now wake a closed app instead of waiting for it to be opened. All four are service-role only — a registration token is a capability to notify that handset. |
 | `comitra_social_graph` | `comitra_directory` + `comitra_follows`. Friends became real people two devices can both see, which is what makes "pick a judge from your friends" possible at all. |
 
 ## Things worth knowing before touching any of this

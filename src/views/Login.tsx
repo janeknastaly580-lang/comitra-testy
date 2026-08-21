@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Button, Input, Label, PasswordInput } from '../components/ui';
-import BrandMark from '../components/BrandMark';
+import Wordmark from '../components/Wordmark';
 import SocialAuthButtons from '../components/SocialAuthButtons';
 import { Check } from 'lucide-react';
 
@@ -45,11 +45,10 @@ export default function Login() {
 
       <div className="mb-8">
         <div className="mb-3 flex items-center gap-2">
-          <BrandMark className="h-9 w-9" />
-          <span className="font-mono text-lg font-bold tracking-[0.25em]">Comitra</span>
+          <Wordmark markClass="h-9" textClass="text-[30px]" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Following through is the hard part.</h1>
-        <p className="mt-1 text-sm text-muted">Comitra keeps you accountable for it.</p>
+        <p className="mt-1 text-sm text-muted">Pactista keeps you accountable for it.</p>
         <ul className="mt-4 space-y-1.5">
           {[
             'Set a simple, realistic goal, like a few steps this week.',

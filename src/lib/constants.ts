@@ -220,7 +220,7 @@ export const TONE_OPTIONS: ToneOption[] = [
 
 export const THEMES: { id: ThemeId; name: string; premium: boolean; swatch: string[] }[] = [
   { id: 'cyberpunk-mint', name: 'Cyberpunk Mint', premium: false, swatch: ['#0D1111', '#40FFAA', '#00E0FF'] },
-  { id: 'default', name: 'Comitra Green', premium: false, swatch: ['#FFFFFF', '#16A34A', '#1F2937'] },
+  { id: 'default', name: 'Pactista Green', premium: false, swatch: ['#FFFFFF', '#16A34A', '#1F2937'] },
   { id: 'midnight-indigo', name: 'Midnight Indigo', premium: false, swatch: ['#0E1220', '#5B8CFF', '#38D3FF'] },
   { id: 'arctic-frost', name: 'Arctic Frost', premium: false, swatch: ['#F4F8FB', '#0EA5B7', '#3B82F6'] },
   { id: 'monochrome-slate', name: 'Monochrome Slate', premium: true, swatch: ['#101214', '#C8D2DC', '#96BEDC'] },

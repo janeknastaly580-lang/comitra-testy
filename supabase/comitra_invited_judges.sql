@@ -27,7 +27,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Comitra · cross-device judge sync  (run ONCE — safe to re-run any time)
+-- Pactista · cross-device judge sync  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
 --

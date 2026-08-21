@@ -5,7 +5,7 @@ import * as api from '../lib/api';
 import { MIN_PASSWORD_LENGTH } from '../lib/constants';
 import { SyncError } from '../lib/supabase';
 import { Button, Input, Label, PasswordInput } from './ui';
-import BrandMark from './BrandMark';
+import Wordmark from './Wordmark';
 import CodeVerify from './CodeVerify';
 import SocialAuthButtons from './SocialAuthButtons';
 import { X } from 'lucide-react';
@@ -168,8 +168,7 @@ export default function AuthModal({
         )}
 
         <div className="mb-3 flex items-center gap-2">
-          <BrandMark className="h-8 w-8" />
-          <span className="font-mono text-lg font-bold tracking-[0.15em]">Comitra</span>
+          <Wordmark markClass="h-8" textClass="text-[26px]" />
         </div>
         <h2 className="text-lg font-bold tracking-tight text-ink">
           {step === 'verify'

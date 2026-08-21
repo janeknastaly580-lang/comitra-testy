@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import * as api from '../lib/api';
 import { SyncError } from '../lib/supabase';
 import { Button, Input, Label } from '../components/ui';
-import BrandMark from '../components/BrandMark';
+import Wordmark from '../components/Wordmark';
 
 /**
  * "Forgot password?" — step one: ask for the address, email a link.
@@ -46,12 +46,11 @@ export default function ForgotPassword() {
     return (
       <div className="flex h-full flex-col justify-center px-6 pt-10">
         <div className="mb-6 flex items-center gap-2">
-          <BrandMark className="h-9 w-9" />
-          <span className="font-mono text-lg font-bold tracking-[0.25em]">Comitra</span>
+          <Wordmark markClass="h-9" textClass="text-[30px]" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">Check your email</h1>
         <p className="mt-2 text-sm text-muted">
-          If there's a Comitra account for{' '}
+          If there's a Pactista account for{' '}
           <span className="font-semibold text-ink">{api.normalizeEmail(email)}</span>, a reset link
           is on its way. It works once and expires in 30 minutes.
         </p>
@@ -76,8 +75,7 @@ export default function ForgotPassword() {
   return (
     <div className="flex h-full flex-col justify-center px-6 pt-10">
       <div className="mb-6 flex items-center gap-2">
-        <BrandMark className="h-9 w-9" />
-        <span className="font-mono text-lg font-bold tracking-[0.25em]">Comitra</span>
+        <Wordmark markClass="h-9" textClass="text-[30px]" />
       </div>
       <h1 className="text-2xl font-bold tracking-tight">Forgot password?</h1>
       <p className="mt-1 text-sm text-muted">

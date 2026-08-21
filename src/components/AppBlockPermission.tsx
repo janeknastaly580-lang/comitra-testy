@@ -37,7 +37,7 @@ export default function AppBlockPermission({ appLabel }: { appLabel?: string }) 
       <p className="font-mono text-[10px] uppercase tracking-widest text-warn">Blocking is not active yet</p>
       <p className="mt-1 text-[12px] leading-relaxed text-ink">
         {appLabel ? `${appLabel} is set to be blocked` : 'Your block is set'}, but Android has to allow it.
-        Turn on <span className="font-semibold">Comitra app blocking</span> under Accessibility.
+        Turn on <span className="font-semibold">Pactista app blocking</span> under Accessibility.
       </p>
       <Button className="mt-3 w-full" onClick={openAppBlockSettings}>
         Open Android settings

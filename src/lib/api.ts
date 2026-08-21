@@ -273,8 +273,8 @@ function saveOutbox(list: OutboxMessage[]) {
  * Queue a message the system intends to deliver.
  *
  * The outbox is the RECORD of intent, shown on the goal screen so the owner can
- * see exactly what Comitra says on their behalf. Delivery itself is separate:
- * a judge message is a link the owner sends by hand (Comitra never contacts a
+ * see exactly what Pactista says on their behalf. Delivery itself is separate:
+ * a judge message is a link the owner sends by hand (Pactista never contacts a
  * judge on its own), and a recipient message goes to their account through
  * `src/lib/push.ts`. Recipients must have consented before any message.
  */
@@ -303,7 +303,7 @@ export async function listOutbox(goalId: string): Promise<OutboxMessage[]> {
  * There is deliberately no "notify the judge" helper here.
  *
  * Asking the judge for anything — a decision, a change, a cancellation — is the
- * owner's own act: the goal screen gives them two links to send. Comitra sends
+ * owner's own act: the goal screen gives them two links to send. Pactista sends
  * the judge nothing by itself, so a judge is never messaged about a goal its
  * owner didn't choose to hand them. See `applyJudgeLinkRequest`.
  */
@@ -491,7 +491,7 @@ export async function emailAvailable(email: string): Promise<boolean> {
  * away.
  *
  * The obvious case is a guest who set a goal to try the app and then created an
- * account. The other one matters just as much: someone who used Comitra while
+ * account. The other one matters just as much: someone who used Pactista while
  * accounts were device-local, and is now logging in for the first time. Both are
  * "there are goals here that belong to the person now signing in".
  */
@@ -638,7 +638,7 @@ export async function setPasswordForEmail(email: string, password: string): Prom
   const normalized = email.trim().toLowerCase();
   const users = getUsers();
   const user = users.find((u) => u.email === normalized && !u.deleted);
-  if (!user) throw new Error('There is no Comitra account for that address on this device.');
+  if (!user) throw new Error('There is no Pactista account for that address on this device.');
   saveUsers(users.map((u) => (u.id === user.id ? { ...u, password } : u)));
   logAudit({ actorId: user.id, actionType: 'password_reset', entityType: 'user', entityId: user.id });
 }
@@ -967,7 +967,7 @@ export async function getGoalByToken(token: string): Promise<Goal | null> {
 /**
  * A recipient is a FRIEND — someone the owner follows who follows them back —
  * and nothing else. There is no contact field any more: the message goes to
- * their account (see `src/lib/push.ts`), so Comitra never holds a number or an
+ * their account (see `src/lib/push.ts`), so Pactista never holds a number or an
  * address for the person who might be told about a missed goal.
  */
 export interface RecipientInput {
@@ -1093,7 +1093,7 @@ function upsertConsent(ownerUserId: string, r: RecipientInput): RecipientConsent
   // Notification #1: ask the recipient to consent BEFORE any message is ever
   // sent. It reaches their app, carrying the token their accept screen opens.
   const owner = getUsers().find((u) => u.id === ownerUserId);
-  const ownerName = owner?.name ?? 'A Comitra user';
+  const ownerName = owner?.name ?? 'A Pactista user';
   const entry = queueOutbox({
     kind: 'recipient_consent_request',
     to: 'recipient',
@@ -1425,7 +1425,7 @@ export async function cancelGoal(goalId: string): Promise<Goal> {
  * The creator asks their judge to change or cancel a running goal (they can't
  * cancel a judged goal themselves). The judge can only cancel after this.
  *
- * Comitra sends nothing: the owner passes on the "ask for a change" link and
+ * Pactista sends nothing: the owner passes on the "ask for a change" link and
  * opening it is what records the request. No secret code is involved in
  * cancelling.
  */
@@ -1520,7 +1520,7 @@ export async function updateGoalDeadline(goalId: string, userId: string, deadlin
  * The creator asks their judge to decide the goal before the deadline. This is
  * the ONLY way a judge may decide early.
  *
- * Comitra does not message the judge about it: the owner sends them the "ask for
+ * Pactista does not message the judge about it: the owner sends them the "ask for
  * a decision" link themselves (see `judgeLink(goal, 'decision')`), and opening
  * that link is what records the request. See `applyJudgeLinkRequest`.
  */
@@ -2187,7 +2187,7 @@ export async function listMyTrainers(clientUserId: string): Promise<{ id: string
  * The log row is created optimistically (the dispatch itself is synchronous), so
  * this is what turns "sent" into the truth: `no_device` when nobody has opened
  * the app on that account for a fortnight — the closest thing there is to "they
- * uninstalled Comitra" — or `failed` when the store could not be reached. The
+ * uninstalled Pactista" — or `failed` when the store could not be reached. The
  * message is queued either way and is delivered whenever they come back.
  */
 function recordDeliveryOutcome(logId: string, outcome: PushOutcome): void {
@@ -2299,7 +2299,7 @@ export async function getConsentByToken(token: string): Promise<{ consent: Recip
   const consent = getConsents().find((c) => c.inviteToken === token);
   if (!consent) return null;
   const owner = getUsers().find((u) => u.id === consent.ownerUserId);
-  return { consent, ownerName: owner?.name ?? 'A Comitra user' };
+  return { consent, ownerName: owner?.name ?? 'A Pactista user' };
 }
 
 export async function acceptRecipientConsent(token: string): Promise<RecipientConsent> {

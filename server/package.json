@@ -1,7 +1,7 @@
 {
   "name": "fineline-payments-server",
   "version": "1.0.0",
-  "description": "Comitra backend: PayPal payments (Create/Capture/Webhook) and Amazon SES verification codes.",
+  "description": "Pactista backend: PayPal payments (Create/Capture/Webhook) and Amazon SES verification codes.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

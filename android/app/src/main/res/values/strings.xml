@@ -1,14 +1,14 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Comitra</string>
-    <string name="title_activity_main">Comitra</string>
-    <string name="package_name">com.fineline.app</string>
-    <string name="custom_url_scheme">com.fineline.app</string>
+    <string name="app_name">Pactista</string>
+    <string name="title_activity_main">Pactista</string>
+    <string name="package_name">com.pactista.app</string>
+    <string name="custom_url_scheme">com.pactista.app</string>
 
     <!-- App blocking. The service description is what Android shows on the
          permission screen, so it states plainly what is and isn't collected. -->
-    <string name="accessibility_service_label">Comitra app blocking</string>
-    <string name="accessibility_service_description">Lets Comitra hold you to a goal by blocking the app you chose (and its website) until the goal is done. Comitra checks only which app is in the foreground, and the address bar while you are in a browser. Nothing is recorded or sent anywhere.</string>
+    <string name="accessibility_service_label">Pactista app blocking</string>
+    <string name="accessibility_service_description">Lets Pactista hold you to a goal by blocking the app you chose (and its website) until the goal is done. Pactista checks only which app is in the foreground, and the address bar while you are in a browser. Nothing is recorded or sent anywhere.</string>
 
     <string name="block_locked">Locked</string>
     <string name="block_that_app">That app</string>
@@ -16,7 +16,14 @@
     <string name="block_body_app">You blocked it yourself to finish a goal. It unlocks as soon as the goal is done.</string>
     <string name="block_body_website">You blocked %1$s to finish a goal, so its website is blocked too. It unlocks as soon as the goal is done.</string>
     <string name="block_until">Unlocks by %1$s at the latest</string>
-    <string name="block_open_comitra">Open Comitra</string>
+    <string name="block_open_comitra">Open Pactista</string>
     <string name="block_close">Close</string>
-    <string name="block_footer">There is no skip button on purpose. Finish the goal in Comitra, or turn the blocking permission off in Android Settings.</string>
+    <string name="block_footer">There is no skip button on purpose. Finish the goal in Pactista, or turn the blocking permission off in Android Settings.</string>
+
+    <!-- Notifications. The id is referenced from three places that must
+         agree: the manifest below, ComitraNotifyPlugin, and the channel_id
+         the backend puts on every FCM message (supabase/functions/api/fcm.ts). -->
+    <string name="notification_channel_id" translatable="false">comitra_goals</string>
+    <string name="notification_channel_name">Goal updates</string>
+    <string name="notification_channel_description">Messages about goals your friends asked you to be part of.</string>
 </resources>

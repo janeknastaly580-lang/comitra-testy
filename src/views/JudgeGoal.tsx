@@ -116,7 +116,7 @@ export default function JudgeGoal() {
           Did {goal.creatorName} complete {goalRef(goal)}?
         </p>
         <p className="mt-1 text-[11px] text-muted">
-          Comitra doesn't show you what the goal is — {goal.creatorName} tells you that.
+          Pactista doesn't show you what the goal is — {goal.creatorName} tells you that.
         </p>
         <div className="mt-3 grid grid-cols-2 gap-3 border-t border-line pt-3">
           <div>

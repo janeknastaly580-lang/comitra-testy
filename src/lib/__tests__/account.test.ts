@@ -67,7 +67,7 @@ describe('deleting an account frees its email', () => {
 
   it('refuses to set a password for an address this device has no account for', async () => {
     await expect(api.setPasswordForEmail('stranger@example.com', 'whatever12')).rejects.toThrow(
-      /no Comitra account for that address on this device/i,
+      /no Pactista account for that address on this device/i,
     );
   });
 
@@ -75,7 +75,7 @@ describe('deleting an account frees its email', () => {
     const user = await api.register('Janek', EMAIL, 'oldpass123');
     await api.deleteAccount(user.id);
 
-    await expect(api.setPasswordForEmail(EMAIL, 'newpass456')).rejects.toThrow(/no Comitra account/i);
+    await expect(api.setPasswordForEmail(EMAIL, 'newpass456')).rejects.toThrow(/no Pactista account/i);
   });
 
   it('survives a delete/register cycle repeated several times', async () => {

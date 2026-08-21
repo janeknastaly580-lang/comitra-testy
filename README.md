@@ -1,4 +1,4 @@
-# FineLine
+# Pactista
 
 A mobile-first MVP for setting financial goals with a **refundable deposit** and
 **friend-judged verification**. Stake money on a goal, get it back if your judge
@@ -172,7 +172,7 @@ Typical Capacitor wrap:
 
 ```bash
 npm install @capacitor/core @capacitor/cli @capacitor/android
-npx cap init FineLine com.fineline.app --web-dir=dist
+npx cap init Pactista com.pactista.app --web-dir=dist
 npm run build
 npx cap add android
 npx cap sync
@@ -181,7 +181,7 @@ npx cap open android
 
 ## Reaching people (no SMS)
 
-Comitra sends no text messages and asks nobody for a phone number.
+Pactista sends no text messages and asks nobody for a phone number.
 
 **Judges** are confirmed by **email**: accepting an invite emails a 6-digit code
 (Amazon SES, same template as sign-up, valid 7 minutes, re-sendable after 30s).
@@ -192,10 +192,14 @@ the code step is simply skipped — a judge registers without it, nothing breaks
 told inside the app itself (`src/lib/push.ts`, tables in
 `supabase/comitra_push.sql`). A message is stored against their account until
 they read it, so uninstalling the app delays it rather than losing it, and the
-sender is told plainly when a friend has not opened Comitra recently. On Android
-each message also becomes a real notification, posted by the app when it syncs
-(`ComitraNotify`). There is no push service, so nothing arrives while the app is
-closed — it is delivered the next time they open it.
+sender is told plainly when a friend has not opened Pactista recently.
+
+**Push notifications** are real: the backend hands each message to Firebase
+Cloud Messaging, so it arrives on Android while the app is closed
+(`src/lib/fcm.ts`, `supabase/functions/api/fcm.ts`). That needs a Firebase
+project — setup steps in **[PUSH_SETUP.md](PUSH_SETUP.md)**. Leave the `FCM_*`
+secrets empty and nothing breaks: messages simply wait in the inbox and become a
+notification the next time the app opens, which is how this worked before.
 
 ## Project structure
 
@@ -206,12 +210,13 @@ src/
   lib/          types, constants, storage, mock api, formatters,
                 email (client for our own /api/email/*),
                 push (in-app messages to a friend's account),
+                fcm (FCM registration, so a closed app can be woken),
                 localNotify (Android notification bridge)
   views/        Login, Register, Dashboard, CreateGoal, GoalDetail,
                 Profile, Subscription, Analytics, Themes, Verifier
 supabase/
   functions/api The backend: email codes, accounts, the state document
-  *.sql         One-time installs: judges, goals, in-app push
+  *.sql         One-time installs: judges, goals, in-app push, FCM tokens
 server/
   src/email/    config (env validation), address, client (SES), verify (OTP),
                 templates, throttle (per-address limits)

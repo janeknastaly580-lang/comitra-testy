@@ -133,7 +133,7 @@ SES_REGION=eu-central-1
 SES_FROM_EMAIL=no-reply@yourdomain
 
 # Optional.
-SES_FROM_NAME=Comitra
+SES_FROM_NAME=Pactista
 SES_REPLY_TO=
 SES_CONFIGURATION_SET=
 

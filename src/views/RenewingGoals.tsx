@@ -54,7 +54,7 @@ export default function RenewingGoals() {
           <p className="font-mono text-[10px] uppercase tracking-widest text-accent">Renewing goal</p>
           <p className="mt-1 text-base font-semibold text-ink">A goal that comes back</p>
           <p className="mt-1 text-[12px] text-muted">
-            The days you pick, every week. Comitra keeps the streak and the record.
+            The days you pick, every week. Pactista keeps the streak and the record.
           </p>
           <Button className="mt-3 w-full" onClick={() => navigate('/renewing/new')}>
             Set a renewing goal

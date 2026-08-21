@@ -64,7 +64,7 @@ export default function Subscription() {
 
       {/* Plan card */}
       <Card className="mb-4 border-accent/30 p-5">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Comitra subscription</p>
+        <p className="font-mono text-[10px] uppercase tracking-widest text-muted">Pactista subscription</p>
         <p className="mt-1 font-mono text-3xl font-bold text-ink">
           {usd(SUBSCRIPTION_PRICE_MONTHLY)}
           <span className="text-sm text-muted">/mo</span>

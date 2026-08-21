@@ -3,7 +3,7 @@
  *
  * The trust boundary: the content is owned by the
  * server. No route accepts a subject or a body, so no one who finds the URL can
- * send arbitrary mail from a verified Comitra domain — which would be a
+ * send arbitrary mail from a verified Pactista domain — which would be a
  * ready-made phishing relay with our SPF/DKIM on it.
  *
  * PRIVACY RULE (same as src/lib/messages.ts): a message may name the person and
@@ -35,14 +35,14 @@ function esc(value) {
 export function verificationCodeEmail(code) {
   const safe = esc(code);
   return {
-    subject: `${code} is your Comitra verification code`,
+    subject: `${code} is your Pactista verification code`,
     text: [
-      `${code} is your Comitra verification code.`,
+      `${code} is your Pactista verification code.`,
       '',
       `Type it into the app to finish creating your account. It expires in ${TTL_MINUTES} minutes.`,
       '',
-      'Never share this code with anyone. Comitra will never ask you for it.',
-      "If you didn't try to create a Comitra account, you can ignore this email — nothing was created.",
+      'Never share this code with anyone. Pactista will never ask you for it.',
+      "If you didn't try to create a Pactista account, you can ignore this email — nothing was created.",
     ].join('\n'),
     html: [
       '<div style="margin:0;padding:24px;background:#0b0f14;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e6edf3">',
@@ -51,8 +51,8 @@ export function verificationCodeEmail(code) {
       '<h1 style="margin:0 0 8px;font-size:19px;line-height:1.35;color:#e6edf3">Confirm your email</h1>',
       `<p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#8b98a5">Type this code into the app to finish creating your account. It expires in ${TTL_MINUTES} minutes.</p>`,
       `<p style="margin:0 0 20px;padding:16px;text-align:center;font-size:30px;letter-spacing:.35em;font-weight:700;background:#0b0f14;border:1px solid #1e2a36;border-radius:12px;color:#e6edf3">${safe}</p>`,
-      '<p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#8b98a5">Never share this code with anyone. Comitra will never ask you for it.</p>',
-      "<p style=\"margin:0;font-size:12px;line-height:1.6;color:#8b98a5\">If you didn't try to create a Comitra account, you can ignore this email — nothing was created.</p>",
+      '<p style="margin:0 0 8px;font-size:12px;line-height:1.6;color:#8b98a5">Never share this code with anyone. Pactista will never ask you for it.</p>',
+      "<p style=\"margin:0;font-size:12px;line-height:1.6;color:#8b98a5\">If you didn't try to create a Pactista account, you can ignore this email — nothing was created.</p>",
       '</div></div>',
     ].join(''),
   };

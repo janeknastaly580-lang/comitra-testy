@@ -12,6 +12,10 @@
  * to remember to push.
  */
 
+// Deliberately still the old brand. This prefixes every key a person's goals,
+// drafts and consents are stored under, so renaming it would not rebrand
+// anything — it would hide every existing user's data behind a name nothing
+// reads, on the update that was only supposed to change a logo.
 const PREFIX = 'fineline:';
 
 /**

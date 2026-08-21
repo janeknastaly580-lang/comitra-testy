@@ -19,8 +19,15 @@ export default {
         muted: 'rgb(var(--c-muted) / <alpha-value>)',
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"SF Mono"', 'ui-monospace', 'monospace'],
+        sans: ['"DM Sans"', 'system-ui', 'sans-serif'],
+        // `font-mono` keeps its name and every one of its 175 call sites: what
+        // those uses actually want is a technical LABEL and figures that line up
+        // in a column, not typewriter letterforms. So it points at the same
+        // family as `sans`, and `.font-mono` in index.css keeps the tabular
+        // figures — the type changes shape, nothing changes place.
+        mono: ['"DM Sans"', 'system-ui', 'sans-serif'],
+        // The serif half of the wordmark. Nothing else uses it.
+        brand: ['"Playfair Display"', 'Georgia', 'serif'],
       },
       borderRadius: {
         none: '0',

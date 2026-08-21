@@ -15,7 +15,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Comitra · in-app push  (run ONCE — safe to re-run any time)
+-- Pactista · in-app push  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
 --

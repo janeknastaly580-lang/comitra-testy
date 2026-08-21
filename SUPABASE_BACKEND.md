@@ -1,6 +1,6 @@
 # The backend, as a Supabase Edge Function
 
-Comitra's backend used to be an Express server in `server/`, which had to be
+Pactista's backend used to be an Express server in `server/`, which had to be
 running somewhere for sign-up codes to work. It now runs as a single Edge
 Function called **`api`**, on the free plan, always on.
 
@@ -67,7 +67,7 @@ supabase secrets set --project-ref utoqyuysxkkekefshfvp COMITRA_OTP_PEPPER=<64 h
 | `COMITRA_OTP_PEPPER` | **yes** | 64 random hex chars. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Changing it invalidates every code in flight — harmless, people just ask for a new one. |
 | `SES_REGION` | for email | `eu-north-1` |
 | `SES_FROM_EMAIL` | for email | `comitraapp@gmail.com` |
-| `SES_FROM_NAME` | no | `Comitra` |
+| `SES_FROM_NAME` | no | `Pactista` |
 | `SES_TEMPLATE_NAME` | no | `comitra-verification-template` |
 | `SES_TEMPLATE_VAR` | no | the `{{placeholder}}` in that template. Defaults to `code`. |
 | `AWS_ACCESS_KEY_ID` | for email | your IAM key |

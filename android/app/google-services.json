@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "219809635308",
+    "project_id": "mobileapp-9b8d4",
+    "storage_bucket": "mobileapp-9b8d4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:219809635308:android:b07fdcc0e366288ea57ec9",
+        "android_client_info": {
+          "package_name": "com.pactista.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCHaqb0jTT2Fb2xNULHntv2FBxxSlu2D7U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

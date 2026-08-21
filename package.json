@@ -1,9 +1,9 @@
 {
-  "name": "fineline",
+  "name": "pactista",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "FineLine - Financial goals with a refundable deposit and friend-judged verification.",
+  "description": "Pactista - goals you commit to, confirmed by a friend.",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -20,6 +20,9 @@
   "dependencies": {
     "@capacitor/android": "^6.2.1",
     "@capacitor/core": "^6.2.1",
+    "@capacitor/push-notifications": "^6.0.5",
+    "@fontsource/dm-sans": "^5.3.0",
+    "@fontsource/playfair-display": "^5.3.0",
     "@paypal/react-paypal-js": "^8.9.2",
     "lucide-react": "^1.27.0",
     "react": "^18.3.1",

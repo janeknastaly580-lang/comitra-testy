@@ -84,7 +84,7 @@ function classify(status: number, body: string): SyncError {
   if (body.includes('42501') || body.includes('row-level security')) {
     return new SyncError(
       'setup',
-      "Comitra's server isn't finished setting up, so your registration couldn't be saved. " +
+      "Pactista's server isn't finished setting up, so your registration couldn't be saved. " +
         'This is nothing you did wrong. Tell the person who sent you this link, and try again after they fix it.',
       `RLS policy missing (42501). Run supabase/comitra_invited_judges.sql. ${body}`,
     );
@@ -93,7 +93,7 @@ function classify(status: number, body: string): SyncError {
   if (status === 404 || body.includes('PGRST205') || body.includes('PGRST202') || body.includes('Could not find the table')) {
     return new SyncError(
       'setup',
-      "Comitra's server isn't set up for judges yet, so your registration couldn't be saved. " +
+      "Pactista's server isn't set up for judges yet, so your registration couldn't be saved. " +
         'Tell the person who sent you this link, and try again after they fix it.',
       `Table or function missing (${status}). Run supabase/comitra_invited_judges.sql. ${body}`,
     );
@@ -101,7 +101,7 @@ function classify(status: number, body: string): SyncError {
   if (status === 401 || status === 403) {
     return new SyncError(
       'setup',
-      "Comitra's server refused to save your registration. Tell the person who sent you this link.",
+      "Pactista's server refused to save your registration. Tell the person who sent you this link.",
       `Rejected (${status}). ${body}`,
     );
   }
@@ -332,7 +332,7 @@ export async function remoteJudgeAct(
  * A message addressed to an ACCOUNT rather than to a phone number.
  *
  * This is what replaced the Twilio path: recipients are now people the user
- * follows and who follow back, so Comitra can reach them through their own app
+ * follows and who follow back, so Pactista can reach them through their own app
  * instead of through a mobile network. `payload` is the same content the text
  * carried — who, which numbered goal, which tone — and never a goal's title.
  */
@@ -358,6 +358,39 @@ export interface RemotePushRow {
  */
 export async function remoteTouchPushDevice(deviceId: string, platform: string): Promise<void> {
   await backendQuiet('/api/push/touch', { deviceId, platform });
+}
+
+/**
+ * File this installation's FCM registration token against the signed-in account.
+ *
+ * Separate from `touch` because the two have nothing in common but a table.
+ * Touching is a heartbeat that runs on every open; a token arrives once per
+ * install and then only when Firebase rotates it, and it is the thing that
+ * actually lets the backend wake this phone.
+ *
+ * No user id: the token is filed against whoever this session belongs to, which
+ * is the only account this handset can honestly speak for. Returns whether it
+ * was accepted, so `fcm.ts` knows to try again rather than believing it is
+ * registered when it is not.
+ */
+export async function remoteRegisterPushToken(
+  token: string,
+  deviceId: string,
+  platform: string,
+): Promise<boolean> {
+  const { ok } = await backendQuiet<{ ok?: boolean }>('/api/push/token', { token, deviceId, platform });
+  return ok;
+}
+
+/**
+ * Stop this device receiving notifications for the account signing out.
+ *
+ * Called BEFORE the session is dropped, because the session is what says which
+ * account to unfile — see `forgetPush` in fcm.ts. The token itself stays valid
+ * on the device; it is simply no longer pointed at this person.
+ */
+export async function remoteForgetPushToken(deviceId: string): Promise<void> {
+  await backendQuiet('/api/push/forget', { deviceId });
 }
 
 /**

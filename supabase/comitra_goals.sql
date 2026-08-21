@@ -11,7 +11,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ─────────────────────────────────────────────────────────────────────────────
--- Comitra · cross-device GOALS  (run ONCE — safe to re-run any time)
+-- Pactista · cross-device GOALS  (run ONCE — safe to re-run any time)
 --
 -- Dashboard → SQL Editor → New query → paste ALL of this → Run.
 -- Run `comitra_invited_judges.sql` too; they are independent.

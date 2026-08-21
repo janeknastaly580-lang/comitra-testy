@@ -329,7 +329,7 @@ let listening = false;
 /**
  * Pull when the app is likely to be stale: on coming back to the tab or app, on
  * regaining a connection, and on a slow timer while it is actually on screen.
- * Nothing polls in the background — a phone with Comitra buried behind other
+ * Nothing polls in the background — a phone with Pactista buried behind other
  * apps should not be making requests.
  */
 function listen(): void {

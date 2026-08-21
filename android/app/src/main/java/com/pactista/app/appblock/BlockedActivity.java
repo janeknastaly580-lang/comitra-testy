@@ -1,4 +1,4 @@
-package com.fineline.app.appblock;
+package com.pactista.app.appblock;
 
 import android.app.Activity;
 import android.content.Intent;
@@ -8,7 +8,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 
-import com.fineline.app.R;
+import com.pactista.app.R;
 
 import java.util.Date;
 
@@ -16,7 +16,7 @@ import java.util.Date;
  * The screen shown instead of a blocked app.
  *
  * It offers no way back into what was blocked: no "ignore", no "5 more minutes",
- * no dismiss. Both buttons lead away (home, or into Comitra to work on the
+ * no dismiss. Both buttons lead away (home, or into Pactista to work on the
  * goal), and the back button does the same. Someone who genuinely wants out has
  * to go to Android Settings and turn the accessibility service off, a
  * deliberate speed bump, and the only supported escape.

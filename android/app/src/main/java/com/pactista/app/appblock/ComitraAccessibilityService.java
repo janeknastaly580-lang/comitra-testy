@@ -1,4 +1,4 @@
-package com.fineline.app.appblock;
+package com.pactista.app.appblock;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
@@ -20,7 +20,7 @@ import java.util.Set;
  * How it blocks: whenever the foreground window changes, the package is checked
  * against {@link BlockStore}. On a hit the user is sent Home and a full-screen
  * {@link BlockedActivity} explains why. There is no "ignore", no snooze and no
- * dismiss: the only ways out are finishing the goal in Comitra, waiting for the
+ * dismiss: the only ways out are finishing the goal in Pactista, waiting for the
  * deadline, or going into Android Settings and turning this service off. That is
  * the intended escape hatch, so Settings itself is never blocked.
  *

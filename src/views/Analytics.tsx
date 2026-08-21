@@ -38,7 +38,7 @@ export default function Analytics() {
       <div className="px-4 py-5">
         <PageHeader title="Pro Analytics & Export" back />
         <PremiumGate
-          title="Comitra Premium Analytics"
+          title="Pactista Premium Analytics"
           blurb="Your motivation peaks, your judges and your vulnerable hours, plus a downloadable report."
         />
       </div>
@@ -51,7 +51,7 @@ export default function Analytics() {
     const url = URL.createObjectURL(blob);
     const el = document.createElement('a');
     el.href = url;
-    el.download = `Comitra-Analytics-${new Date().toISOString().slice(0, 10)}.txt`;
+    el.download = `Pactista-Analytics-${new Date().toISOString().slice(0, 10)}.txt`;
     document.body.appendChild(el);
     el.click();
     el.remove();
@@ -64,7 +64,7 @@ export default function Analytics() {
 
   return (
     <div className="px-4 py-5">
-      <PageHeader title="Pro Analytics & Export" subtitle="Comitra Premium · deterministic insight" back />
+      <PageHeader title="Pro Analytics & Export" subtitle="Pactista Premium · deterministic insight" back />
 
       {/* Overview */}
       <div className="mb-4 grid grid-cols-3 gap-2">
@@ -92,7 +92,7 @@ export default function Analytics() {
           All four sections as a .txt file. Open it and print to PDF.
         </p>
         <Button className="w-full" onClick={exportReport}>
-          {exported ? <><Check className="h-4 w-4" aria-hidden /> Downloaded</> : 'Export Comitra report'}
+          {exported ? <><Check className="h-4 w-4" aria-hidden /> Downloaded</> : 'Export Pactista report'}
         </Button>
       </Card>
     </div>

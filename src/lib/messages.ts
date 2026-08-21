@@ -65,10 +65,10 @@ export function failureMessageForGoal(goal: Goal): string {
  * only that the owner wants to be able to notify them about a goal.
  */
 export function recipientInviteMessage(ownerName: string): string {
-  const name = ownerName.trim() || 'A Comitra user';
+  const name = ownerName.trim() || 'A Pactista user';
   return (
     `${name} wants to add you as someone who can receive notifications about the ` +
-    `result of their goal in the Comitra app. Accept if you agree to ` +
+    `result of their goal in the Pactista app. Accept if you agree to ` +
     `receive such notifications.`
   );
 }

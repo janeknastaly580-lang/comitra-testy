@@ -60,7 +60,7 @@ export default function ResetPassword() {
   const header = (
     <div className="mb-6 flex items-center gap-2">
       <BrandMark className="h-9 w-9" />
-      <span className="font-mono text-lg font-bold tracking-[0.25em]">Comitra</span>
+      <span className="font-mono text-lg font-bold tracking-[0.25em]">Pactista</span>
     </div>
   );
 
