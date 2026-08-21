@@ -26,9 +26,12 @@ Five things worth knowing before you start:
 - **The service-account key is a real secret.** It can push a notification to
   every user of the project. It lives in Edge Function secrets and never gets a
   `VITE_` prefix — that would compile it into the APK for anyone to unzip.
-- **`google-services.json` is not a secret.** It ships inside every copy of the
-  APK by design. Committing it is fine; losing it just means downloading it
-  again.
+- **`google-services.json` is git-ignored here.** Not because it is a secret —
+  it ships inside every copy of the APK by design, and Google treats it as
+  public — but because this repo keeps it out on purpose. The consequence worth
+  knowing: it is NOT restored by a fresh `git clone`, so a build on another
+  machine needs it downloaded from Firebase again (Step 2), or it silently
+  produces an APK that cannot receive push.
 - **A registration token is per installation, not per person.** Two people
   sharing a phone share a token, so the app re-files it on every sign-in and
   clears it on sign-out. That is what stops one person's notifications appearing
@@ -69,6 +72,10 @@ android/app/google-services.json
 Nothing else to change. `android/app/build.gradle` already looks for that exact
 path and applies the Google Services plugin when it finds it; when it does not,
 it logs `google-services.json not found` and carries on.
+
+Keep your own copy somewhere. `.gitignore` excludes this file, so it lives on
+your machine and nowhere else — and the package name inside it has to match
+`com.pactista.app`, or Firebase issues a token that no notification can reach.
 
 ## Step 3 — Generate the service-account key
 
